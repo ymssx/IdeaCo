@@ -1,9 +1,11 @@
-# 🏢 IdeaWorks — The AI-Native Company
+# 🏢 Idea Unlimited Company — The AI-Native Company
 
-> **Build your business empire with the "sweat and tears" of AI employees.**
+> **Build your business empire with the "sweat and tears" of AI**
 
-**IdeaWorks** (金点子无限公司, Inspired by the company from Yang Hongying's children's story "The Wolf Without a Tail".
-A company overflowing with infinite ideas, brought to life here as an AI-driven organization.) is an LLM-powered AI enterprise where every employee is a real AI agent. As the boss, you command an AI secretary to manage a team of AI employees — form departments, assign tasks, and run HR operations. Each AI employee has their own personality, memory, skills, and signature catchphrase, capable of calling real LLM APIs to get work done and produce real deliverables. This is not a simulator — it's a real company, powered by AI.
+**Idea Unlimited Company** (金点子无限公司) is an LLM-powered AI enterprise where every employee is a real AI agent. As the boss, you command an AI secretary to manage a team of AI employees — form departments, assign tasks, and run HR operations. Each AI employee has their own personality, memory, skills, and signature catchphrase, capable of calling real LLM APIs to get work done and produce real deliverables. This is not a simulator — it's a real company, powered by AI.
+
+> "Idea Unlimited Company" is inspired by the fictional company in Yang Hongying's children's story *"The Wolf Without a Tail"*.  
+> In Chinese, it playfully turns a 'Limited Company' into 'Unlimited', reflecting endless ideas — a spirit we bring to life here with AI agents.
 
 ![Next.js](https://img.shields.io/badge/Next.js-14-black?logo=next.js)
 ![React](https://img.shields.io/badge/React-18-blue?logo=react)
