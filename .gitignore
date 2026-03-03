@@ -1,0 +1,6 @@
+node_modules/
+.next/
+workspace/
+data/
+.env
+.env.local
