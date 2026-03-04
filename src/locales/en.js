@@ -412,6 +412,17 @@ When the boss communicates with you, you need to:
     usageHint: '💡 Usage data is accumulated from actual LLM API call usage info',
     toolCalls: '🔧 {n} tool calls',
     score: '{score} pts {level}',
+    noConversations: 'No chat records yet',
+    noConversationsHint: 'Agents will chat with each other when collaborating on tasks',
+    noConversationMessages: 'No messages in this conversation',
+    spyBtn: 'Wiretap',
+    spyTitle: 'Wiretapping {name}\'s Chats',
+    spyMode: 'SURVEILLANCE MODE',
+    spyHint: 'Intercepting all private communications... they have no idea 👀',
+    spySelectHint: 'Select a contact to eavesdrop on their conversations',
+    spyMsgCount: 'messages',
+    spyLoading: 'Decrypting communications...',
+    spyReadonly: 'Read-only surveillance mode — your agents don\'t know you\'re watching',
   },
 
   // === Org Tree ===

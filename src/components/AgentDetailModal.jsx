@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react';
 import { useStore } from '@/lib/client-store';
 import { useI18n } from '@/lib/i18n';
 import AgentChatModal from './AgentChatModal';
+import AgentSpyModal from './AgentSpyModal';
+import ReactMarkdown from 'react-markdown';
 
 export default function AgentDetailModal({ agentId, onClose }) {
   const { t } = useI18n();
@@ -12,6 +14,7 @@ export default function AgentDetailModal({ agentId, onClose }) {
   const [activeTab, setActiveTab] = useState('info');
   const [loadingDetail, setLoadingDetail] = useState(true);
   const [showChat, setShowChat] = useState(false);
+  const [showSpy, setShowSpy] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -23,6 +26,8 @@ export default function AgentDetailModal({ agentId, onClose }) {
       setLoadingDetail(false);
     })();
   }, [agentId, fetchAgentDetail]);
+
+
 
   if (loadingDetail) {
     return (
@@ -69,6 +74,12 @@ export default function AgentDetailModal({ agentId, onClose }) {
                 onClick={() => setShowChat(true)}
               >
                 💬 {t('agentChat.chatBtn').replace('💬 ', '')}
+              </button>
+              <button
+                className="text-xs px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-400 hover:bg-purple-500/25 transition-colors flex items-center gap-1"
+                onClick={() => setShowSpy(true)}
+              >
+                🕵️ {t('agent.spyBtn')}
               </button>
             </div>
             <div className="text-sm text-[var(--muted)]">{agent.role} · {agent.department}</div>
@@ -185,7 +196,7 @@ export default function AgentDetailModal({ agentId, onClose }) {
                       r.overallScore >= 80 ? 'text-green-400' :
                       r.overallScore >= 60 ? 'text-yellow-400' : 'text-red-400'
                     }`}>
-                      {t('agent.score', { score: r.overallScore })} {r.level}
+                      {t('agent.score', { score: r.overallScore, level: r.level })}
                     </span>
                   </div>
                   <div className="grid grid-cols-5 gap-1 mb-2">
@@ -275,7 +286,42 @@ export default function AgentDetailModal({ agentId, onClose }) {
             onClose={() => setShowChat(false)}
           />
         )}
+
+        {/* Agent Spy Modal — 偷窥IM */}
+        {showSpy && agent && (
+          <AgentSpyModal
+            agentId={agent.id}
+            agentName={agent.name}
+            agentAvatar={agent.avatar}
+            onClose={() => setShowSpy(false)}
+          />
+        )}
       </div>
     </div>
+  );
+}
+
+/**
+ * AgentMention - 渲染 @Name 为高亮标签
+ */
+function AgentMention({ content }) {
+  if (!content || typeof content !== 'string') return <span>{content}</span>;
+
+  // 匹配 @Name 格式（支持中英文名字、空格）
+  const parts = content.split(/(@[\w\u4e00-\u9fa5][\w\u4e00-\u9fa5\s]*?)(?=\s|$|[,，.。!！?？])/g);
+
+  return (
+    <span className="break-words">
+      {parts.map((part, i) => {
+        if (part && part.startsWith('@')) {
+          return (
+            <span key={i} className="inline-flex items-center bg-blue-500/20 text-blue-300 px-1 py-0.5 rounded text-xs font-medium mx-0.5">
+              {part}
+            </span>
+          );
+        }
+        return <span key={i}>{part}</span>;
+      })}
+    </span>
   );
 }

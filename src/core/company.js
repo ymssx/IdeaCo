@@ -307,6 +307,108 @@ export class Company {
   }
 
   /**
+   * 获取某个 agent 的所有 agent-to-agent 聊天会话
+   * 用于"查看该员工与其他人的聊天记录"
+   * @param {string} agentId - 目标 agent ID
+   * @returns {Array} 聊天会话列表
+   */
+  getAgentConversations(agentId) {
+    const sessions = chatStore.listSessions();
+    // 找出所有包含该 agent 的 agent-agent 会话
+    const agentSessions = sessions.filter(s => {
+      if (s.type !== 'agent-agent') return false;
+      // sessionId 格式: agent-agent-{id1}-{id2}
+      return s.sessionId.includes(agentId);
+    });
+
+    // 也包含 boss-agent 的聊天
+    const bossSessions = sessions.filter(s => 
+      s.type === 'boss-agent' && s.sessionId === `boss-agent-${agentId}`
+    );
+
+    const conversations = [];
+
+    for (const session of agentSessions) {
+      // 使用 participants 找出对方 ID（比从 sessionId 解析更可靠）
+      const participants = session.participants || [];
+      const peerId = participants.find(p => p !== agentId) || null;
+      if (!peerId) continue;
+
+      // 查找对方 agent 信息
+      let peerAgent = null;
+      let peerDeptName = null;
+      for (const dept of this.departments.values()) {
+        const a = dept.agents.get(peerId);
+        if (a) {
+          peerAgent = a;
+          peerDeptName = dept.name;
+          break;
+        }
+      }
+
+      const recentMessages = chatStore.getRecentMessages(session.sessionId, 1);
+      const lastMsg = recentMessages.length > 0 ? recentMessages[recentMessages.length - 1] : null;
+
+      conversations.push({
+        sessionId: session.sessionId,
+        type: 'agent-agent',
+        peerId,
+        peerName: peerAgent?.name || session.participants?.find(p => p !== agentId) || 'Unknown',
+        peerAvatar: peerAgent?.avatar || null,
+        peerRole: peerAgent?.role || null,
+        peerDepartment: peerDeptName,
+        lastMessage: lastMsg?.content?.slice(0, 60) || null,
+        lastTime: lastMsg?.time || session.lastActiveAt || session.createdAt,
+        totalMessages: session.totalMessages || 0,
+      });
+    }
+
+    // Boss 聊天
+    for (const session of bossSessions) {
+      const recentMessages = chatStore.getRecentMessages(session.sessionId, 1);
+      const lastMsg = recentMessages.length > 0 ? recentMessages[recentMessages.length - 1] : null;
+
+      conversations.push({
+        sessionId: session.sessionId,
+        type: 'boss-agent',
+        peerId: 'boss',
+        peerName: this.bossName || 'Boss',
+        peerAvatar: this.bossAvatar || null,
+        peerRole: 'Boss',
+        peerDepartment: null,
+        lastMessage: lastMsg?.content?.slice(0, 60) || null,
+        lastTime: lastMsg?.time || session.lastActiveAt || session.createdAt,
+        totalMessages: session.totalMessages || 0,
+      });
+    }
+
+    // 按时间倒序
+    conversations.sort((a, b) => {
+      if (!a.lastTime) return 1;
+      if (!b.lastTime) return -1;
+      return new Date(b.lastTime) - new Date(a.lastTime);
+    });
+
+    return conversations;
+  }
+
+  /**
+   * 获取某个 agent-agent 会话的聊天记录
+   * @param {string} sessionId - 会话 ID
+   * @param {number} limit - 最大消息数
+   * @returns {Array} 消息列表
+   */
+  getAgentAgentChatHistory(sessionId, limit = 50) {
+    const messages = chatStore.getRecentMessages(sessionId, limit);
+    // 同时返回 session 的 participants 信息，方便前端判断消息方向
+    const meta = chatStore.getSessionMeta(sessionId);
+    return {
+      messages,
+      participants: meta?.participants || [],
+    };
+  }
+
+  /**
    * Update secretary settings (name, avatar, prompt, etc.)
    */
   updateSecretarySettings(settings) {

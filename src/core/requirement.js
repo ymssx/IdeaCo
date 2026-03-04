@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { llmClient } from './llm-client.js';
+import { chatStore } from './chat-store.js';
 
 /**
  * Requirement status enum
@@ -244,14 +245,15 @@ Output in JSON format:
 
 Requirements:
 1. Task granularity should be moderate, each task assigned to one person
-2. Tasks that can run in parallel should not be serialized
+2. **MAXIMIZE PARALLELISM**: Tasks that can run in parallel MUST not be serialized. Prefer wide parallel DAGs over deep serial chains
 3. dependencies should contain the dependent node id array, empty array if no dependencies
 4. The leader can handle "integration and review" type tasks
 5. assigneeId must be selected from team members
 6. Return JSON only, no other content
 7. **Extremely important: Not every member needs to participate!** Only assign people who are truly needed. Members unrelated to the requirement should not be given tasks. Better to leave people idle than to create busywork
 8. Task nodes should be lean and efficient. Simple requirements only need 1-3 nodes, avoid over-decomposition
-9. Each task description should be clear and specific, allowing the assignee to complete it in one go, avoiding multiple iterations`;
+9. Each task description should be clear and specific, allowing the assignee to complete it in one go, avoiding multiple iterations
+10. **Encourage collaboration**: When multiple agents work in parallel, their tasks should be designed to have natural interaction points. Include in descriptions that they should coordinate with parallel teammates via send_message`;
 
     try {
       const response = await llmClient.chat(leaderProvider, [
@@ -433,6 +435,47 @@ Requirements:
       'system'
     );
 
+    // === Set up message bus listener for real-time agent-to-agent communication ===
+    const messageBus = department.company?.messageBus || null;
+    const messageHandler = async (message) => {
+      // When an agent sends a message via send_message tool, auto-reply from receiver
+      const receiverAgent = department.agents.get(message.to);
+      const senderAgent = department.agents.get(message.from);
+      if (!receiverAgent || !senderAgent) return;
+      if (receiverAgent.status === 'working') return; // Don't interrupt working agents
+
+      // Show the sent message in group chat with @mention
+      const groupMsg = `@[${receiverAgent.id}] ${message.content}`;
+      requirement.addGroupMessage(senderAgent, groupMsg, 'message');
+      this._recordAgentChat(senderAgent, receiverAgent, message.content);
+
+      // Auto-reply from receiver (non-blocking)
+      try {
+        const reply = await receiverAgent.handleMessage(message);
+        if (reply) {
+          const replyMsg = `@[${senderAgent.id}] ${reply}`;
+          requirement.addGroupMessage(receiverAgent, replyMsg, 'message');
+          this._recordAgentChat(receiverAgent, senderAgent, reply);
+
+          // Also send reply back via message bus
+          if (messageBus) {
+            messageBus.send({
+              from: receiverAgent.id,
+              to: senderAgent.id,
+              content: reply,
+              type: 'feedback',
+            });
+          }
+        }
+      } catch (e) {
+        // Non-blocking
+      }
+    };
+
+    if (messageBus) {
+      messageBus.on('message', messageHandler);
+    }
+
     const nodes = requirement.workflow.nodes;
     const completed = new Set();
     const failed = new Set();
@@ -454,6 +497,14 @@ Requirements:
       }
 
       // Execute all ready nodes in parallel
+      // Build parallel context: let agents know who else is working in parallel
+      const parallelInfo = readyNodes.length > 1
+        ? readyNodes.map(n => {
+            const a = department.agents.get(n.assigneeId);
+            return a ? `- ${a.name} (${a.role}): "${n.title}"` : null;
+          }).filter(Boolean).join('\n')
+        : null;
+
       const promises = readyNodes.map(async (node) => {
         node.status = TaskNodeStatus.RUNNING;
         node.startedAt = new Date();
@@ -481,11 +532,34 @@ Requirements:
         });
 
         // Group chat notification: starting work
-        requirement.addGroupMessage(
-          agent,
-          `🔨 Starting to work on "${node.title}"!`,
-          'message'
-        );
+        if (parallelInfo && readyNodes.length > 1) {
+          // Parallel mode: announce teamwork
+          const myParallel = readyNodes
+            .filter(n => n.id !== node.id)
+            .map(n => {
+              const a = department.agents.get(n.assigneeId);
+              return a ? `@[${a.id}]` : null;
+            }).filter(Boolean);
+          if (myParallel.length > 0) {
+            requirement.addGroupMessage(
+              agent,
+              `🔨 Starting "${node.title}"! Working in parallel with ${myParallel.join(', ')} — let's sync up if needed! 💪`,
+              'message'
+            );
+          } else {
+            requirement.addGroupMessage(
+              agent,
+              `🔨 Starting to work on "${node.title}"!`,
+              'message'
+            );
+          }
+        } else {
+          requirement.addGroupMessage(
+            agent,
+            `🔨 Starting to work on "${node.title}"!`,
+            'message'
+          );
+        }
 
         try {
           // Collect dependency node outputs as context
@@ -495,10 +569,32 @@ Requirements:
             .map(d => `[${d.assigneeName}'s output - ${d.title}]\n${d.result?.output || '(no output)'}`)
             .join('\n\n');
 
+          // Build colleague info for collaboration context
+          const colleagues = Array.from(department.agents.values())
+            .filter(a => a.id !== agent.id)
+            .map(a => `- ${a.name} (${a.role}), ID: ${a.id}`)
+            .join('\n');
+
+          // Build parallel context: who is working at the same time?
+          let parallelContext = '';
+          if (parallelInfo && readyNodes.length > 1) {
+            const otherParallel = readyNodes
+              .filter(n => n.id !== node.id)
+              .map(n => {
+                const a = department.agents.get(n.assigneeId);
+                return a ? `- ${a.name} (${a.role}) is working on "${n.title}" right now` : null;
+              }).filter(Boolean).join('\n');
+            if (otherParallel) {
+              parallelContext = `\n\n**Working in parallel with you right now:**\n${otherParallel}\nFeel free to use send_message to coordinate with them, share progress, or ask questions!`;
+            }
+          }
+
           const task = {
             title: node.title,
             description: node.description,
-            context: depContext ? `Here are the outputs from preceding tasks for your reference:\n\n${depContext}` : undefined,
+            context: (depContext ? `Here are the outputs from preceding tasks for your reference:\n\n${depContext}\n\n` : '')
+              + (colleagues ? `Your colleagues in this department (you can send_message to them):\n${colleagues}` : '')
+              + parallelContext,
             requirements: `This is part of requirement "${requirement.title}". Requirement description: ${requirement.description}`,
           };
 
@@ -590,6 +686,52 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
             );
           }
 
+          // Agent-to-agent collaboration: notify downstream agents with @mention
+          const downstreamNodes = nodes.filter(n =>
+            n.dependencies.includes(node.id) &&
+            n.status !== TaskNodeStatus.COMPLETED &&
+            n.status !== TaskNodeStatus.FAILED
+          );
+          if (downstreamNodes.length > 0 && result.output) {
+            for (const downNode of downstreamNodes) {
+              const downAgent = department.agents.get(downNode.assigneeId);
+              if (downAgent && downAgent.id !== agent.id) {
+                // Record in group chat with @mention
+                const mentionMsg = `@[${downAgent.id}] I've completed "${node.title}", the output is ready for your "${downNode.title}" task. Please review and let me know if anything needs adjustment!`;
+                requirement.addGroupMessage(agent, mentionMsg, 'message');
+
+                // Persist to agent-to-agent chatStore
+                this._recordAgentChat(agent, downAgent, mentionMsg);
+
+                // Non-blocking: let downstream agent respond asynchronously
+                this._agentCollabReply(
+                  downAgent, agent, node.title, result.output, requirement
+                ).then(reply => {
+                  if (reply) {
+                    const replyMsg = `@[${agent.id}] ${reply}`;
+                    requirement.addGroupMessage(downAgent, replyMsg, 'message');
+                    this._recordAgentChat(downAgent, agent, replyMsg);
+                  }
+                }).catch(e => {
+                  console.log(`[Collaboration] ${downAgent.name} reply failed: ${e.message}`);
+                });
+              }
+            }
+          }
+
+          // Also notify parallel peers that just completed (non-blocking peer sync)
+          const justCompletedPeers = readyNodes
+            .filter(n => n.id !== node.id && n.status === TaskNodeStatus.COMPLETED)
+            .slice(0, 2); // Limit to avoid spam
+          for (const peerNode of justCompletedPeers) {
+            const peerAgent = department.agents.get(peerNode.assigneeId);
+            if (peerAgent && peerAgent.id !== agent.id) {
+              const syncMsg = `@[${peerAgent.id}] Just finished my part "${node.title}" ✅ — how's yours going?`;
+              requirement.addGroupMessage(agent, syncMsg, 'message');
+              this._recordAgentChat(agent, peerAgent, syncMsg);
+            }
+          }
+
           allResults.push(result);
           return result;
         } catch (err) {
@@ -608,6 +750,46 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
       });
 
       await Promise.all(promises);
+
+      // === Parallel Sync Point: agents that just finished in this batch exchange feedback ===
+      const justFinished = readyNodes.filter(n => n.status === TaskNodeStatus.COMPLETED);
+      if (justFinished.length > 1) {
+        requirement.addGroupMessage(
+          { name: 'System', role: 'system' },
+          `🤝 ${justFinished.length} tasks completed in parallel! Agents are exchanging feedback...`,
+          'system'
+        );
+
+        // Each agent gives brief feedback to one other agent's work (round-robin, non-blocking)
+        const syncPromises = justFinished.map(async (node, idx) => {
+          const nextNode = justFinished[(idx + 1) % justFinished.length];
+          if (nextNode.id === node.id) return; // Only 1 node, skip
+
+          const reviewer = department.agents.get(node.assigneeId);
+          const reviewee = department.agents.get(nextNode.assigneeId);
+          if (!reviewer || !reviewee || reviewer.id === reviewee.id) return;
+
+          try {
+            const feedback = await this._agentPeerReview(
+              reviewer, reviewee, nextNode.title, nextNode.result?.output, requirement
+            );
+            if (feedback) {
+              const feedbackMsg = `@[${reviewee.id}] ${feedback}`;
+              requirement.addGroupMessage(reviewer, feedbackMsg, 'message');
+              this._recordAgentChat(reviewer, reviewee, feedbackMsg);
+            }
+          } catch (e) {
+            // Non-blocking
+          }
+        });
+        // Don't await all — fire and forget for non-critical feedback
+        Promise.all(syncPromises).catch(() => {});
+      }
+    }
+
+    // === Clean up message bus listener ===
+    if (messageBus) {
+      messageBus.off('message', messageHandler);
     }
 
     // Summary
@@ -656,6 +838,101 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
     }
 
     return requirement.summary;
+  }
+
+  /**
+   * Agent collaboration reply: downstream agent reviews upstream output and responds
+   * @param {Agent} responder - The agent responding
+   * @param {Agent} sender - The agent who completed the task
+   * @param {string} taskTitle - Completed task title
+   * @param {string} output - Task output
+   * @param {Requirement} requirement - Requirement context
+   * @returns {Promise<string|null>} Reply content
+   */
+  async _agentCollabReply(responder, sender, taskTitle, output, requirement) {
+    if (!responder.provider?.enabled || !responder.provider?.apiKey) return null;
+
+    try {
+      const p = responder.personality || {};
+      const outputPreview = output.length > 500 ? output.slice(0, 500) + '...' : output;
+      const response = await llmClient.chat(responder.provider, [
+        {
+          role: 'system',
+          content: `You are "${responder.name}", working as "${responder.role}".
+Your personality: ${p.trait || 'Professional'}. Speaking style: ${p.tone || 'Normal'}.
+You are collaborating with colleagues on requirement "${requirement.title}".
+A colleague just completed their task and shared the output with you.
+Please respond briefly (1-2 sentences) acknowledging their work, in your personality style.
+You can comment on the quality, ask a question, or just acknowledge. Keep it natural and brief.`
+        },
+        {
+          role: 'user',
+          content: `Your colleague ${sender.name} (${sender.role}) completed "${taskTitle}" and shared the output:\n\n${outputPreview}\n\nPlease respond briefly.`
+        },
+      ], { temperature: 0.9, maxTokens: 128 });
+
+      responder._trackUsage(response.usage);
+      return response.content?.trim() || null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /**
+   * Agent peer review: parallel peers review each other's work
+   * More casual and constructive than upstream→downstream handoff
+   */
+  async _agentPeerReview(reviewer, reviewee, taskTitle, output, requirement) {
+    if (!reviewer.provider?.enabled || !reviewer.provider?.apiKey) return null;
+    if (!output) return null;
+
+    try {
+      const p = reviewer.personality || {};
+      const outputPreview = output.length > 400 ? output.slice(0, 400) + '...' : output;
+      const response = await llmClient.chat(reviewer.provider, [
+        {
+          role: 'system',
+          content: `You are "${reviewer.name}", working as "${reviewer.role}".
+Your personality: ${p.trait || 'Professional'}. Speaking style: ${p.tone || 'Normal'}.
+You just completed your parallel task for requirement "${requirement.title}".
+A colleague who worked in parallel with you also just finished their task. Please give brief, constructive feedback (1-2 sentences) on their work.
+Be natural, in character, and collegial. You can praise, suggest improvements, or note synergies with your own work.`
+        },
+        {
+          role: 'user',
+          content: `Your colleague ${reviewee.name} (${reviewee.role}) completed "${taskTitle}" in parallel with you. Their output:\n\n${outputPreview}\n\nGive brief peer feedback.`
+        },
+      ], { temperature: 0.9, maxTokens: 128 });
+
+      reviewer._trackUsage(response.usage);
+      return response.content?.trim() || null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /**
+   * Record agent-to-agent chat message in chatStore
+   * Session format: agent-agent-{smallerId}-{largerId} (consistent ordering)
+   */
+  _recordAgentChat(fromAgent, toAgent, content) {
+    const ids = [fromAgent.id, toAgent.id].sort();
+    const sessionId = `agent-agent-${ids[0]}-${ids[1]}`;
+    chatStore.createSession(sessionId, {
+      title: `${fromAgent.name} & ${toAgent.name}`,
+      participants: [fromAgent.id, toAgent.id],
+      participantNames: [fromAgent.name, toAgent.name],
+      type: 'agent-agent',
+    });
+    chatStore.appendMessage(sessionId, {
+      role: 'agent',
+      content,
+      time: new Date(),
+      fromAgentId: fromAgent.id,
+      fromAgentName: fromAgent.name,
+      toAgentId: toAgent.id,
+      toAgentName: toAgent.name,
+    });
   }
 
   /**

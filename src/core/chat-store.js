@@ -140,7 +140,7 @@ export class ChatStore {
     const cacheEntry = this._getOrInitCache(sessionId, dir);
     const chunkPath = path.join(dir, chunkFileName(cacheEntry.currentChunkIndex));
     
-    // 构造消息记录
+    // 构造消息记录（保留扩展字段如 fromAgentId、toAgentId 等）
     const record = {
       id: uuidv4(),
       role: message.role,
@@ -148,6 +148,11 @@ export class ChatStore {
       action: message.action || null,
       time: message.time ? new Date(message.time).toISOString() : new Date().toISOString(),
     };
+    // 保留 agent-agent 聊天的扩展字段
+    if (message.fromAgentId) record.fromAgentId = message.fromAgentId;
+    if (message.fromAgentName) record.fromAgentName = message.fromAgentName;
+    if (message.toAgentId) record.toAgentId = message.toAgentId;
+    if (message.toAgentName) record.toAgentName = message.toAgentName;
 
     // 追加到切片文件
     fs.appendFileSync(chunkPath, JSON.stringify(record) + '\n', 'utf-8');

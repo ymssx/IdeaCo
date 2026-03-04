@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useStore } from '@/lib/client-store';
 import { useI18n } from '@/lib/i18n';
+import AgentDetailModal from './AgentDetailModal';
 
 /**
  * Clean message content: filter out leaked LLM internal tags (e.g. DeepSeek DSML tool call format)
@@ -13,7 +14,90 @@ function cleanMessageContent(content) {
   cleaned = cleaned.replace(/<\|DSML\|[^>]*>[\s\S]*/g, '').trim();
   cleaned = cleaned.replace(/<\|(?:im_start|im_end|endoftext)\|>/g, '').trim();
   return cleaned || content;
-}import { useRouter } from 'next/navigation';
+}
+
+/**
+ * Render @[id] or @Name mention as highlighted tag
+ * 同时兼容新格式 @[agentId] 和旧格式 @AgentName
+ */
+function renderMentions(text, agentMap, onClickMention) {
+  if (!text || typeof text !== 'string') return null;
+
+  const nameToId = {};
+  if (agentMap) {
+    for (const [id, name] of Object.entries(agentMap)) {
+      nameToId[name] = id;
+    }
+  }
+
+  const hasNewFormat = /@\[[^\]]+\]/.test(text);
+  const names = Object.keys(nameToId).sort((a, b) => b.length - a.length);
+  const hasOldFormat = names.length > 0 && names.some(n => text.includes(`@${n}`));
+
+  if (!hasNewFormat && !hasOldFormat) return null;
+
+  const regexParts = ['(@\\[[^\\]]+\\])'];
+  if (names.length > 0) {
+    const escapedNames = names.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    regexParts.push(`(@(?:${escapedNames.join('|')}))`);
+  }
+  const regex = new RegExp(regexParts.join('|'), 'g');
+  const parts = text.split(regex).filter(p => p !== undefined);
+
+  if (parts.length <= 1) return null;
+
+  const renderTag = (key, displayName, agentId) => (
+    <span
+      key={key}
+      className={`inline-flex items-center bg-blue-500/30 text-blue-200 px-1.5 py-0.5 rounded text-xs font-semibold mx-0.5 border border-blue-500/20 ${onClickMention ? 'cursor-pointer hover:bg-blue-500/40 transition-colors' : ''}`}
+      onClick={() => agentId && onClickMention?.(agentId)}
+    >
+      @{displayName}
+    </span>
+  );
+
+  return parts.map((part, i) => {
+    const newMatch = part.match(/^@\[([^\]]+)\]$/);
+    if (newMatch) {
+      const id = newMatch[1];
+      const name = agentMap?.[id] || id;
+      return renderTag(i, name, id);
+    }
+    const oldMatch = part.match(/^@(.+)$/);
+    if (oldMatch && nameToId[oldMatch[1]]) {
+      const name = oldMatch[1];
+      const id = nameToId[name];
+      return renderTag(i, name, id);
+    }
+    return part;
+  });
+}
+
+/**
+ * 消息分组：将同一发送者连续的短消息合并到一组
+ */
+function groupConsecutiveMessages(messages, getSenderId) {
+  if (!messages?.length) return [];
+  const groups = [];
+  let currentGroup = null;
+
+  for (const msg of messages) {
+    const senderId = getSenderId(msg);
+    const isShort = (msg.content?.length || 0) <= 120;
+    const timeDiff = currentGroup
+      ? Math.abs(new Date(msg.time) - new Date(currentGroup.messages[currentGroup.messages.length - 1].time)) / 1000
+      : Infinity;
+
+    if (currentGroup && currentGroup.senderId === senderId && isShort && timeDiff <= 60 && currentGroup.isShort) {
+      currentGroup.messages.push(msg);
+    } else {
+      currentGroup = { senderId, messages: [msg], isShort };
+      groups.push(currentGroup);
+    }
+  }
+  return groups;
+}
+import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 
 // Dynamic import Monaco Editor to avoid SSR issues
@@ -598,7 +682,7 @@ function WorkflowView({ workflow, liveStatus }) {
         const isActive = fromNode?.status === 'completed' && toNode?.status === 'running';
         return {
           color: bothDone ? '#22c55e' : isActive ? '#eab308' : '#4b5563',
-          width: 2,
+          width: 1,
           isActive,
         };
       };
@@ -719,7 +803,7 @@ function WorkflowView({ workflow, liveStatus }) {
             {['4b5563', '22c55e', 'eab308', '3b82f6', 'ef4444'].map(hex => (
               <marker key={hex} id={`arrow-${hex}`} viewBox="0 0 10 10" refX="9" refY="5"
                 markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-                <path d="M1,1 L9,5 L1,9" fill="none" stroke={`#${hex}`} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M1,1 L9,5 L1,9" fill="none" stroke={`#${hex}`} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
               </marker>
             ))}
             {/* Flow animation */}
@@ -737,7 +821,7 @@ function WorkflowView({ workflow, liveStatus }) {
             <foreignObject key={node.id} x={x} y={y} width={w} height={h}>
               <div
                 xmlns="http://www.w3.org/1999/xhtml"
-                className={`bg-[var(--background)] border-2 ${statusColor[node.status]} rounded-xl p-3 h-full overflow-hidden transition-all cursor-default`}
+                className={`bg-[var(--background)] border ${statusColor[node.status]} rounded-xl p-3 h-full overflow-hidden transition-all cursor-default`}
                 style={{ fontSize: '12px' }}
                 onMouseEnter={(e) => {
                   const rect = e.currentTarget.getBoundingClientRect();
@@ -769,7 +853,7 @@ function WorkflowView({ workflow, liveStatus }) {
           <div
             key={node.id}
             data-node-id={node.id}
-            className={`bg-[var(--background)] border-2 rounded-xl p-3`}
+            className={`bg-[var(--background)] border rounded-xl p-3`}
             style={{ fontSize: '12px', width: layout.nodeW }}
           >
             {renderCardContent(node)}
@@ -814,6 +898,8 @@ function WorkflowView({ workflow, liveStatus }) {
  */
 function ChatView({ groupChat, chatEndRef }) {
   const { t } = useI18n();
+  const [selectedAgentId, setSelectedAgentId] = useState(null);
+
   if (groupChat.length === 0) {
     return (
       <div className="flex items-center justify-center py-16 text-[var(--muted)]">
@@ -825,25 +911,41 @@ function ChatView({ groupChat, chatEndRef }) {
     );
   }
 
+  // 从群聊消息中收集 agentId -> agentName 映射（用于 @[id] 渲染）
+  const agentMap = {};
+  for (const msg of groupChat) {
+    if (msg.from?.id && msg.from?.name) {
+      agentMap[msg.from.id] = msg.from.name;
+    }
+  }
+
   return (
     <div className="p-4 space-y-3">
-      {groupChat.map((msg) => {
-        const isSystem = msg.type === 'system';
-
-        if (isSystem) {
-          return (
+      {groupConsecutiveMessages(
+        groupChat,
+        m => m.type === 'system' ? '__system__' : (m.from?.id || m.from?.name || '__unknown__')
+      ).map((group, gi) => {
+        const firstMsg = group.messages[0];
+        if (firstMsg.type === 'system') {
+          return group.messages.map(msg => (
             <div key={msg.id} className="text-center">
               <span className="text-[10px] text-[var(--muted)] bg-white/5 px-3 py-1 rounded-full">
                 {msg.content}
               </span>
             </div>
-          );
+          ));
         }
 
+        const isMerged = group.messages.length > 1;
         return (
-          <div key={msg.id} className="flex gap-2">
-            {msg.from.avatar ? (
-              <img src={msg.from.avatar} alt="" className="w-8 h-8 rounded-full bg-[var(--border)] shrink-0 mt-0.5" />
+          <div key={`group-${gi}`} className="flex gap-2">
+            {firstMsg.from?.avatar ? (
+              <img
+                src={firstMsg.from.avatar}
+                alt=""
+                className="w-8 h-8 rounded-full bg-[var(--border)] shrink-0 mt-0.5 cursor-pointer hover:ring-2 hover:ring-[var(--accent)] transition-all"
+                onClick={() => firstMsg.from?.id && firstMsg.from.id !== 'system' && setSelectedAgentId(firstMsg.from.id)}
+              />
             ) : (
               <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-600 to-blue-700 flex items-center justify-center text-xs shrink-0 mt-0.5">
                 🤖
@@ -851,28 +953,53 @@ function ChatView({ groupChat, chatEndRef }) {
             )}
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-0.5">
-                <span className="text-xs font-medium">{msg.from.name}</span>
-                {msg.from.role && (
-                  <span className="text-[10px] text-[var(--muted)] bg-white/5 px-1 py-0.5 rounded">{msg.from.role}</span>
+                <span
+                  className={`text-xs font-medium ${firstMsg.from?.id && firstMsg.from.id !== 'system' ? 'cursor-pointer hover:text-[var(--accent)] transition-colors' : ''}`}
+                  onClick={() => firstMsg.from?.id && firstMsg.from.id !== 'system' && setSelectedAgentId(firstMsg.from.id)}
+                >{firstMsg.from?.name}</span>
+                {firstMsg.from?.role && (
+                  <span className="text-[10px] text-[var(--muted)] bg-white/5 px-1 py-0.5 rounded">{firstMsg.from.role}</span>
                 )}
                 <span className="text-[10px] text-[var(--muted)]">
-                  {new Date(msg.time).toLocaleTimeString('zh', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                  {new Date(firstMsg.time).toLocaleTimeString('zh', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                 </span>
               </div>
-              <div className={`rounded-2xl rounded-tl-sm px-3 py-2 text-sm inline-block max-w-[85%] ${
-                msg.type === 'output'
-                  ? 'bg-green-900/20 border border-green-500/20'
-                  : msg.type === 'tool_call'
-                  ? 'bg-purple-900/20 border border-purple-500/20'
-                  : 'bg-[var(--background)] border border-[var(--border)]'
-              }`}>
-                <div className="whitespace-pre-wrap break-words text-sm leading-relaxed">{cleanMessageContent(msg.content)}</div>
-              </div>
+              {isMerged ? (
+                /* 合并气泡 */
+                <div className="rounded-2xl rounded-tl-sm px-3 py-2 text-sm inline-block max-w-[85%] bg-[var(--background)] border border-[var(--border)]">
+                  {group.messages.map((msg, mi) => (
+                    <div key={msg.id}>
+                      {mi > 0 && <div className="border-t border-white/[0.06] my-1.5" />}
+                      <div className="whitespace-pre-wrap break-words text-sm leading-relaxed">
+                        {renderMentions(cleanMessageContent(msg.content), agentMap, setSelectedAgentId) || cleanMessageContent(msg.content)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                /* 单条消息 */
+                <div className={`rounded-2xl rounded-tl-sm px-3 py-2 text-sm inline-block max-w-[85%] ${
+                  firstMsg.type === 'output'
+                    ? 'bg-green-900/20 border border-green-500/20'
+                    : firstMsg.type === 'tool_call'
+                    ? 'bg-purple-900/20 border border-purple-500/20'
+                    : 'bg-[var(--background)] border border-[var(--border)]'
+                }`}>
+                  <div className="whitespace-pre-wrap break-words text-sm leading-relaxed">
+                    {renderMentions(cleanMessageContent(firstMsg.content), agentMap, setSelectedAgentId) || cleanMessageContent(firstMsg.content)}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         );
       })}
       <div ref={chatEndRef} />
+
+      {/* 员工详情弹窗 */}
+      {selectedAgentId && (
+        <AgentDetailModal agentId={selectedAgentId} onClose={() => setSelectedAgentId(null)} />
+      )}
     </div>
   );
 }

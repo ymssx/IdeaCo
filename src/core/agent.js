@@ -159,7 +159,7 @@ export class Agent {
    */
   initToolKit(workspaceDir, messageBus) {
     this.messageBus = messageBus;
-    this.toolKit = new AgentToolKit(workspaceDir, messageBus, this.id);
+    this.toolKit = new AgentToolKit(workspaceDir, messageBus, this.id, this.name);
   }
 
   /**
@@ -227,7 +227,13 @@ export class Agent {
 
     if (this.toolKit) {
       systemContent += `\n## Available Tools\n`;
-      systemContent += `Built-in tools: file_read (read file), file_write (create/write file), file_list (list directory), file_delete (delete file), shell_exec (execute command), send_message (send message to colleague).\n`;
+      systemContent += `Built-in tools: file_read (read file), file_write (create/write file), file_list (list directory), file_delete (delete file), shell_exec (execute command), send_message (send message to colleague for collaboration and feedback).\n`;
+      systemContent += `\n**Teamwork & Collaboration (IMPORTANT)**:\n`;
+      systemContent += `- You are part of a team! Proactively communicate with colleagues using send_message.\n`;
+      systemContent += `- When working in parallel, coordinate to avoid duplicate work and share discoveries.\n`;
+      systemContent += `- Use @Name format when addressing colleagues in messages.\n`;
+      systemContent += `- If you notice something relevant to a colleague's task, share it immediately.\n`;
+      systemContent += `- Don't work in isolation — great teams communicate frequently!\n`;
 
       // 动态注入已启用的插件工具
       try {

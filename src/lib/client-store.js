@@ -544,6 +544,30 @@ chatMinimized: false,
     }
   },
 
+  // === Agent Conversations (agent-to-agent chat) ===
+  fetchAgentConversations: async (agentId) => {
+    try {
+      const data = await apiCall(`/agents/${agentId}/conversations`);
+      return data.data || [];
+    } catch (e) {
+      return [];
+    }
+  },
+
+  fetchAgentConversationHistory: async (agentId, sessionId, limit = 50) => {
+    try {
+      const data = await apiCall(`/agents/${agentId}/conversations?sessionId=${encodeURIComponent(sessionId)}&limit=${limit}`);
+      // 新格式返回 { messages, participants }，兼容旧格式（直接返回数组）
+      const result = data.data || {};
+      if (Array.isArray(result)) {
+        return { messages: result, participants: [] };
+      }
+      return { messages: result.messages || [], participants: result.participants || [] };
+    } catch (e) {
+      return { messages: [], participants: [] };
+    }
+  },
+
   // === Requirement Management ===
   activeRequirementId: null,
   requirementDetail: null,

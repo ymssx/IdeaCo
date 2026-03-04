@@ -64,6 +64,96 @@ function cleanMessageContent(content) {
 }
 
 /**
+ * Render @[id] or @Name mention as highlighted tag
+ * 同时兼容新格式 @[agentId] 和旧格式 @AgentName
+ * onClickMention: optional callback (agentId) => void
+ */
+function renderMentions(text, agentMap, onClickMention) {
+  if (!text || typeof text !== 'string') return null;
+
+  // 构建 name -> id 反向映射（用于旧格式 @Name 匹配）
+  const nameToId = {};
+  if (agentMap) {
+    for (const [id, name] of Object.entries(agentMap)) {
+      nameToId[name] = id;
+    }
+  }
+
+  // 先尝试新格式 @[id]
+  const hasNewFormat = /@\[[^\]]+\]/.test(text);
+  // 构建旧格式名字匹配正则（按名字长度降序，避免短名匹配到长名的前缀）
+  const names = Object.keys(nameToId).sort((a, b) => b.length - a.length);
+  const hasOldFormat = names.length > 0 && names.some(n => text.includes(`@${n}`));
+
+  if (!hasNewFormat && !hasOldFormat) return null;
+
+  // 构建综合正则：同时匹配 @[id] 和 @Name
+  const regexParts = ['(@\\[[^\\]]+\\])'];
+  if (names.length > 0) {
+    const escapedNames = names.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    regexParts.push(`(@(?:${escapedNames.join('|')}))`);
+  }
+  const regex = new RegExp(regexParts.join('|'), 'g');
+  const parts = text.split(regex).filter(p => p !== undefined);
+
+  if (parts.length <= 1) return null;
+
+  const renderTag = (key, displayName, agentId) => (
+    <span
+      key={key}
+      className={`inline-flex items-center bg-blue-500/30 text-blue-200 px-1.5 py-0.5 rounded text-xs font-semibold mx-0.5 border border-blue-500/20 ${onClickMention ? 'cursor-pointer hover:bg-blue-500/40 transition-colors' : ''}`}
+      onClick={() => agentId && onClickMention?.(agentId)}
+    >
+      @{displayName}
+    </span>
+  );
+
+  return parts.map((part, i) => {
+    // 新格式 @[id]
+    const newMatch = part.match(/^@\[([^\]]+)\]$/);
+    if (newMatch) {
+      const id = newMatch[1];
+      const name = agentMap?.[id] || id;
+      return renderTag(i, name, id);
+    }
+    // 旧格式 @Name
+    const oldMatch = part.match(/^@(.+)$/);
+    if (oldMatch && nameToId[oldMatch[1]]) {
+      const name = oldMatch[1];
+      const id = nameToId[name];
+      return renderTag(i, name, id);
+    }
+    return part;
+  });
+}
+
+/**
+ * 消息分组：将同一发送者连续的短消息合并到一组
+ * 短消息阈值：内容长度 <= 120 字符 且 时间间隔 <= 60秒
+ */
+function groupConsecutiveMessages(messages, getSenderId) {
+  if (!messages?.length) return [];
+  const groups = [];
+  let currentGroup = null;
+
+  for (const msg of messages) {
+    const senderId = getSenderId(msg);
+    const isShort = (msg.content?.length || 0) <= 120;
+    const timeDiff = currentGroup
+      ? Math.abs(new Date(msg.time) - new Date(currentGroup.messages[currentGroup.messages.length - 1].time)) / 1000
+      : Infinity;
+
+    if (currentGroup && currentGroup.senderId === senderId && isShort && timeDiff <= 60 && currentGroup.isShort) {
+      currentGroup.messages.push(msg);
+    } else {
+      currentGroup = { senderId, messages: [msg], isShort };
+      groups.push(currentGroup);
+    }
+  }
+  return groups;
+}
+
+/**
  * IM chat interface - Lark style
  * Left: conversation list (secretary pinned on top), Right: chat bubbles
  */
@@ -87,6 +177,7 @@ export default function Mailbox() {
   const [reqChatDetail, setReqChatDetail] = useState(null); // Requirement group chat detail
   const [agentChatMessages, setAgentChatMessages] = useState([]); // Agent 1-on-1 chat messages
   const [agentChatLoading, setAgentChatLoading] = useState(false); // Agent chat loading state
+  const [showGroupMembers, setShowGroupMembers] = useState(false); // 群聊成员弹窗
   const reqChatPollRef = useRef(null);
   const messagesEndRef = useRef(null);
   const activeChatRef = useRef(null); // 追踪当前活跃的聊天对象，防止异步消息串台
@@ -95,6 +186,16 @@ export default function Mailbox() {
 
   const secretary = company.secretary;
   const agentChatSessions = company.agentChatSessions || [];
+
+  // 构建 agentId -> agentName 映射（用于 @[id] 渲染）
+  const agentMap = {};
+  if (company?.departments) {
+    for (const dept of company.departments) {
+      for (const agent of (dept.agents || [])) {
+        agentMap[agent.id] = agent.name;
+      }
+    }
+  }
 
   // Load requirements list (for group chat sessions)
   useEffect(() => {
@@ -131,12 +232,21 @@ export default function Mailbox() {
     }
   }, [company?.chatHistory]);
 
-  // Auto scroll to bottom: on conversation switch, message update, or group chat load
+  // Track whether we should auto-scroll (only on initial load / conversation switch)
+  const shouldAutoScrollRef = useRef(true);
+
+  // Auto scroll to bottom: ONLY on conversation switch or initial load
   useEffect(() => {
-    // Use setTimeout to ensure DOM is rendered before scrolling
-    setTimeout(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, 50);
+    shouldAutoScrollRef.current = true;
+  }, [activeChat]);
+
+  useEffect(() => {
+    if (shouldAutoScrollRef.current) {
+      setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, 50);
+      shouldAutoScrollRef.current = false;
+    }
   }, [activeChat, secretaryHistory, reqChatDetail, agentChatMessages]);
 
   // Close ChatPanel when secretary is selected to avoid conflict
@@ -302,8 +412,8 @@ export default function Mailbox() {
                 {/* Avatar */}
                 <div className="relative shrink-0">
                   {conv.isRequirement ? (
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-cyan-600 flex items-center justify-center text-lg">
-                      💬
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-cyan-600 flex items-center justify-center text-sm font-bold">
+                      {(conv.role || '💬').charAt(0)}
                     </div>
                   ) : (
                     <img
@@ -541,8 +651,8 @@ export default function Mailbox() {
             <div className="px-4 py-3 border-b border-white/[0.06] bg-[var(--card)]">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3 flex-1 min-w-0">
-                  <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-cyan-600 flex items-center justify-center text-lg shrink-0">
-                    💬
+                  <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-cyan-600 flex items-center justify-center text-sm font-bold shrink-0">
+                    {(reqChatDetail.departmentName || '💬').charAt(0)}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-semibold flex items-center gap-2">
@@ -559,8 +669,27 @@ export default function Mailbox() {
                         return <span className={`text-[10px] px-1.5 py-0.5 rounded ${s.bg} ${s.color}`}>{s.label}</span>;
                       })()}
                     </div>
-                    <div className="text-[10px] text-[var(--muted)] truncate">
-                      {t('mailbox.groupChatCount', { dept: reqChatDetail.departmentName, n: reqChatDetail.groupChat?.length || 0 })}
+                    <div className="text-[10px] text-[var(--muted)] truncate flex items-center gap-2">
+                      <span>{t('mailbox.groupChatCount', { dept: reqChatDetail.departmentName, n: reqChatDetail.groupChat?.length || 0 })}</span>
+                      {(() => {
+                        // 从群聊消息中提取唯一参与者
+                        const memberMap = {};
+                        (reqChatDetail.groupChat || []).forEach(m => {
+                          if (m.from?.id && m.from.id !== 'system') {
+                            memberMap[m.from.id] = m.from;
+                          }
+                        });
+                        const memberCount = Object.keys(memberMap).length;
+                        if (memberCount === 0) return null;
+                        return (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setShowGroupMembers(true); }}
+                            className="text-[10px] text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 px-1.5 py-0.5 rounded transition-colors"
+                          >
+                            👥 {memberCount} 人
+                          </button>
+                        );
+                      })()}
                     </div>
                   </div>
                 </div>
@@ -571,6 +700,46 @@ export default function Mailbox() {
               </div>
             </div>
 
+            {/* 群聊成员弹窗 */}
+            {showGroupMembers && (() => {
+              const memberMap = {};
+              (reqChatDetail.groupChat || []).forEach(m => {
+                if (m.from?.id && m.from.id !== 'system') {
+                  memberMap[m.from.id] = m.from;
+                }
+              });
+              const members = Object.values(memberMap);
+              return (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] !m-0" onClick={() => setShowGroupMembers(false)}>
+                  <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl max-w-sm w-full mx-4 overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+                    <div className="px-4 py-3 border-b border-[var(--border)] flex items-center justify-between">
+                      <span className="text-sm font-semibold">👥 群聊成员 ({members.length})</span>
+                      <button onClick={() => setShowGroupMembers(false)} className="text-[var(--muted)] hover:text-white text-lg">✕</button>
+                    </div>
+                    <div className="max-h-[50vh] overflow-auto py-2">
+                      {members.map(m => (
+                        <div
+                          key={m.id}
+                          className="flex items-center gap-3 px-4 py-2 hover:bg-white/5 cursor-pointer transition-colors"
+                          onClick={() => { setShowGroupMembers(false); setSelectedAgent(m.id); }}
+                        >
+                          {m.avatar ? (
+                            <img src={m.avatar} alt="" className="w-8 h-8 rounded-full bg-[var(--border)]" />
+                          ) : (
+                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-600 to-blue-700 flex items-center justify-center text-xs">🤖</div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium truncate">{m.name}</div>
+                            {m.role && <div className="text-[10px] text-[var(--muted)]">{m.role}</div>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Requirement group chat messages area */}
             <div className="flex-1 overflow-auto px-4 py-3 space-y-3">
               {(!reqChatDetail.groupChat || reqChatDetail.groupChat.length === 0) ? (
@@ -580,21 +749,31 @@ export default function Mailbox() {
                   <p className="text-xs text-[var(--muted)] mt-1">{t('mailbox.noGroupChatHint')}</p>
                 </div>
               ) : (
-                reqChatDetail.groupChat.map((msg) => {
-                  if (msg.type === 'system') {
-                    return (
+                groupConsecutiveMessages(
+                  reqChatDetail.groupChat,
+                  m => m.type === 'system' ? '__system__' : (m.from?.id || m.from?.name || '__unknown__')
+                ).map((group, gi) => {
+                  const firstMsg = group.messages[0];
+                  if (firstMsg.type === 'system') {
+                    return group.messages.map(msg => (
                       <div key={msg.id} className="text-center">
                         <span className="text-[10px] text-[var(--muted)] bg-white/5 px-3 py-1 rounded-full">
                           {msg.content}
                         </span>
                       </div>
-                    );
+                    ));
                   }
-                  const { cleanContent: groupClean, fileRefs: groupFileRefs } = parseFileReferences(msg.content);
+
+                  const isMerged = group.messages.length > 1;
                   return (
-                    <div key={msg.id} className="flex gap-2">
-                      {msg.from?.avatar ? (
-                        <img src={msg.from.avatar} alt="" className="w-8 h-8 rounded-full bg-[var(--border)] shrink-0 mt-0.5" />
+                    <div key={`group-${gi}`} className="flex gap-2">
+                      {firstMsg.from?.avatar ? (
+                        <img
+                          src={firstMsg.from.avatar}
+                          alt=""
+                          className="w-8 h-8 rounded-full bg-[var(--border)] shrink-0 mt-0.5 cursor-pointer hover:ring-2 hover:ring-[var(--accent)] transition-all"
+                          onClick={() => firstMsg.from?.id && firstMsg.from.id !== 'system' && setSelectedAgent(firstMsg.from.id)}
+                        />
                       ) : (
                         <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-600 to-blue-700 flex items-center justify-center text-xs shrink-0 mt-0.5">
                           🤖
@@ -602,28 +781,62 @@ export default function Mailbox() {
                       )}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-0.5">
-                          <span className="text-xs font-medium">{msg.from?.name || t('mailbox.system')}</span>
-                          {msg.from?.role && (
-                            <span className="text-[10px] text-[var(--muted)] bg-white/5 px-1 py-0.5 rounded">{msg.from.role}</span>
+                          <span
+                            className={`text-xs font-medium ${firstMsg.from?.id && firstMsg.from.id !== 'system' ? 'cursor-pointer hover:text-[var(--accent)] transition-colors' : ''}`}
+                            onClick={() => firstMsg.from?.id && firstMsg.from.id !== 'system' && setSelectedAgent(firstMsg.from.id)}
+                          >{firstMsg.from?.name || t('mailbox.system')}</span>
+                          {firstMsg.from?.role && (
+                            <span className="text-[10px] text-[var(--muted)] bg-white/5 px-1 py-0.5 rounded">{firstMsg.from.role}</span>
                           )}
                           <span className="text-[10px] text-[var(--muted)]">
-                            {new Date(msg.time).toLocaleTimeString('zh', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                            {new Date(firstMsg.time).toLocaleTimeString('zh', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                           </span>
                         </div>
-                        <div className={`rounded-2xl rounded-tl-sm px-3 py-2 text-sm inline-block max-w-[min(85%,600px)] ${
-                          msg.type === 'output'
-                            ? 'bg-green-900/20 border border-green-500/20'
-                            : msg.type === 'tool_call'
-                            ? 'bg-purple-900/20 border border-purple-500/20'
-                            : 'bg-[var(--card)] border border-[var(--border)]'
-                        }`}>
-                        <div className="break-words text-sm leading-relaxed chat-markdown">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]} components={chatMarkdownComponents}>
-                            {cleanMessageContent(groupClean)}
-                          </ReactMarkdown>
-                        </div>
-                        <FileRefList fileRefs={groupFileRefs} />
-                        </div>
+                        {isMerged ? (
+                          /* 合并气泡 */
+                          <div className={`rounded-2xl rounded-tl-sm px-3 py-2 text-sm inline-block max-w-[min(85%,600px)] bg-[var(--card)] border border-[var(--border)]`}>
+                            {group.messages.map((msg, mi) => {
+                              const { cleanContent: gc, fileRefs: gfr } = parseFileReferences(msg.content);
+                              return (
+                                <div key={msg.id}>
+                                  {mi > 0 && <div className="border-t border-white/[0.06] my-1.5" />}
+                                  <div className="break-words text-sm leading-relaxed chat-markdown">
+                                    {renderMentions(cleanMessageContent(gc), agentMap, setSelectedAgent) || (
+                                      <ReactMarkdown remarkPlugins={[remarkGfm]} components={chatMarkdownComponents}>
+                                        {cleanMessageContent(gc)}
+                                      </ReactMarkdown>
+                                    )}
+                                  </div>
+                                  <FileRefList fileRefs={gfr} />
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          /* 单条消息 */
+                          (() => {
+                            const msg = firstMsg;
+                            const { cleanContent: groupClean, fileRefs: groupFileRefs } = parseFileReferences(msg.content);
+                            return (
+                              <div className={`rounded-2xl rounded-tl-sm px-3 py-2 text-sm inline-block max-w-[min(85%,600px)] ${
+                                msg.type === 'output'
+                                  ? 'bg-green-900/20 border border-green-500/20'
+                                  : msg.type === 'tool_call'
+                                  ? 'bg-purple-900/20 border border-purple-500/20'
+                                  : 'bg-[var(--card)] border border-[var(--border)]'
+                              }`}>
+                                <div className="break-words text-sm leading-relaxed chat-markdown">
+                                  {renderMentions(cleanMessageContent(groupClean), agentMap, setSelectedAgent) || (
+                                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={chatMarkdownComponents}>
+                                      {cleanMessageContent(groupClean)}
+                                    </ReactMarkdown>
+                                  )}
+                                </div>
+                                <FileRefList fileRefs={groupFileRefs} />
+                              </div>
+                            );
+                          })()
+                        )}
                       </div>
                     </div>
                   );

@@ -16,6 +16,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { securityGuard } from './audit.js';
 import { pluginRegistry, HookPoint } from './plugin.js';
+import { chatStore } from './chat-store.js';
 
 const execAsync = promisify(exec);
 
@@ -132,13 +133,13 @@ export class AgentToolKit {
         type: 'function',
         function: {
           name: 'send_message',
-          description: 'Send a message to another Agent in the team for collaboration and task delegation.',
+          description: 'Send a message to another Agent in the team for collaboration, asking questions, sharing results, or requesting feedback. Use this to communicate with colleagues when you need their input or want to share your work output.',
           parameters: {
             type: 'object',
             properties: {
               targetAgentId: { type: 'string', description: 'Target Agent ID' },
-              content: { type: 'string', description: 'Message content' },
-              type: { type: 'string', enum: ['task', 'question', 'report', 'review'], description: 'Message type' },
+              content: { type: 'string', description: 'Message content. You can mention colleagues with @Name format.' },
+              type: { type: 'string', enum: ['task', 'question', 'report', 'review', 'feedback'], description: 'Message type' },
             },
             required: ['targetAgentId', 'content'],
           },
@@ -345,6 +346,29 @@ export class AgentToolKit {
       content,
       type: type || 'task',
     });
+
+    // Also persist to chatStore for agent-to-agent chat history
+    try {
+      const ids = [this.agentId, targetAgentId].sort();
+      const sessionId = `agent-agent-${ids[0]}-${ids[1]}`;
+      chatStore.createSession(sessionId, {
+        title: `Agent Chat`,
+        participants: [this.agentId, targetAgentId],
+        type: 'agent-agent',
+      });
+      chatStore.appendMessage(sessionId, {
+        role: 'agent',
+        content,
+        time: new Date(),
+        fromAgentId: this.agentId,
+        fromAgentName: this.agentName || this.agentId,
+        toAgentId: targetAgentId,
+        toAgentName: targetAgentId, // Will be resolved by frontend/company
+      });
+    } catch (e) {
+      // Non-blocking: chatStore failure shouldn't block the tool
+    }
+
     return `Message sent to ${targetAgentId}`;
   }
 }
