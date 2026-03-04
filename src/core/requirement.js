@@ -20,7 +20,9 @@ export const TaskNodeStatus = {
   WAITING: 'waiting',       // Waiting for dependencies
   READY: 'ready',           // Ready to start
   RUNNING: 'running',       // Running
-  COMPLETED: 'completed',   // Completed
+  REVIEWING: 'reviewing',   // Completed execution, under review
+  REVISION: 'revision',     // Review rejected, needs revision
+  COMPLETED: 'completed',   // Completed (and passed review if reviewer assigned)
   FAILED: 'failed',         // Failed
 };
 
@@ -245,7 +247,10 @@ Output in JSON format:
       "assigneeName": "Assignee name",
       "dependencies": [],
       "estimatedMinutes": 5,
-      "outputType": "text|code|file"
+      "outputType": "text|code|file",
+      "reviewerId": "Reviewer agent ID (optional, null if no review needed)",
+      "reviewerName": "Reviewer name",
+      "reviewCriteria": "Specific review criteria the reviewer should check (optional)"
     }
   ],
   "summary": "Workflow overview"
@@ -261,7 +266,14 @@ Requirements:
 7. **Extremely important: Not every member needs to participate!** Only assign people who are truly needed. Members unrelated to the requirement should not be given tasks. Better to leave people idle than to create busywork
 8. Task nodes should be lean and efficient. Simple requirements only need 1-3 nodes, avoid over-decomposition
 9. Each task description should be clear and specific, allowing the assignee to complete it in one go, avoiding multiple iterations
-10. **Encourage collaboration**: When multiple agents work in parallel, their tasks should be designed to have natural interaction points. Include in descriptions that they should coordinate with parallel teammates via send_message`;
+10. **Encourage collaboration**: When multiple agents work in parallel, their tasks should be designed to have natural interaction points. Include in descriptions that they should coordinate with parallel teammates via send_message
+11. **REVIEW MECHANISM (CRITICAL)**: For complex or important tasks, you MUST assign a reviewer (reviewerId). The reviewer will strictly audit the work and can REJECT it, forcing the assignee to revise and resubmit — this loop repeats until the reviewer approves. Review rules:
+    - The reviewer MUST be a different person from the assignee (never review your own work)
+    - For tasks where two agents work in parallel, they can review EACH OTHER's work (Agent A reviews Agent B, Agent B reviews Agent A)
+    - The leader can serve as reviewer for critical integration tasks
+    - reviewCriteria should be specific and measurable (e.g. "Check that all API endpoints have error handling and input validation" rather than vague "review the code")
+    - NOT every task needs a reviewer — only complex, high-risk, or important tasks. Simple straightforward tasks can skip review
+    - The reviewer acts as a strict quality gate: they should not easily approve, but provide detailed feedback when rejecting`;
 
     try {
       const response = await llmClient.chat(leaderProvider, [
@@ -291,6 +303,11 @@ Requirements:
           workflow.nodes.some(n => n.id === d)
         ),
         assigneeId: memberIds.has(node.assigneeId) ? node.assigneeId : members[0]?.id,
+        reviewerId: node.reviewerId && memberIds.has(node.reviewerId) ? node.reviewerId : null,
+        reviewerName: node.reviewerName || null,
+        reviewCriteria: node.reviewCriteria || null,
+        reviewRounds: 0,       // 审核迭代轮次计数
+        maxReviewRounds: 3,    // 最大审核迭代次数（防止无限循环）
         result: null,
         startedAt: null,
         completedAt: null,
@@ -310,7 +327,7 @@ Requirements:
       requirement.addGroupMessage(
         leader,
         `📊 Workflow decomposition complete! ${workflow.nodes.length} task nodes in total.\n\n${workflow.summary || ''}\n\n${workflow.nodes.map((n, i) =>
-          `${i + 1}. [${n.assigneeName || 'TBD'}] ${n.title}${n.dependencies.length > 0 ? ` (depends on: ${n.dependencies.join(', ')})` : ' (can start immediately)'}`
+          `${i + 1}. [${n.assigneeName || 'TBD'}] ${n.title}${n.dependencies.length > 0 ? ` (depends on: ${n.dependencies.join(', ')})` : ' (can start immediately)'}${n.reviewerId ? ` 🔍 Reviewer: ${n.reviewerName || n.reviewerId}` : ''}`
         ).join('\n')}`,
         'message'
       );
@@ -498,6 +515,8 @@ Requirements:
         n.status !== TaskNodeStatus.COMPLETED &&
         n.status !== TaskNodeStatus.FAILED &&
         n.status !== TaskNodeStatus.RUNNING &&
+        n.status !== TaskNodeStatus.REVIEWING &&
+        n.status !== TaskNodeStatus.REVISION &&
         n.dependencies.every(d => completed.has(d))
       );
 
@@ -665,30 +684,161 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
           node.status = TaskNodeStatus.COMPLETED;
           node.completedAt = new Date();
           node.result = result;
+
+          // === REVIEW GATE: If reviewer assigned, trigger strict review loop ===
+          if (node.reviewerId && node.reviewerId !== node.assigneeId) {
+            const reviewer = department.agents.get(node.reviewerId);
+            if (reviewer) {
+              node.status = TaskNodeStatus.REVIEWING;
+              requirement.addGroupMessage(
+                { name: 'System', role: 'system' },
+                `🔍 Task "${node.title}" entering review. Reviewer: ${reviewer.name}`,
+                'system'
+              );
+
+              let currentOutput = result.output;
+              let approved = false;
+              const maxRounds = node.maxReviewRounds || 3;
+
+              while (!approved && node.reviewRounds < maxRounds) {
+                node.reviewRounds++;
+
+                // Reviewer performs strict review
+                requirement.updateLiveStatus({
+                  currentNodeId: node.id,
+                  currentNodeTitle: `Review: ${node.title}`,
+                  currentAgent: reviewer.name,
+                  currentAction: `${reviewer.name} is reviewing "${node.title}" (round ${node.reviewRounds})`,
+                });
+
+                const reviewResult = await this._strictReview(
+                  reviewer, agent, node, currentOutput, requirement, node.reviewRounds
+                );
+
+                if (reviewResult.approved) {
+                  approved = true;
+                  requirement.addGroupMessage(
+                    reviewer,
+                    `✅ @[${agent.id}] Review APPROVED for "${node.title}"${node.reviewRounds > 1 ? ` (after ${node.reviewRounds} rounds)` : ''}! ${reviewResult.comment || 'Good work!'}`,
+                    'message'
+                  );
+                  this._recordAgentChat(reviewer, agent, `✅ Review APPROVED: ${reviewResult.comment || 'Good work!'}`);
+                } else {
+                  // Review rejected
+                  node.status = TaskNodeStatus.REVISION;
+                  requirement.addGroupMessage(
+                    reviewer,
+                    `❌ @[${agent.id}] Review REJECTED for "${node.title}" (round ${node.reviewRounds}/${maxRounds}):\n${reviewResult.feedback}`,
+                    'message'
+                  );
+                  this._recordAgentChat(reviewer, agent, `❌ Review REJECTED (round ${node.reviewRounds}): ${reviewResult.feedback}`);
+
+                  if (node.reviewRounds >= maxRounds) {
+                    // Max rounds reached, force approve with warning
+                    approved = true;
+                    requirement.addGroupMessage(
+                      { name: 'System', role: 'system' },
+                      `⚠️ Review for "${node.title}" reached max rounds (${maxRounds}). Force-proceeding with latest revision.`,
+                      'system'
+                    );
+                  } else {
+                    // Agent revises based on feedback
+                    node.status = TaskNodeStatus.RUNNING;
+                    requirement.updateLiveStatus({
+                      currentNodeId: node.id,
+                      currentNodeTitle: `Revision: ${node.title}`,
+                      currentAgent: agent.name,
+                      currentAction: `${agent.name} is revising "${node.title}" based on review feedback (round ${node.reviewRounds})`,
+                    });
+                    requirement.addGroupMessage(
+                      agent,
+                      `🔄 @[${reviewer.id}] Got it, revising "${node.title}" based on your feedback...`,
+                      'message'
+                    );
+
+                    try {
+                      const revisionResult = await this._executeRevision(
+                        agent, node, currentOutput, reviewResult.feedback, requirement, {
+                          onToolCall: ({ tool, args, status, success, error: toolErr }) => {
+                            if (status === 'start') {
+                              requirement.updateLiveStatus({
+                                currentAction: `${agent.name} (revision) calling ${tool}`,
+                                toolCallsInProgress: [...(requirement.liveStatus.toolCallsInProgress || []), tool],
+                              });
+                              if (tool === 'file_write') {
+                                const filePath = args?.path || args?.filePath || args?.file_path || '';
+                                requirement.addGroupMessage(agent, `📝 [Revision] Writing file: ${filePath}`, 'tool_call');
+                                requirement.addFileChange(agent.name, filePath, 'write');
+                              }
+                            } else if (status === 'done') {
+                              requirement.updateLiveStatus({
+                                toolCallsInProgress: (requirement.liveStatus.toolCallsInProgress || []).filter(t => t !== tool),
+                              });
+                            }
+                          },
+                          onLLMCall: ({ iteration }) => {
+                            requirement.updateLiveStatus({
+                              currentAction: `${agent.name} is revising... (iteration ${iteration})`,
+                            });
+                          },
+                        }
+                      );
+                      currentOutput = revisionResult.output || currentOutput;
+                      node.result = revisionResult;
+
+                      requirement.addGroupMessage(
+                        agent,
+                        `📝 @[${reviewer.id}] Revision complete for "${node.title}", please review again.`,
+                        'message'
+                      );
+                      this._recordAgentChat(agent, reviewer, `Revision complete, please review again.`);
+
+                      // Back to REVIEWING for next loop iteration
+                      node.status = TaskNodeStatus.REVIEWING;
+                    } catch (revErr) {
+                      requirement.addGroupMessage(
+                        agent,
+                        `⚠️ Revision failed: ${revErr.message}. Proceeding with previous output.`,
+                        'message'
+                      );
+                      approved = true; // Force proceed on error
+                    }
+                  }
+                }
+              }
+
+              // Final status
+              node.status = TaskNodeStatus.COMPLETED;
+              node.completedAt = new Date();
+            }
+          }
+          // === END REVIEW GATE ===
+
           completed.add(node.id);
 
-          // Record output
-          if (result.output) {
+          // Record output (use node.result which may have been updated by revision)
+          const finalResult = node.result || result;
+          if (finalResult.output) {
           // Determine output type
-            const outputType = this._detectOutputType(result);
+            const outputType = this._detectOutputType(finalResult);
             requirement.addOutput(
               agent.id, agent.name, agent.role,
-              outputType, result.output,
-              { toolResults: result.toolResults, duration: result.duration }
+              outputType, finalResult.output,
+              { toolResults: finalResult.toolResults, duration: finalResult.duration }
             );
           }
 
           // Group chat notification: completed
-          const duration = Math.round((result.duration || 0) / 1000);
+          const duration = Math.round((finalResult.duration || 0) / 1000);
           requirement.addGroupMessage(
             agent,
-            `✅ "${node.title}" completed! Took ${duration}s.${result.toolResults?.length ? `\n🔧 Used ${result.toolResults.length} tools` : ''}`,
+            `✅ "${node.title}" completed! Took ${duration}s.${finalResult.toolResults?.length ? `\n🔧 Used ${finalResult.toolResults.length} tools` : ''}${node.reviewRounds > 0 ? `\n🔍 Passed review after ${node.reviewRounds} round(s)` : ''}`,
             'message'
           );
 
           // Share output preview
-          if (result.output) {
-            const preview = result.output.length > 200 ? result.output.slice(0, 200) + '...' : result.output;
+          if (finalResult.output) {
+            const preview = finalResult.output.length > 200 ? finalResult.output.slice(0, 200) + '...' : finalResult.output;
             requirement.addGroupMessage(
               agent,
               `📄 My output:\n${preview}`,
@@ -702,7 +852,7 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
             n.status !== TaskNodeStatus.COMPLETED &&
             n.status !== TaskNodeStatus.FAILED
           );
-          if (downstreamNodes.length > 0 && result.output) {
+          if (downstreamNodes.length > 0 && finalResult.output) {
             for (const downNode of downstreamNodes) {
               const downAgent = department.agents.get(downNode.assigneeId);
               if (downAgent && downAgent.id !== agent.id) {
@@ -715,7 +865,7 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
 
                 // Non-blocking: let downstream agent respond asynchronously
                 this._agentCollabReply(
-                  downAgent, agent, node.title, result.output, requirement
+                  downAgent, agent, node.title, finalResult.output, requirement
                 ).then(reply => {
                   if (reply) {
                     const replyMsg = `@[${agent.id}] ${reply}`;
@@ -742,8 +892,8 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
             }
           }
 
-          allResults.push(result);
-          return result;
+          allResults.push(finalResult);
+          return finalResult;
         } catch (err) {
           node.status = TaskNodeStatus.FAILED;
           node.completedAt = new Date();
@@ -919,6 +1069,121 @@ Be natural, in character, and collegial. You can praise, suggest improvements, o
     } catch (e) {
       return null;
     }
+  }
+
+  /**
+   * Strict review: reviewer carefully audits the assignee's work
+   * Returns { approved: boolean, feedback: string, comment: string }
+   * The reviewer is instructed to be STRICT and not easily approve.
+   */
+  async _strictReview(reviewer, assignee, node, output, requirement, round) {
+    if (!reviewer.provider?.enabled || !reviewer.provider?.apiKey) {
+      return { approved: true, feedback: '', comment: 'Reviewer unavailable, auto-approved.' };
+    }
+
+    try {
+      const p = reviewer.personality || {};
+      const outputContent = output?.length > 2000 ? output.slice(0, 2000) + '\n...(truncated)' : output;
+      const reviewCriteria = node.reviewCriteria || 'Check for correctness, completeness, and quality.';
+
+      const response = await llmClient.chat(reviewer.provider, [
+        {
+          role: 'system',
+          content: `You are "${reviewer.name}", working as "${reviewer.role}".
+Your personality: ${p.trait || 'Professional'}. Speaking style: ${p.tone || 'Normal'}.
+
+You are acting as a STRICT CODE/WORK REVIEWER for the requirement "${requirement.title}".
+Your job is to be a quality gate — you must carefully inspect the work and ONLY approve if it truly meets all criteria.
+
+**Review Criteria for this task:**
+${reviewCriteria}
+
+**Your review guidelines:**
+- Be STRICT and thorough. Do NOT approve just to be nice.
+- If there are ANY issues, gaps, incomplete parts, or quality problems, you MUST reject.
+- When rejecting, provide SPECIFIC, ACTIONABLE feedback explaining exactly what needs to be fixed.
+- When approving, briefly comment on what was done well.
+- On revision rounds (round > 1), check whether the previous feedback was properly addressed.
+- ${round === 1 ? 'This is the first review. Be especially careful.' : `This is review round ${round}. The assignee has revised based on your previous feedback. Check if ALL previous issues were addressed.`}
+
+**Output format (JSON only, no other text):**
+{
+  "approved": true/false,
+  "feedback": "Detailed rejection feedback with specific issues (only if rejected)",
+  "comment": "Brief approval comment (only if approved)"
+}`
+        },
+        {
+          role: 'user',
+          content: `Please review ${assignee.name}'s (${assignee.role}) work on task "${node.title}":
+
+**Task description:** ${node.description}
+
+**${round > 1 ? `Revised output (round ${round}):` : 'Output:'}**
+${outputContent || '(empty output)'}
+
+Please provide your strict review verdict as JSON.`
+        },
+      ], { temperature: 0.3, maxTokens: 1024 });
+
+      reviewer._trackUsage(response.usage);
+
+      // Parse review result
+      const tick = String.fromCharCode(96);
+      const fence = tick + tick + tick;
+      let content = response.content?.trim() || '';
+      content = content.replace(fence + 'json', '').replace(fence, '').trim();
+
+      try {
+        const result = JSON.parse(content);
+        return {
+          approved: !!result.approved,
+          feedback: result.feedback || '',
+          comment: result.comment || '',
+        };
+      } catch (parseErr) {
+        // If JSON parse fails, try to detect approval from text
+        const lower = content.toLowerCase();
+        if (lower.includes('"approved": true') || lower.includes('approved') && !lower.includes('reject')) {
+          return { approved: true, feedback: '', comment: content.slice(0, 200) };
+        }
+        return { approved: false, feedback: content.slice(0, 500), comment: '' };
+      }
+    } catch (e) {
+      console.error(`[StrictReview] ${reviewer.name} review failed:`, e.message);
+      return { approved: true, feedback: '', comment: 'Review error, auto-approved.' };
+    }
+  }
+
+  /**
+   * Execute revision: agent revises their work based on review feedback
+   * Similar to executeTask but with revision context
+   */
+  async _executeRevision(agent, node, previousOutput, reviewFeedback, requirement, callbacks = {}) {
+    const revisionTask = {
+      title: `[Revision] ${node.title}`,
+      description: `Your previous work on "${node.title}" was reviewed and REJECTED. You need to revise it.
+
+**Original task description:**
+${node.description}
+
+**Your previous output:**
+${previousOutput?.length > 1500 ? previousOutput.slice(0, 1500) + '\n...(truncated)' : previousOutput || '(empty)'}
+
+**Reviewer's feedback (MUST address ALL points):**
+${reviewFeedback}
+
+**Instructions:**
+1. Carefully read the reviewer's feedback
+2. Address EVERY issue mentioned by the reviewer
+3. If you wrote files before, READ them first, then MODIFY them (don't recreate from scratch)
+4. Make sure the revised output fully addresses all review comments
+5. Output your complete revised result`,
+      context: '',
+      requirements: `This is a REVISION for requirement "${requirement.title}". The reviewer was not satisfied and you must address their feedback.`,
+    };
+
+    return await agent.executeTask(revisionTask, callbacks);
   }
 
   /**

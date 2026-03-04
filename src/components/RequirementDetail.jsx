@@ -596,15 +596,17 @@ function WorkflowView({ workflow, liveStatus }) {
   const { nodePositions, edgeGroups, totalWidth, totalHeight, nodes } = layout;
 
   const statusIcon = {
-    waiting: '⏳', ready: '🔵', running: '🔄', completed: '✅', failed: '❌',
+    waiting: '⏳', ready: '🔵', running: '🔄', reviewing: '🔍', revision: '🔄', completed: '✅', failed: '❌',
   };
   const statusBorderColor = {
-    waiting: '#4b5563', ready: '#3b82f6', running: '#eab308', completed: '#22c55e', failed: '#ef4444',
+    waiting: '#4b5563', ready: '#3b82f6', running: '#eab308', reviewing: '#8b5cf6', revision: '#f59e0b', completed: '#22c55e', failed: '#ef4444',
   };
   const statusColor = {
     waiting: 'border-gray-600',
     ready: 'border-blue-500',
     running: 'border-yellow-500 animate-pulse',
+    reviewing: 'border-purple-500 animate-pulse',
+    revision: 'border-orange-500 animate-pulse',
     completed: 'border-green-500',
     failed: 'border-red-500',
   };
@@ -617,9 +619,14 @@ function WorkflowView({ workflow, liveStatus }) {
           <span className="text-base shrink-0">{statusIcon[node.status]}</span>
           <div className="min-w-0">
             <div className="font-medium text-sm truncate">{node.title}</div>
-            <div className="text-xs text-[var(--muted)]">👤 {node.assigneeName}</div>
+            <div className="text-xs text-[var(--muted)]">👤 {node.assigneeName}{node.reviewerName ? ` · 🔍 ${node.reviewerName}` : ''}</div>
           </div>
         </div>
+        {node.reviewRounds > 0 && (
+          <span className="text-[10px] bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded shrink-0 ml-1">
+            R{node.reviewRounds}
+          </span>
+        )}
         {node.completedAt && node.startedAt && (
           <span className="text-[10px] text-[var(--muted)] shrink-0 ml-1">
             {Math.round((new Date(node.completedAt) - new Date(node.startedAt)) / 1000)}s
@@ -630,9 +637,13 @@ function WorkflowView({ workflow, liveStatus }) {
         <p className="text-xs text-[var(--muted)] mt-1.5 line-clamp-2">{node.description}</p>
       )}
       {/* Live action hint */}
-      {node.status === 'running' && liveStatus?.currentNodeId === node.id && liveStatus.currentAction && (
-        <div className="mt-1.5 bg-yellow-900/10 border border-yellow-500/20 rounded-lg px-2 py-1 text-[10px] text-yellow-300 flex items-center gap-1 overflow-hidden">
-          <span className="animate-spin text-xs shrink-0">⚙️</span>
+      {(node.status === 'running' || node.status === 'reviewing' || node.status === 'revision') && liveStatus?.currentNodeId === node.id && liveStatus.currentAction && (
+        <div className={`mt-1.5 rounded-lg px-2 py-1 text-[10px] flex items-center gap-1 overflow-hidden ${
+          node.status === 'reviewing' ? 'bg-purple-900/10 border border-purple-500/20 text-purple-300' :
+          node.status === 'revision' ? 'bg-orange-900/10 border border-orange-500/20 text-orange-300' :
+          'bg-yellow-900/10 border border-yellow-500/20 text-yellow-300'
+        }`}>
+          <span className="animate-spin text-xs shrink-0">{node.status === 'reviewing' ? '🔍' : node.status === 'revision' ? '✏️' : '⚙️'}</span>
           <span className="truncate">{liveStatus.currentAction}</span>
         </div>
       )}
@@ -868,8 +879,8 @@ function WorkflowView({ workflow, liveStatus }) {
             {hoveredNode.node.completedAt && hoveredNode.node.startedAt && (
               <div className="mt-1 text-[var(--muted)]">{t('reqDetail.timeDuration', { n: Math.round((new Date(hoveredNode.node.completedAt) - new Date(hoveredNode.node.startedAt)) / 1000) })}</div>
             )}
-            {hoveredNode.node.status === 'running' && liveStatus?.currentNodeId === hoveredNode.node.id && liveStatus.currentAction && (
-              <div className="mt-1 text-yellow-300">⚙️ {liveStatus.currentAction}</div>
+            {(hoveredNode.node.status === 'running' || hoveredNode.node.status === 'reviewing' || hoveredNode.node.status === 'revision') && liveStatus?.currentNodeId === hoveredNode.node.id && liveStatus.currentAction && (
+              <div className={`mt-1 ${hoveredNode.node.status === 'reviewing' ? 'text-purple-300' : hoveredNode.node.status === 'revision' ? 'text-orange-300' : 'text-yellow-300'}`}>{hoveredNode.node.status === 'reviewing' ? '🔍' : hoveredNode.node.status === 'revision' ? '✏️' : '⚙️'} {liveStatus.currentAction}</div>
             )}
             {/* Arrow triangle */}
             <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[6px] border-t-white/10" />
