@@ -22,6 +22,9 @@ async function apiCall(url, options = {}) {
  */
 function normalizeCompanyAvatars(company) {
   if (!company) return company;
+  if (company.bossAvatar) {
+    company.bossAvatar = normalizeAvatarUrl(company.bossAvatar);
+  }
   if (company.secretary?.avatar) {
     company.secretary.avatar = normalizeAvatarUrl(company.secretary.avatar);
   }
@@ -39,9 +42,9 @@ function normalizeCompanyAvatars(company) {
       if (t.avatar) t.avatar = normalizeAvatarUrl(t.avatar);
     }
   }
-  if (company.mailbox) {
-    for (const mail of company.mailbox) {
-      if (mail.from?.avatar) mail.from.avatar = normalizeAvatarUrl(mail.from.avatar);
+  if (company.agentChatSessions) {
+    for (const session of company.agentChatSessions) {
+      if (session.agentAvatar) session.agentAvatar = normalizeAvatarUrl(session.agentAvatar);
     }
   }
   return company;
@@ -54,7 +57,7 @@ export const useStore = create((set, get) => ({
   loading: false,
   error: null,
   activeTab: 'overview',
-  chatOpen: false,
+chatOpen: true,
 
   // === Recruitment Plan ===
   pendingPlan: null, // Current pending recruitment plan
@@ -250,6 +253,25 @@ export const useStore = create((set, get) => ({
         method: 'DELETE',
       });
       set({ company: normalizeCompanyAvatars(data.data) });
+    } catch (e) {
+      set({ error: e.message });
+      throw e;
+    }
+  },
+
+  // === Boss Profile ===
+  updateBossProfile: async (settings) => {
+    try {
+      const data = await apiCall('/company', {
+        method: 'PUT',
+        body: JSON.stringify(settings),
+      });
+      if (data.fullState) {
+        set({ company: normalizeCompanyAvatars(data.fullState) });
+      } else {
+        await get().fetchCompany();
+      }
+      return data.data;
     } catch (e) {
       set({ error: e.message });
       throw e;
@@ -458,46 +480,6 @@ export const useStore = create((set, get) => ({
   },
 
   // === Mailbox ===
-  replyMail: async (mailId, content) => {
-    try {
-      const data = await apiCall('/mailbox', {
-        method: 'POST',
-        body: JSON.stringify({ action: 'reply', mailId, content }),
-      });
-      await get().fetchCompany();
-      return data.data;
-    } catch (e) {
-      set({ error: e.message });
-      throw e;
-    }
-  },
-
-  markMailRead: async (mailId) => {
-    try {
-      await apiCall('/mailbox', {
-        method: 'POST',
-        body: JSON.stringify({ action: 'read', mailId }),
-      });
-      // Locally update read status
-      const { company } = get();
-      if (company?.mailbox) {
-        const mail = company.mailbox.find(m => m.id === mailId);
-        if (mail) mail.read = true;
-        set({ company: { ...company } });
-      }
-    } catch (e) { /* ignore */ }
-  },
-
-  markAllMailRead: async () => {
-    try {
-      await apiCall('/mailbox', {
-        method: 'POST',
-        body: JSON.stringify({ action: 'readAll' }),
-      });
-      await get().fetchCompany();
-    } catch (e) { /* ignore */ }
-  },
-
   // === Messages ===
   fetchMessages: async (limit = 20) => {
     try {
@@ -524,6 +506,29 @@ export const useStore = create((set, get) => ({
       return data.data;
     } catch (e) {
       return null;
+    }
+  },
+
+  // === Chat with Agent (1-on-1) ===
+  chatWithAgent: async (agentId, message) => {
+    try {
+      const data = await apiCall(`/agents/${agentId}/chat`, {
+        method: 'POST',
+        body: JSON.stringify({ message }),
+      });
+      return data.data;
+    } catch (e) {
+      set({ error: e.message });
+      throw e;
+    }
+  },
+
+  fetchAgentChatHistory: async (agentId, limit = 30) => {
+    try {
+      const data = await apiCall(`/agents/${agentId}/chat?limit=${limit}`);
+      return data.data || [];
+    } catch (e) {
+      return [];
     }
   },
 

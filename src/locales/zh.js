@@ -278,6 +278,28 @@ const zh = {
     title: '🌳 压迫链', subtitle: '谁压迫谁，一目了然。点击任意节点查看详情。',
     boss: '终极资本家', secretary: '专属秘书（首席帮凶）', noLeader: '暂无负责人', empty: '还没有任何下属——孤独的暴君',
   },
+  // === 员工聊天 ===
+  agentChat: {
+    subtitle: '一对一私聊',
+    empty: '跟 {name} 打个招呼吧！',
+    inputPlaceholder: '给 {name} 发消息...',
+    typing: '输入中...',
+    error: '发送失败',
+    chatBtn: '💬 聊天',
+  },
+
+  // === 老板头像设置 ===
+  bossProfile: {
+    title: '👤 老板形象',
+    subtitle: '定制你的头像，至高资本家',
+    avatarTitle: '选择头像',
+    refreshAvatar: '🔄 换一批',
+    saved: '✅ 已保存',
+    saving: '⏳ 保存中...',
+    saveBtn: '💾 保存',
+    editAvatar: '编辑头像',
+  },
+
   secretarySettings: {
     title: '⚙️ 秘书设置', subtitle: '调教你的首席帮凶',
     tabProfile: '👤 基本信息', tabSoul: '🧠 灵魂',

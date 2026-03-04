@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useStore } from '@/lib/client-store';
 import { useI18n } from '@/lib/i18n';
+import AgentChatModal from './AgentChatModal';
 
 export default function AgentDetailModal({ agentId, onClose }) {
   const { t } = useI18n();
@@ -10,6 +11,7 @@ export default function AgentDetailModal({ agentId, onClose }) {
   const [agent, setAgent] = useState(null);
   const [activeTab, setActiveTab] = useState('info');
   const [loadingDetail, setLoadingDetail] = useState(true);
+  const [showChat, setShowChat] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -62,6 +64,12 @@ export default function AgentDetailModal({ agentId, onClose }) {
             <div className="flex items-center gap-2">
               <h2 className="text-xl font-bold">{agent.name}</h2>
               <span className={`status-dot ${agent.status}`} />
+              <button
+                className="text-xs px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-400 hover:bg-blue-500/25 transition-colors flex items-center gap-1"
+                onClick={() => setShowChat(true)}
+              >
+                💬 {t('agentChat.chatBtn').replace('💬 ', '')}
+              </button>
             </div>
             <div className="text-sm text-[var(--muted)]">{agent.role} · {agent.department}</div>
             <div className="text-xs text-[var(--muted)] mt-1">
@@ -254,6 +262,19 @@ export default function AgentDetailModal({ agentId, onClose }) {
             </div>
           )}
         </div>
+
+        {/* Agent Chat Modal */}
+        {showChat && agent && (
+          <AgentChatModal
+            agentId={agent.id}
+            agentName={agent.name}
+            agentAvatar={agent.avatar}
+            agentRole={agent.role}
+            agentSignature={agent.signature}
+            agentDepartment={agent.department}
+            onClose={() => setShowChat(false)}
+          />
+        )}
       </div>
     </div>
   );

@@ -14,6 +14,7 @@ export default function ChatPanel() {
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [localHistory, setLocalHistory] = useState([]);
+  const [minimized, setMinimized] = useState(false);
   const messagesEndRef = useRef(null);
 
   useEffect(() => {
@@ -24,13 +25,13 @@ export default function ChatPanel() {
 
   // Auto scroll to bottom: on message update or panel open
   useEffect(() => {
-    if (chatOpen) {
+    if (chatOpen && !minimized) {
       // Use setTimeout to ensure DOM is rendered before scrolling
       setTimeout(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
       }, 50);
     }
-  }, [localHistory, chatOpen]);
+  }, [localHistory, chatOpen, minimized]);
 
   if (!company || !chatOpen) return null;
 
@@ -65,25 +66,59 @@ export default function ChatPanel() {
     }
   };
 
-  return (
-    <div className="fixed bottom-4 right-4 w-96 h-[520px] bg-[var(--card)] border border-[var(--border)] rounded-2xl shadow-2xl flex flex-col z-50 animate-fade-in overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center gap-3 p-3 border-b border-[var(--border)] bg-gradient-to-r from-blue-900/30 to-purple-900/30">
+  // 收起状态：只显示一个浮动气泡
+  if (minimized) {
+    return (
+      <button
+        onClick={() => setMinimized(false)}
+        className="fixed bottom-6 right-6 w-14 h-14 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 shadow-2xl flex items-center justify-center z-[70] hover:scale-110 transition-all animate-fade-in group"
+        title={t('chat.openChat', { name: secretary?.name || t('setup.defaultSecretary') })}
+      >
         <img
           src={secretary?.avatar || getAvatarUrl('secretary')}
           alt={t('chat.secretary')}
-          className="w-9 h-9 rounded-full bg-[var(--border)]"
+          className="w-11 h-11 rounded-full border-2 border-white/20"
         />
-        <div className="flex-1">
-          <div className="text-sm font-semibold">{secretary?.name || t('setup.defaultSecretary')}</div>
-          <div className="text-[10px] text-[var(--muted)]">{t('chat.online')}</div>
+        <span className="absolute -top-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-[#0d0d0d] animate-pulse" />
+      </button>
+    );
+  }
+
+  return (
+    <div className="fixed bottom-6 right-6 w-[440px] h-[600px] bg-[var(--card)] border border-[var(--border)] rounded-2xl shadow-2xl flex flex-col z-[70] animate-fade-in overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border)] bg-gradient-to-r from-blue-900/30 to-purple-900/30 shrink-0">
+        <img
+          src={secretary?.avatar || getAvatarUrl('secretary')}
+          alt={t('chat.secretary')}
+          className="w-10 h-10 rounded-full bg-[var(--border)]"
+        />
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-semibold flex items-center gap-2">
+            {secretary?.name || t('setup.defaultSecretary')}
+            <span className="w-2 h-2 bg-green-500 rounded-full" />
+          </div>
+          {secretary?.signature ? (
+            <div className="text-[10px] text-[var(--muted)] italic truncate" title={secretary.signature}>"{secretary.signature}"</div>
+          ) : (
+            <div className="text-[10px] text-[var(--muted)]">{t('chat.online')}</div>
+          )}
         </div>
-        <button
-          onClick={() => setChatOpen(false)}
-          className="text-[var(--muted)] hover:text-white text-lg w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white/10"
-        >
-          ✕
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setMinimized(true)}
+            className="text-[var(--muted)] hover:text-white text-lg w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white/10 transition-all"
+            title={t('common.minimize') || '收起'}
+          >
+            ▾
+          </button>
+          <button
+            onClick={() => setChatOpen(false)}
+            className="text-[var(--muted)] hover:text-white text-lg w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white/10 transition-all"
+          >
+            ✕
+          </button>
+        </div>
       </div>
 
       {/* Messages area */}
@@ -113,7 +148,15 @@ export default function ChatPanel() {
           const { cleanContent, fileRefs } = parseFileReferences(msg.content);
           return (
           <div key={i} className={`flex gap-2 ${msg.role === 'boss' ? 'flex-row-reverse' : ''}`}>
-            {msg.role === 'secretary' && (
+            {msg.role === 'boss' ? (
+              company?.bossAvatar ? (
+                <img src={company.bossAvatar} alt="boss" className="w-7 h-7 rounded-full bg-[var(--border)] shrink-0 mt-0.5" />
+              ) : (
+                <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">
+                  👤
+                </div>
+              )
+            ) : (
               <img
                 src={secretary?.avatar || getAvatarUrl('secretary')}
                 alt={t('chat.secretary')}
@@ -181,11 +224,6 @@ export default function ChatPanel() {
                 </div>
               )}
             </div>
-            {msg.role === 'boss' && (
-              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">
-                👤
-              </div>
-            )}
           </div>
           );
         })}

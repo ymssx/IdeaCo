@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useStore } from '@/lib/client-store';
 import AgentDetailModal from './AgentDetailModal';
+import AgentChatModal from './AgentChatModal';
 import OrgTree from './OrgTree';
 import RequirementDetail from './RequirementDetail';
 import { useI18n } from '@/lib/i18n';
@@ -28,6 +29,7 @@ export default function DepartmentView() {
   const [adjustGoal, setAdjustGoal] = useState('');
   const [activeReqId, setActiveReqId] = useState(null); // Requirement detail
   const [deptRequirements, setDeptRequirements] = useState([]); // Department requirements list
+const [chatAgent, setChatAgent] = useState(null); // Agent chat target { id, name, avatar, role, signature, department }
 
   // Create department
   const [deptName, setDeptName] = useState('');
@@ -271,6 +273,16 @@ export default function DepartmentView() {
                         <div className="text-[10px] text-[var(--muted)] italic mt-1 truncate">"{member.signature}"</div>
                       </div>
                       <button
+                        className="opacity-0 group-hover:opacity-100 text-blue-400 hover:text-blue-300 text-sm transition-opacity"
+                        title={t('agentChat.chatBtn')}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setChatAgent({ id: member.id, name: member.name, avatar: member.avatar, role: member.role, signature: member.signature, department: currentDetailDept?.name });
+                        }}
+                      >
+                        💬
+                      </button>
+                      <button
                         className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-300 text-sm transition-opacity"
                         title={t('dept.dismiss.title')}
                         onClick={(e) => {
@@ -410,6 +422,19 @@ export default function DepartmentView() {
       {/* ========== Agent detail modal ========== */}
       {selectedAgent && (
         <AgentDetailModal agentId={selectedAgent} onClose={() => setSelectedAgent(null)} />
+      )}
+
+      {/* ========== Agent chat modal ========== */}
+      {chatAgent && (
+        <AgentChatModal
+          agentId={chatAgent.id}
+          agentName={chatAgent.name}
+          agentAvatar={chatAgent.avatar}
+          agentRole={chatAgent.role}
+          agentSignature={chatAgent.signature}
+          agentDepartment={chatAgent.department}
+          onClose={() => setChatAgent(null)}
+        />
       )}
 
       {/* ========== Dismiss confirm modal ========== */}

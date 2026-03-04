@@ -7,6 +7,7 @@ import { sessionManager } from './session.js';
 import { skillRegistry } from './skills.js';
 import { knowledgeManager } from './knowledge.js';
 import { pluginRegistry } from './plugin.js';
+import { chatStore } from './chat-store.js';
 
 // Placeholder signature (after onboarding, the Agent generates its own via LLM)
 const DEFAULT_SIGNATURE = 'Just arrived, still thinking of what to say...';
@@ -467,19 +468,27 @@ Return only the signature content, nothing else.` },
    * Send mail to boss (via company mailbox system)
    */
   sendMailToBoss(subject, content, company) {
-    if (!company || !company.mailbox) return;
-    const p = this.personality;
+    if (!company) return;
     // Generate personalized mail content based on personality traits
     const personalizedContent = this._personalizeMailContent(content);
-    company.mailbox.push({
-      id: uuidv4(),
-      from: { id: this.id, name: this.name, role: this.role, avatar: this.avatar, personality: p.trait, signature: this.signature, department: this.department },
-      subject,
-      content: personalizedContent,
+
+    // 写入 chatStore 的 boss-agent 私聊 session（合并邮件到私聊）
+    const sessionId = `boss-agent-${this.id}`;
+    chatStore.createSession(sessionId, {
+      title: `${company.bossName} & ${this.name}`,
+      participants: [company.bossName, this.name],
+      type: 'boss-agent',
+    });
+
+    // 如果有 subject，把它作为消息前缀
+    const msgContent = subject
+      ? `📌 **${subject}**\n\n${personalizedContent}`
+      : personalizedContent;
+
+    chatStore.appendMessage(sessionId, {
+      role: 'agent',
+      content: msgContent,
       time: new Date(),
-      read: false,
-      replied: false,
-      replies: [],
     });
   }
 

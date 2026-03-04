@@ -29,6 +29,7 @@ export class Company {
     this.id = uuidv4();
     this.name = companyName;
     this.bossName = bossName;
+    this.bossAvatar = null; // Boss avatar URL
     this.departments = new Map();
     this.providerRegistry = new ProviderRegistry();
     this.talentMarket = new TalentMarket();
@@ -131,6 +132,162 @@ export class Company {
 
     this._log('Secretary chat', `Boss: "${message.slice(0, 30)}..." → Secretary replied`);
     return reply;
+  }
+
+  /**
+   * Update boss profile (avatar)
+   */
+  updateBossProfile(settings) {
+    if (settings.avatar) {
+      this.bossAvatar = settings.avatar;
+    }
+    this._log('Boss profile updated', `Avatar updated`);
+    return { bossAvatar: this.bossAvatar };
+  }
+
+  /**
+   * Chat with a specific agent (boss <-> agent 1-on-1)
+   * @param {string} agentId - Agent ID
+   * @param {string} message - Boss's message
+   * @returns {Promise<object>} Agent's reply
+   */
+  async chatWithAgent(agentId, message) {
+    // Find the agent
+    let targetAgent = null;
+    let targetDept = null;
+    for (const dept of this.departments.values()) {
+      const agent = dept.agents.get(agentId);
+      if (agent) {
+        targetAgent = agent;
+        targetDept = dept;
+        break;
+      }
+    }
+    if (!targetAgent) throw new Error(`Employee not found: ${agentId}`);
+
+    // Create or get chat session
+    const sessionId = `boss-agent-${agentId}`;
+    chatStore.createSession(sessionId, {
+      title: `${this.bossName} & ${targetAgent.name}`,
+      participants: [this.bossName, targetAgent.name],
+      type: 'boss-agent',
+    });
+
+    // Append boss message
+    const bossMsg = { role: 'boss', content: message, time: new Date() };
+    chatStore.appendMessage(sessionId, bossMsg);
+
+    // Get recent chat history for context
+    const recentMessages = chatStore.getRecentMessages(sessionId, 20);
+
+    // Build messages for LLM
+    const systemMessage = targetAgent._buildSystemMessage()
+      + `\n\n## Current Conversation\nYou are having a private 1-on-1 conversation with your boss "${this.bossName}".`
+      + ` You work in the "${targetDept.name}" department.`
+      + ` Respond naturally based on your personality and role. Be helpful but stay in character.`;
+
+    const messages = [
+      { role: 'system', content: systemMessage },
+    ];
+
+    // Add recent history as context
+    for (const msg of recentMessages.slice(0, -1)) { // exclude the one we just added
+      messages.push({
+        role: msg.role === 'boss' ? 'user' : 'assistant',
+        content: msg.content,
+      });
+    }
+
+    // Add current message
+    messages.push({ role: 'user', content: message });
+
+    // Call LLM
+    let replyContent;
+    try {
+      const response = await llmClient.chat(targetAgent.provider, messages, {
+        temperature: 0.8,
+        maxTokens: 2048,
+      });
+      replyContent = response.content;
+      targetAgent._trackUsage(response.usage);
+    } catch (err) {
+      replyContent = `(Sorry boss, my brain froze: ${err.message})`;
+    }
+
+    // Append agent reply
+    const agentMsg = { role: 'agent', content: replyContent, time: new Date() };
+    chatStore.appendMessage(sessionId, agentMsg);
+
+    // Add to agent's short-term memory
+    targetAgent.memory.addShortTerm(
+      `Chatted with boss: "${message.slice(0, 50)}..." → replied`,
+      'conversation'
+    );
+
+    this.save();
+
+    return {
+      agentId: targetAgent.id,
+      agentName: targetAgent.name,
+      reply: replyContent,
+      time: new Date(),
+    };
+  }
+
+  /**
+   * Get chat history with a specific agent
+   * @param {string} agentId - Agent ID
+   * @param {number} limit - Max messages to return
+   * @returns {Array} Chat messages
+   */
+  getAgentChatHistory(agentId, limit = 30) {
+    const sessionId = `boss-agent-${agentId}`;
+    return chatStore.getRecentMessages(sessionId, limit);
+  }
+
+  /**
+   * 获取所有 boss-agent 私聊会话的摘要信息
+   * 用于在 Mailbox 中显示私聊会话列表
+   */
+  _getAgentChatSessions() {
+    const sessions = chatStore.listSessions();
+    const agentSessions = sessions.filter(s => s.type === 'boss-agent');
+    
+    return agentSessions.map(session => {
+      // 从 sessionId 中提取 agentId: "boss-agent-{agentId}"
+      const agentId = session.sessionId.replace('boss-agent-', '');
+      
+      // 查找对应的 agent 信息
+      let agent = null;
+      let deptName = null;
+      for (const dept of this.departments.values()) {
+        const a = dept.agents.get(agentId);
+        if (a) {
+          agent = a;
+          deptName = dept.name;
+          break;
+        }
+      }
+
+      // 获取最近一条消息作为预览
+      const recentMessages = chatStore.getRecentMessages(session.sessionId, 1);
+      const lastMsg = recentMessages.length > 0 ? recentMessages[recentMessages.length - 1] : null;
+
+      return {
+        sessionId: session.sessionId,
+        agentId,
+        agentName: agent?.name || session.participants?.[1] || 'Unknown',
+        agentAvatar: agent?.avatar || null,
+        agentRole: agent?.role || null,
+        agentSignature: agent?.signature || null,
+        departmentName: deptName,
+        lastMessage: lastMsg?.content?.slice(0, 50) || null,
+        lastMessageRole: lastMsg?.role || null,
+        lastTime: lastMsg?.time || session.lastActiveAt || session.createdAt,
+        totalMessages: session.totalMessages || 0,
+      };
+    }).filter(s => s.totalMessages > 0) // 只返回有消息的会话
+      .sort((a, b) => new Date(b.lastTime) - new Date(a.lastTime)); // 按时间倒序
   }
 
   /**
@@ -921,6 +1078,7 @@ const dept = this.findDepartment(departmentId);
       id: this.id,
       name: this.name,
       boss: this.bossName,
+      bossAvatar: this.bossAvatar,
       secretary: {
         name: this.secretary.agent.name,
         avatar: this.secretary.agent.avatar,
@@ -983,6 +1141,8 @@ const dept = this.findDepartment(departmentId);
       })),
       providerDashboard: this.providerRegistry.getStats(),
       messageBusStats: this.messageBus.getStats(),
+      // Boss-Agent 私聊会话列表
+      agentChatSessions: this._getAgentChatSessions(),
       requirements: this.requirementManager.listAll().map(r => r.serialize()),
       logs: this.logs.slice(-50),
     };
@@ -1083,6 +1243,7 @@ const dept = this.findDepartment(departmentId);
       id: this.id,
       name: this.name,
       bossName: this.bossName,
+      bossAvatar: this.bossAvatar,
       departments,
       providerConfigs,
       talentPool,
@@ -1126,6 +1287,11 @@ const dept = this.findDepartment(departmentId);
 
     // Restore ID
     company.id = data.id;
+
+    // Restore boss avatar
+    if (data.bossAvatar) {
+      company.bossAvatar = data.bossAvatar;
+    }
 
     // Restore provider configs
     if (data.providerConfigs) {

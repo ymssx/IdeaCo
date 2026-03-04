@@ -5,11 +5,13 @@ import { useStore } from '@/lib/client-store';
 import { getAvatarUrl } from '@/lib/avatar';
 import { useI18n, LanguageSelector } from '@/lib/i18n';
 import SecretarySettings from './SecretarySettings';
+import BossProfileModal from './BossProfileModal';
 
 export default function Sidebar() {
   const { company, activeTab, setActiveTab, setChatOpen, chatOpen } = useStore();
   const { t } = useI18n();
   const [showSettings, setShowSettings] = useState(false);
+  const [showBossProfile, setShowBossProfile] = useState(false);
 
   if (!company) return null;
 
@@ -24,16 +26,26 @@ export default function Sidebar() {
   const deptCount = company.departments?.length || 0;
   const agentCount = company.departments?.reduce((s, d) => s + d.members.length, 0) || 0;
   const budget = company.budget || {};
-  const unreadMail = company.unreadMailCount || 0;
+  const chatSessionCount = company.agentChatSessions?.length || 0;
 
   return (
     <aside className="w-64 bg-[#0d0d0d] border-r border-[var(--border)] flex flex-col h-screen">
       {/* Company name - top left */}
       <div className="p-4 border-b border-[var(--border)]">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center text-lg font-bold">
-            {company.name.charAt(0)}
-          </div>
+          <button
+            onClick={() => setShowBossProfile(true)}
+            className="w-10 h-10 rounded-lg flex items-center justify-center text-lg font-bold shrink-0 transition-all hover:scale-105 hover:ring-2 hover:ring-[var(--accent)]/40 overflow-hidden"
+            title={t('bossProfile.editAvatar')}
+          >
+            {company.bossAvatar ? (
+              <img src={company.bossAvatar} alt="boss" className="w-10 h-10 rounded-lg" />
+            ) : (
+              <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center text-lg font-bold">
+                {company.name.charAt(0)}
+              </div>
+            )}
+          </button>
           <div>
             <div className="font-semibold text-sm truncate">{company.name}</div>
             <div className="text-xs text-[var(--muted)]">👤 {company.boss}</div>
@@ -93,7 +105,7 @@ export default function Sidebar() {
           let badge = null;
           if (item.id === 'departments') badge = deptCount;
           if (item.id === 'requirements') badge = company.requirements?.length || 0;
-          if (item.id === 'mailbox') badge = unreadMail;
+      if (item.id === 'mailbox') badge = chatSessionCount;
 
           return (
             <button
@@ -139,6 +151,7 @@ export default function Sidebar() {
 
       {/* Secretary settings modal */}
       {showSettings && <SecretarySettings onClose={() => setShowSettings(false)} />}
+      {showBossProfile && <BossProfileModal onClose={() => setShowBossProfile(false)} />}
     </aside>
   );
 }

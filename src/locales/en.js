@@ -423,6 +423,28 @@ When the boss communicates with you, you need to:
     empty: 'No subordinates yet — a lonely tyrant',
   },
 
+  // === Agent Chat ===
+  agentChat: {
+    subtitle: '1-on-1 private chat',
+    empty: 'Say hi to {name}!',
+    inputPlaceholder: 'Message {name}...',
+    typing: 'Typing...',
+    error: 'Failed to send',
+    chatBtn: '💬 Chat',
+  },
+
+  // === Boss Profile ===
+  bossProfile: {
+    title: '👤 Boss Profile',
+    subtitle: 'Customize your avatar, supreme capitalist',
+    avatarTitle: 'Choose Avatar',
+    refreshAvatar: '🔄 Shuffle',
+    saved: '✅ Saved',
+    saving: '⏳ Saving...',
+    saveBtn: '💾 Save',
+    editAvatar: 'Edit Avatar',
+  },
+
   // === Secretary Settings ===
   secretarySettings: {
     title: '⚙️ Secretary Settings',

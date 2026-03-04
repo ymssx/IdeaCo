@@ -70,12 +70,13 @@ function cleanMessageContent(content) {
 export default function Mailbox() {
   const { t } = useI18n();
   const {
-    company, replyMail, markMailRead, markAllMailRead,
+    company,
     chatWithSecretary, chatOpen, setChatOpen,
     navigateToRequirement, fetchRequirements, fetchRequirementDetail,
+    chatWithAgent, fetchAgentChatHistory,
   } = useStore();
 
-  const [activeChat, setActiveChat] = useState(null); // { type: 'secretary' } | { type: 'mail', id: mailId }
+  const [activeChat, setActiveChat] = useState(null); // { type: 'secretary' } | { type: 'agent-chat', agentId, ... }
   const [inputText, setInputText] = useState('');
   const [sending, setSending] = useState(false);
   const [secretaryHistory, setSecretaryHistory] = useState([]);
@@ -84,14 +85,17 @@ export default function Mailbox() {
   const [requirements, setRequirements] = useState([]); // Requirements list (for group chat sessions)
   const [activeReqChat, setActiveReqChat] = useState(null); // Current active requirement group chat
   const [reqChatDetail, setReqChatDetail] = useState(null); // Requirement group chat detail
+  const [agentChatMessages, setAgentChatMessages] = useState([]); // Agent 1-on-1 chat messages
+  const [agentChatLoading, setAgentChatLoading] = useState(false); // Agent chat loading state
+  const [readAgentChats, setReadAgentChats] = useState(new Set()); // 已读的agent-chat agentId集合
   const reqChatPollRef = useRef(null);
   const messagesEndRef = useRef(null);
+  const activeChatRef = useRef(null); // 追踪当前活跃的聊天对象，防止异步消息串台
 
   if (!company) return null;
 
-  const mails = company.mailbox || [];
   const secretary = company.secretary;
-  const unread = mails.filter(m => !m.read).length;
+  const agentChatSessions = company.agentChatSessions || [];
 
   // Load requirements list (for group chat sessions)
   useEffect(() => {
@@ -134,7 +138,7 @@ export default function Mailbox() {
     setTimeout(() => {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, 50);
-  }, [activeChat, secretaryHistory, mails, reqChatDetail]);
+  }, [activeChat, secretaryHistory, reqChatDetail, agentChatMessages]);
 
   // Close ChatPanel when secretary is selected to avoid conflict
   useEffect(() => {
@@ -144,21 +148,16 @@ export default function Mailbox() {
   }, [activeChat]);
 
   // Build conversation list: sorted by latest message time
-  const allConversations = buildConversations(mails, secretary, secretaryHistory, requirements, t);
+  const allConversations = buildConversations(secretary, secretaryHistory, requirements, t, agentChatSessions, readAgentChats);
 
   // Filter conversations by category
   const conversations = allConversations.filter(conv => {
     if (chatFilter === 'all') return true;
     if (chatFilter === 'group') return conv.type === 'requirement';
-    if (chatFilter === 'private') return conv.type === 'mail' || conv.type === 'secretary';
-    if (chatFilter === 'important') return conv.type === 'secretary' || conv.unread || conv.type === 'requirement';
+    if (chatFilter === 'private') return conv.type === 'secretary' || conv.type === 'agent-chat';
+    if (chatFilter === 'important') return conv.type === 'secretary' || conv.type === 'requirement';
     return true;
   });
-
-  // Get current active chat
-  const currentMail = activeChat?.type === 'mail'
-    ? mails.find(m => m.id === activeChat.id)
-    : null;
 
   // Send message
   const handleSend = async () => {
@@ -175,22 +174,30 @@ export default function Mailbox() {
         }]);
         await chatWithSecretary(text);
         // Secretary replies sync via useEffect
-      } else if (activeChat?.type === 'mail' && currentMail) {
-// Optimistic update: immediately show boss message locally
-        const { company: localCompany } = useStore.getState();
-        if (localCompany?.mailbox) {
-          const localMail = localCompany.mailbox.find(m => m.id === currentMail.id);
-          if (localMail) {
-            if (!localMail.replies) localMail.replies = [];
-            localMail.replies.push({
-              from: 'boss',
-              content: text,
-              time: new Date().toISOString(),
-            });
-            useStore.setState({ company: { ...localCompany } });
+      } else if (activeChat?.type === 'agent-chat') {
+        // Agent 1-on-1 chat
+        const targetAgentId = activeChat.agentId; // 捕获当前发送目标
+        const optimisticMsg = { role: 'boss', content: text, time: new Date().toISOString() };
+        setAgentChatMessages(prev => [...prev, optimisticMsg]);
+        try {
+          const data = await chatWithAgent(targetAgentId, text);
+          // 只有当前仍在同一会话时才更新消息
+          if (activeChatRef.current?.agentId === targetAgentId) {
+            if (data.chatHistory) {
+              setAgentChatMessages(data.chatHistory);
+            } else if (data.reply) {
+              setAgentChatMessages(prev => [...prev, {
+                role: 'agent', content: data.reply.reply, time: data.reply.time,
+              }]);
+            }
+          }
+        } catch (err) {
+          if (activeChatRef.current?.agentId === targetAgentId) {
+            setAgentChatMessages(prev => [...prev, {
+              role: 'agent', content: `😵 ${t('agentChat.error')}: ${err.message}`, time: new Date().toISOString(),
+            }]);
           }
         }
-        await replyMail(currentMail.id, text);
       }
     } catch (e) {
       if (activeChat?.type === 'secretary') {
@@ -218,19 +225,33 @@ export default function Mailbox() {
     } else if (conv.type === 'requirement') {
       setActiveChat({ type: 'requirement', id: conv.requirementId });
       setActiveReqChat(conv.requirementId);
-    } else {
-      setActiveChat({ type: 'mail', id: conv.id });
+    } else if (conv.type === 'agent-chat') {
+      setActiveChat({
+        type: 'agent-chat',
+        agentId: conv.agentId,
+        agentName: conv.name,
+        agentAvatar: conv.avatar,
+        agentRole: conv.role,
+        agentSignature: conv.agentSignature,
+        agentDepartment: conv.departmentName,
+      });
       setActiveReqChat(null);
-      // Mark all unread mails from this employee as read (not just the latest one)
-      if (conv.unread) {
-        const agentMails = mails.filter(m => m.from.id === conv.fromAgentId);
-        for (const m of agentMails) {
-          if (!m.read) markMailRead(m.id);
-        }
-      }
+      // 标记为已读
+      setReadAgentChats(prev => new Set([...prev, conv.agentId]));
+      // 加载聊天历史
+      setAgentChatLoading(true);
+      fetchAgentChatHistory(conv.agentId).then(msgs => {
+        setAgentChatMessages(msgs);
+        setAgentChatLoading(false);
+      }).catch(() => setAgentChatLoading(false));
     }
     setInputText('');
   };
+
+  // 同步 activeChatRef
+  useEffect(() => {
+    activeChatRef.current = activeChat;
+  }, [activeChat]);
 
   return (
     <div className="flex h-full animate-fade-in">
@@ -239,14 +260,7 @@ export default function Mailbox() {
         {/* Search bar */}
         <div className="border-b border-white/[0.06]">
           <div className="flex items-center justify-between px-3 py-2.5">
-            <h2 className="text-sm font-semibold leading-none">{t('mailbox.title')}</h2>
-            {unread > 0 && (
-              <button
-                className="text-[10px] text-[var(--muted)] hover:text-[var(--accent)] transition-colors leading-none"
-                onClick={markAllMailRead}
-              >{t('mailbox.markAllRead')}</button>
-            )}
-          </div>
+            <h2 className="text-sm font-semibold leading-none">{t('mailbox.title')}</h2>          </div>
           {/* Category tabs */}
           <div className="flex px-3 pb-2 gap-1">
             {[
@@ -274,7 +288,7 @@ export default function Mailbox() {
         <div className="flex-1 overflow-auto">
           {conversations.map((conv) => {
             const isActive = activeChat?.type === conv.type &&
-              (conv.type === 'secretary' || activeChat?.id === conv.id || (conv.type === 'requirement' && activeChat?.id === conv.requirementId));
+              (conv.type === 'secretary' || (conv.type === 'requirement' && activeChat?.id === conv.requirementId) || (conv.type === 'agent-chat' && activeChat?.agentId === conv.agentId));
 
             return (
               <div
@@ -405,6 +419,7 @@ export default function Mailbox() {
                   action={msg.action}
                   agentId={null}
                   onClickAvatar={null}
+                  bossAvatar={company?.bossAvatar}
                 />
               ))}
 
@@ -434,66 +449,75 @@ export default function Mailbox() {
               placeholder={t('chat.inputPlaceholder', { name: secretary?.name || t('setup.defaultSecretary') })}
             />
           </>
-        ) : currentMail ? (
-          /* Employee chat */
+        ) : activeChat?.type === 'agent-chat' ? (
+          /* Agent 1-on-1 private chat */
           <>
-            {/* Employee chat header */}
+            {/* Agent chat header */}
             <div className="flex items-center gap-3 px-4 py-3 border-b border-white/[0.06] bg-[var(--card)]">
-              <img
-                src={currentMail.from.avatar}
-                alt={currentMail.from.name}
-                className="w-9 h-9 rounded-full bg-[var(--border)] cursor-pointer hover:ring-2 hover:ring-[var(--accent)] transition-all"
-                onClick={() => currentMail.from.id && setSelectedAgent(currentMail.from.id)}
-                title={t('mailbox.viewAgentDetail')}
-              />
-            <div className="flex-1 min-w-0">
+              {activeChat.agentAvatar ? (
+                <img
+                  src={activeChat.agentAvatar}
+                  alt={activeChat.agentName}
+                  className="w-9 h-9 rounded-full bg-[var(--border)] cursor-pointer hover:ring-2 hover:ring-[var(--accent)] transition-all"
+                  onClick={() => setSelectedAgent(activeChat.agentId)}
+                  title={t('mailbox.viewAgentDetail')}
+                />
+              ) : (
+                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-base shrink-0">💬</div>
+              )}
+              <div className="flex-1 min-w-0">
                 <div className="text-sm font-semibold flex items-center gap-2">
-                  {currentMail.from.name}
-                  <span className="text-[10px] text-[var(--muted)] font-normal">{currentMail.from.role}{currentMail.from.department ? ` · ${currentMail.from.department}` : ''}</span>
+                  {activeChat.agentName}
+                  <span className="w-2 h-2 bg-green-500 rounded-full" />
+                  {(activeChat.agentRole || activeChat.agentDepartment) && (
+                    <span className="text-[10px] text-[var(--muted)] font-normal">
+                      {activeChat.agentRole}{activeChat.agentDepartment ? ` · ${activeChat.agentDepartment}` : ''}
+                    </span>
+                  )}
                 </div>
-                {currentMail.from.signature && (
-                  <div className="text-[10px] text-[var(--muted)] italic truncate" title={currentMail.from.signature}>"{currentMail.from.signature}"</div>
+                {activeChat.agentSignature && (
+                  <div className="text-[10px] text-[var(--muted)] italic truncate" title={activeChat.agentSignature}>"{activeChat.agentSignature}"</div>
                 )}
               </div>
             </div>
 
-            {/* Employee messages - render email content + replies as bubbles */}
+            {/* Agent chat messages */}
             <div className="flex-1 overflow-auto px-4 py-3 space-y-3">
-              {/* Initial email = first message from employee */}
-              <MessageBubble
-                isMe={false}
-                avatar={currentMail.from.avatar}
-                name={currentMail.from.name}
-                content={currentMail.content}
-                time={currentMail.time}
-                subject={currentMail.subject}
-                agentId={currentMail.from.id}
-                onClickAvatar={setSelectedAgent}
-              />
-
-              {/* Reply history = conversation bubbles */}
-              {currentMail.replies?.map((reply, i) => (
-                <MessageBubble
-                  key={i}
-                  isMe={reply.from === 'boss'}
-                  avatar={reply.from !== 'boss' ? currentMail.from.avatar : null}
-                  name={reply.from === 'boss' ? company.boss : reply.from}
-                  content={reply.content}
-                  time={reply.time}
-                  agentId={reply.from !== 'boss' ? currentMail.from.id : null}
-                  onClickAvatar={setSelectedAgent}
-                />
-              ))}
-
-              {sending && activeChat.type === 'mail' && (
-                <div className="flex gap-2">
-                  <img
-                    src={currentMail.from.avatar}
-                    alt=""
-                    className="w-8 h-8 rounded-full bg-[var(--border)] shrink-0"
+              {agentChatLoading ? (
+                <div className="text-center text-[var(--muted)] py-8">
+                  <div className="text-2xl animate-pulse">💬</div>
+                  <p className="text-xs mt-2">{t('common.loading')}</p>
+                </div>
+              ) : agentChatMessages.length === 0 ? (
+                <div className="text-center text-[var(--muted)] py-8">
+                  <div className="text-3xl">👋</div>
+                  <p className="text-sm mt-2">{t('agentChat.empty', { name: activeChat.agentName })}</p>
+                </div>
+              ) : (
+                agentChatMessages.map((msg, i) => (
+                  <MessageBubble
+                    key={i}
+                    isMe={msg.role === 'boss'}
+                    avatar={msg.role !== 'boss' ? activeChat.agentAvatar : null}
+                    name={msg.role === 'boss' ? company.boss : activeChat.agentName}
+                    content={msg.content}
+                    time={msg.time}
+                    agentId={msg.role !== 'boss' ? activeChat.agentId : null}
+                    onClickAvatar={setSelectedAgent}
+                    bossAvatar={company?.bossAvatar}
                   />
+                ))
+              )}
+
+              {sending && activeChat.type === 'agent-chat' && (
+                <div className="flex gap-2">
+                  {activeChat.agentAvatar ? (
+                    <img src={activeChat.agentAvatar} alt="" className="w-8 h-8 rounded-full bg-[var(--border)] shrink-0" />
+                  ) : (
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-xs shrink-0">💬</div>
+                  )}
                   <div className="bg-[var(--card)] border border-[var(--border)] rounded-2xl rounded-bl-sm px-3 py-2 text-sm">
-                    <span className="animate-pulse text-[var(--muted)]">{t('mailbox.replying')}</span>
+                    <span className="animate-pulse text-[var(--muted)]">{t('agentChat.typing')}</span>
                   </div>
                 </div>
               )}
@@ -501,14 +525,14 @@ export default function Mailbox() {
               <div ref={messagesEndRef} />
             </div>
 
-            {/* Employee input box */}
+            {/* Agent chat input */}
             <ChatInput
               value={inputText}
               onChange={setInputText}
               onSend={handleSend}
               onKeyDown={handleKeyDown}
               sending={sending}
-              placeholder={t('mailbox.replyTo', { name: currentMail.from.name })}
+              placeholder={t('agentChat.inputPlaceholder', { name: activeChat.agentName })}
             />
           </>
         ) : activeChat?.type === 'requirement' && reqChatDetail ? (
@@ -631,7 +655,7 @@ export default function Mailbox() {
 /**
  * Message bubble
  */
-function MessageBubble({ isMe, avatar, name, content, time, action, subject, agentId, onClickAvatar }) {
+function MessageBubble({ isMe, avatar, name, content, time, action, subject, agentId, onClickAvatar, bossAvatar }) {
   const { t } = useI18n();
   const { cleanContent, fileRefs } = parseFileReferences(content);
   return (
@@ -646,9 +670,13 @@ function MessageBubble({ isMe, avatar, name, content, time, action, subject, age
           onClick={() => agentId && onClickAvatar?.(agentId)}
         />
       ) : (
-        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">
-          👤
-        </div>
+        bossAvatar ? (
+          <img src={bossAvatar} alt="boss" className="w-8 h-8 rounded-full bg-[var(--border)] shrink-0 mt-0.5" />
+        ) : (
+          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">
+            👤
+          </div>
+        )
       )}
       <div className={`max-w-[min(70%,560px)] ${isMe ? 'items-end' : 'items-start'}`}>
         {/* Name + time */}
@@ -743,7 +771,7 @@ function ChatInput({ value, onChange, onSend, onKeyDown, sending, placeholder })
 /**
  * Build conversation list: secretary pinned on top + employees sorted by latest message desc
  */
-function buildConversations(mails, secretary, secretaryHistory, requirements = [], t = (k) => k) {
+function buildConversations(secretary, secretaryHistory, requirements = [], t = (k) => k, agentChatSessions = [], readAgentChats = new Set()) {
   const convs = [];
 
   // Pin secretary on top
@@ -786,77 +814,37 @@ function buildConversations(mails, secretary, secretaryHistory, requirements = [
     });
   }
 
-  // Employee sessions: grouped by sender, latest email as conversation
-  const agentMap = new Map();
-  for (const mail of mails) {
-    const agentId = mail.from.id;
-    if (!agentMap.has(agentId)) {
-      agentMap.set(agentId, []);
-    }
-    agentMap.get(agentId).push(mail);
-  }
-
-  // Sort by latest message time
-  const agentConvs = [];
-  for (const [agentId, agentMails] of agentMap) {
-    // Find latest time (could be email time or latest reply time)
-    let latestTime = null;
-    let latestMail = null;
-    let hasUnread = false;
-
-    for (const mail of agentMails) {
-      const mailLatest = getLatestTimeFromMail(mail);
-      if (!latestTime || new Date(mailLatest) > new Date(latestTime)) {
-        latestTime = mailLatest;
-        latestMail = mail;
-      }
-      if (!mail.read) hasUnread = true;
-    }
-
-    const lastReply = latestMail.replies?.length > 0
-      ? latestMail.replies[latestMail.replies.length - 1]
-      : null;
-
-    const lastMsg = lastReply
-      ? `${lastReply.from === 'boss' ? t('mailbox.you') : ''}${lastReply.content?.slice(0, 30)}`
-      : latestMail.content?.slice(0, 30);
-
-    agentConvs.push({
-      key: `mail-${latestMail.id}`,
-      type: 'mail',
-      id: latestMail.id,
-      fromAgentId: agentId,
-      name: latestMail.from.name,
-      avatar: latestMail.from.avatar,
-      role: latestMail.from.role,
-      lastMessage: lastMsg || '...',
-      lastTime: latestTime,
-      unread: hasUnread,
-      read: latestMail.read,
+  // Boss-Agent 1-on-1 private chat sessions (from chatStore)
+  const agentChatConvs = [];
+  for (const session of agentChatSessions) {
+    const lastMsgPreview = session.lastMessageRole === 'boss'
+      ? `${t('mailbox.you')}${session.lastMessage || '...'}`
+      : session.lastMessage || '...';
+    agentChatConvs.push({
+      key: `agent-chat-${session.agentId}`,
+      type: 'agent-chat',
+      agentId: session.agentId,
+      name: session.agentName,
+      avatar: session.agentAvatar,
+      role: session.agentRole,
+      agentSignature: session.agentSignature,
+      departmentName: session.departmentName,
+      lastMessage: lastMsgPreview,
+      lastTime: session.lastTime,
+      unread: !readAgentChats.has(session.agentId),
       pinned: false,
-      mailCount: agentMails.length,
+      totalMessages: session.totalMessages,
     });
   }
 
-  // Sort by time descending
-  agentConvs.sort((a, b) => {
+  // 按时间排序
+  agentChatConvs.sort((a, b) => {
     if (!a.lastTime) return 1;
     if (!b.lastTime) return -1;
     return new Date(b.lastTime) - new Date(a.lastTime);
   });
 
-  return [...convs, ...agentConvs];
-}
-
-function getLatestTimeFromMail(mail) {
-  let latest = mail.time;
-  if (mail.replies?.length > 0) {
-    const lastReply = mail.replies[mail.replies.length - 1];
-    if (lastReply.time && new Date(lastReply.time) > new Date(latest)) {
-      latest = lastReply.time;
-    }
-  }
-  return latest;
+  return [...convs, ...agentChatConvs];
 }
 
 function formatTime(time, t = (k) => k) {

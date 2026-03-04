@@ -80,7 +80,11 @@ export default function OrgTree({ embedded = false }) {
       <div className="flex flex-col items-center">
         {/* Boss */}
         <div className="flex flex-col items-center p-4 rounded-xl bg-gradient-to-br from-yellow-900/30 to-red-900/20 border border-yellow-500/30 shadow-lg shadow-yellow-500/10 mb-2">
-          <div className="text-3xl mb-1">👑</div>
+          {company.bossAvatar ? (
+            <img src={company.bossAvatar} alt="boss" className="w-12 h-12 rounded-full bg-[var(--border)] mb-1" />
+          ) : (
+            <div className="text-3xl mb-1">👑</div>
+          )}
           <div className="text-sm font-bold">{company.boss}</div>
           <div className="text-[10px] text-yellow-400">{t('orgTree.boss')}</div>
         </div>
