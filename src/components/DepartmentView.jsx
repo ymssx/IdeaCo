@@ -258,7 +258,12 @@ const [chatAgent, setChatAgent] = useState(null); // Agent chat target { id, nam
                     onClick={() => setSelectedAgent(member.id)}
                   >
                     <div className="flex items-start gap-3">
-                      <img src={member.avatar} alt={member.name} className="w-10 h-10 rounded-full bg-[var(--border)]" />
+                      <div className="relative shrink-0">
+                        <img src={member.avatar} alt={member.name} className="w-10 h-10 rounded-full bg-[var(--border)]" />
+                        {member.avgScore >= 80 && (
+                          <span className="absolute -top-1 -right-1 text-xs animate-pulse drop-shadow-lg">🌸</span>
+                        )}
+                      </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <span className="font-medium text-sm truncate">{member.name}</span>

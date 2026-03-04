@@ -652,6 +652,16 @@ Do not use any code, tool calls, or technical instructions — reply in natural 
       );
     }
 
+    // 高绩效获得小红花激励 🌸
+    if (review.overallScore >= 80) {
+      const incentiveLabel = review.overallScore >= 90 ? 'outstanding' : 'excellent';
+      this.memory.addLongTerm(
+        `🌸 Received a Little Red Flower incentive for "${review.taskTitle}"! (${review.overallScore} pts - ${incentiveLabel}) I'm so happy and motivated! This recognition makes all the hard work worthwhile.`,
+        'incentive'
+      );
+      console.log(`  🌸 [${this.name}] Received a Little Red Flower for "${review.taskTitle}"!`);
+    }
+
     if (review.overallScore < 60) {
       this.memory.addLongTerm(
         `Lesson learned: Performed poorly in "${review.taskTitle}" (${review.overallScore} pts), needs significant improvement. Supervisor comment: "${review.comment}"`,

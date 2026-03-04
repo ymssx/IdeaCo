@@ -637,5 +637,19 @@ chatMinimized: false,
     }
   },
 
+  // Boss sends a message in requirement group chat
+  sendGroupChatMessage: async (requirementId, message) => {
+    try {
+      const data = await apiCall('/requirements', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'boss_message', id: requirementId, message }),
+      });
+      return data.data;
+    } catch (e) {
+      set({ error: e.message });
+      throw e;
+    }
+  },
+
   clearRequirementDetail: () => set({ requirementDetail: null }),
 }));

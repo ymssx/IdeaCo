@@ -204,13 +204,21 @@ export class RequirementManager {
    * @param {object} leaderProvider - Leader's LLM provider
    * @returns {object} Workflow
    */
-  async planWorkflow(requirement, members, leaderProvider) {
+  async planWorkflow(requirement, members, leaderProvider, adjustmentContext = null) {
     requirement.status = RequirementStatus.PLANNING;
-    requirement.addGroupMessage(
-      { name: 'System', role: 'system' },
-      `📋 Requirement "${requirement.title}" created, leader is decomposing the workflow...`,
-      'system'
-    );
+    if (adjustmentContext) {
+      requirement.addGroupMessage(
+        { name: 'System', role: 'system' },
+        `🔄 Adjusting workflow based on Boss's instructions...`,
+        'system'
+      );
+    } else {
+      requirement.addGroupMessage(
+        { name: 'System', role: 'system' },
+        `📋 Requirement "${requirement.title}" created, leader is decomposing the workflow...`,
+        'system'
+      );
+    }
 
     // Build member info
     const memberInfo = members.map(m => ({
@@ -258,7 +266,9 @@ Requirements:
     try {
       const response = await llmClient.chat(leaderProvider, [
         { role: 'system', content: systemPrompt },
-        { role: 'user', content: `Requirement title: ${requirement.title}\nRequirement description: ${requirement.description}\n\nPlease decompose the workflow.` },
+        { role: 'user', content: adjustmentContext
+          ? `Requirement title: ${requirement.title}\nRequirement description: ${requirement.description}\n\n**ADJUSTMENT REQUEST FROM BOSS:**\n${adjustmentContext.bossMessage}\n\n**YOUR PLANNED ADJUSTMENTS:**\n${adjustmentContext.adjustments}\n\n**PREVIOUS WORKFLOW (for reference):**\n${adjustmentContext.previousWorkflow}\n\n**EXISTING OUTPUT FILES (must be preserved and built upon):**\n${adjustmentContext.existingOutputs || 'None'}\n\n**IMPORTANT:** This is an ADJUSTMENT, NOT a restart. You must:\n1. PRESERVE all existing output files - do NOT recreate them from scratch\n2. Only create tasks that MODIFY existing files or ADD new content\n3. When a task needs to change an existing file, the agent should READ the current file first, then modify it\n4. Only add NEW tasks for genuinely new work that wasn't done before\n5. Reuse the previous workflow structure where possible, adjusting only what the Boss requested\n\nPlease create an ADJUSTED workflow based on the Boss's instructions.`
+          : `Requirement title: ${requirement.title}\nRequirement description: ${requirement.description}\n\nPlease decompose the workflow.` },
       ], { temperature: 0.7, maxTokens: 2048 });
 
       // Parse JSON

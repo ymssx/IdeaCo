@@ -8,8 +8,36 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useI18n } from '@/lib/i18n';
 import { parseFileReferences, FileRefList } from './FileReference';
+import GroupChatView from './GroupChatView';
 
 // Markdown render component mapping for chat bubbles
+/**
+ * 根据名字生成唯一hash深色背景色
+ */
+function nameToColor(name) {
+  if (!name) return 'bg-gradient-to-br from-indigo-600 to-blue-700';
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    hash = hash & hash;
+  }
+  const darkColors = [
+    'bg-gradient-to-br from-rose-700 to-pink-900',
+    'bg-gradient-to-br from-violet-700 to-purple-900',
+    'bg-gradient-to-br from-indigo-700 to-blue-900',
+    'bg-gradient-to-br from-cyan-700 to-teal-900',
+    'bg-gradient-to-br from-emerald-700 to-green-900',
+    'bg-gradient-to-br from-amber-700 to-orange-900',
+    'bg-gradient-to-br from-red-700 to-rose-900',
+    'bg-gradient-to-br from-fuchsia-700 to-pink-900',
+    'bg-gradient-to-br from-blue-700 to-indigo-900',
+    'bg-gradient-to-br from-teal-700 to-cyan-900',
+    'bg-gradient-to-br from-lime-700 to-green-900',
+    'bg-gradient-to-br from-orange-700 to-red-900',
+  ];
+  return darkColors[Math.abs(hash) % darkColors.length];
+}
+
 const chatMarkdownComponents = {
   p: ({ children }) => <p className="mb-1 last:mb-0">{children}</p>,
   ul: ({ children }) => <ul className="list-disc list-inside mb-1 space-y-0.5">{children}</ul>,
@@ -164,6 +192,7 @@ export default function Mailbox() {
     chatWithSecretary, chatOpen, setChatOpen,
     navigateToRequirement, fetchRequirements, fetchRequirementDetail,
     chatWithAgent, fetchAgentChatHistory, markAgentChatRead,
+    sendGroupChatMessage,
   } = useStore();
 
   const [activeChat, setActiveChat] = useState(null); // { type: 'secretary' } | { type: 'agent-chat', agentId, ... }
@@ -191,7 +220,7 @@ export default function Mailbox() {
   const agentMap = {};
   if (company?.departments) {
     for (const dept of company.departments) {
-      for (const agent of (dept.agents || [])) {
+for (const agent of (dept.members || dept.agents || [])) {
         agentMap[agent.id] = agent.name;
       }
     }
@@ -283,6 +312,8 @@ export default function Mailbox() {
         }]);
         await chatWithSecretary(text);
         // Secretary replies sync via useEffect
+      } else if (activeChat?.type === 'requirement') {
+        // 群聊发送由 GroupChatView 组件内部管理，此处不再处理
       } else if (activeChat?.type === 'agent-chat') {
         // Agent 1-on-1 chat
         const targetAgentId = activeChat.agentId; // 捕获当前发送目标
@@ -318,6 +349,8 @@ export default function Mailbox() {
       }
     }
     setSending(false);
+    // 统一滚动到底部
+    setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
   };
 
   const handleKeyDown = (e) => {
@@ -740,110 +773,26 @@ export default function Mailbox() {
               );
             })()}
 
-            {/* Requirement group chat messages area */}
-            <div className="flex-1 overflow-auto px-4 py-3 space-y-3">
-              {(!reqChatDetail.groupChat || reqChatDetail.groupChat.length === 0) ? (
-                <div className="text-center py-12">
-                  <div className="text-4xl mb-2">💬</div>
-                  <p className="text-sm text-[var(--muted)]">{t('reqDetail.chat.noMessages')}</p>
-                  <p className="text-xs text-[var(--muted)] mt-1">{t('mailbox.noGroupChatHint')}</p>
-                </div>
-              ) : (
-                groupConsecutiveMessages(
-                  reqChatDetail.groupChat,
-                  m => m.type === 'system' ? '__system__' : (m.from?.id || m.from?.name || '__unknown__')
-                ).map((group, gi) => {
-                  const firstMsg = group.messages[0];
-                  if (firstMsg.type === 'system') {
-                    return group.messages.map(msg => (
-                      <div key={msg.id} className="text-center">
-                        <span className="text-[10px] text-[var(--muted)] bg-white/5 px-3 py-1 rounded-full">
-                          {msg.content}
-                        </span>
-                      </div>
-                    ));
-                  }
-
-                  const isMerged = group.messages.length > 1;
-                  return (
-                    <div key={`group-${gi}`} className="flex gap-2">
-                      {firstMsg.from?.avatar ? (
-                        <img
-                          src={firstMsg.from.avatar}
-                          alt=""
-                          className="w-8 h-8 rounded-full bg-[var(--border)] shrink-0 mt-0.5 cursor-pointer hover:ring-2 hover:ring-[var(--accent)] transition-all"
-                          onClick={() => firstMsg.from?.id && firstMsg.from.id !== 'system' && setSelectedAgent(firstMsg.from.id)}
-                        />
-                      ) : (
-                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-600 to-blue-700 flex items-center justify-center text-xs shrink-0 mt-0.5">
-                          🤖
-                        </div>
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-0.5">
-                          <span
-                            className={`text-xs font-medium ${firstMsg.from?.id && firstMsg.from.id !== 'system' ? 'cursor-pointer hover:text-[var(--accent)] transition-colors' : ''}`}
-                            onClick={() => firstMsg.from?.id && firstMsg.from.id !== 'system' && setSelectedAgent(firstMsg.from.id)}
-                          >{firstMsg.from?.name || t('mailbox.system')}</span>
-                          {firstMsg.from?.role && (
-                            <span className="text-[10px] text-[var(--muted)] bg-white/5 px-1 py-0.5 rounded">{firstMsg.from.role}</span>
-                          )}
-                          <span className="text-[10px] text-[var(--muted)]">
-                            {new Date(firstMsg.time).toLocaleTimeString('zh', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                          </span>
-                        </div>
-                        {isMerged ? (
-                          /* 合并气泡 */
-                          <div className={`rounded-2xl rounded-tl-sm px-3 py-2 text-sm inline-block max-w-[min(85%,600px)] bg-[var(--card)] border border-[var(--border)]`}>
-                            {group.messages.map((msg, mi) => {
-                              const { cleanContent: gc, fileRefs: gfr } = parseFileReferences(msg.content);
-                              return (
-                                <div key={msg.id}>
-                                  {mi > 0 && <div className="border-t border-white/[0.06] my-1.5" />}
-                                  <div className="break-words text-sm leading-relaxed chat-markdown">
-                                    {renderMentions(cleanMessageContent(gc), agentMap, setSelectedAgent) || (
-                                      <ReactMarkdown remarkPlugins={[remarkGfm]} components={chatMarkdownComponents}>
-                                        {cleanMessageContent(gc)}
-                                      </ReactMarkdown>
-                                    )}
-                                  </div>
-                                  <FileRefList fileRefs={gfr} />
-                                </div>
-                              );
-                            })}
-                          </div>
-                        ) : (
-                          /* 单条消息 */
-                          (() => {
-                            const msg = firstMsg;
-                            const { cleanContent: groupClean, fileRefs: groupFileRefs } = parseFileReferences(msg.content);
-                            return (
-                              <div className={`rounded-2xl rounded-tl-sm px-3 py-2 text-sm inline-block max-w-[min(85%,600px)] ${
-                                msg.type === 'output'
-                                  ? 'bg-green-900/20 border border-green-500/20'
-                                  : msg.type === 'tool_call'
-                                  ? 'bg-purple-900/20 border border-purple-500/20'
-                                  : 'bg-[var(--card)] border border-[var(--border)]'
-                              }`}>
-                                <div className="break-words text-sm leading-relaxed chat-markdown">
-                                  {renderMentions(cleanMessageContent(groupClean), agentMap, setSelectedAgent) || (
-                                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={chatMarkdownComponents}>
-                                      {cleanMessageContent(groupClean)}
-                                    </ReactMarkdown>
-                                  )}
-                                </div>
-                                <FileRefList fileRefs={groupFileRefs} />
-                              </div>
-                            );
-                          })()
-                        )}
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-              <div ref={messagesEndRef} />
-            </div>
+            {/* Requirement group chat - using shared GroupChatView */}
+            <GroupChatView
+              groupChat={reqChatDetail.groupChat || []}
+              agentMap={agentMap}
+              bossAvatar={company?.bossAvatar}
+              bossName={company?.boss || 'Boss'}
+              requirementId={activeReqChat}
+              onSendMessage={sendGroupChatMessage}
+              fetchDetail={async (reqId) => {
+                const detail = await fetchRequirementDetail(reqId);
+                if (detail) setReqChatDetail(detail);
+                return detail;
+              }}
+              leaderInfo={(() => {
+                const leaderMsg = (reqChatDetail.groupChat || []).find(m => m.from?.id !== 'boss' && m.from?.role !== 'system' && m.type !== 'system');
+                return leaderMsg ? { name: leaderMsg.from?.name, avatar: leaderMsg.from?.avatar } : null;
+              })()}
+              chatEndRef={messagesEndRef}
+              embedded
+            />
           </>
         ) : (
           <div className="flex-1 flex items-center justify-center text-[var(--muted)]">

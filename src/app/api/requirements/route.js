@@ -97,6 +97,20 @@ export async function POST(request) {
   const body = await request.json();
   const { action, id } = body;
 
+  // Boss sends a message in group chat
+  if (action === 'boss_message') {
+    const { id: reqId, message: bossMsg } = body;
+    if (!reqId || !bossMsg) {
+      return NextResponse.json({ error: 'Requirement ID and message are required' }, { status: 400 });
+    }
+    try {
+      const result = await company.sendBossGroupMessage(reqId, bossMsg);
+      return NextResponse.json({ data: result });
+    } catch (e) {
+      return NextResponse.json({ error: e.message }, { status: 500 });
+    }
+  }
+
   if (action === 'restart') {
     if (!id) {
       return NextResponse.json({ error: 'Requirement ID is required' }, { status: 400 });

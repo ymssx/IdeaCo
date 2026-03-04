@@ -157,6 +157,7 @@ stats: { departments: '부서', workers: '직원', requirements: '요구사항' 
     avgPerformance: '평균 성과 {score}', rolePrompt: '역할 프롬프트', skills: '스킬',
     shortTermMemory: '⚡ 단기 메모리 ({n})', longTermMemory: '💾 장기 메모리 ({n})',
     noShortTerm: '단기 메모리 없음', noLongTerm: '장기 메모리 없음', noPerformance: '성과 기록 없음', noTasks: '작업 기록 없음',
+    incentiveTitle: '인센티브 ({n})', incentive_outstanding: '탁월한 성과', incentive_excellent: '우수한 성과', scorePoints: '{score}점',
     totalCost: '총 비용', totalTokens: '총 토큰', promptTokens: '프롬프트 토큰', completionTokens: '완료 토큰',
     callCount: 'LLM 호출 횟수', callUnit: '회', usageHint: '💡 소비 데이터는 실제 LLM API 호출의 usage 정보 누적입니다',
     toolCalls: '🔧 {n}회 도구 호출', score: '{score}점 {level}',

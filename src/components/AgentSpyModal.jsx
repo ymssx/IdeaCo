@@ -160,7 +160,7 @@ export default function AgentSpyModal({ agentId, agentName, agentAvatar, onClose
   const agentMap = {};
   if (company?.departments) {
     for (const dept of company.departments) {
-      for (const agent of (dept.agents || [])) {
+      for (const agent of (dept.members || dept.agents || [])) {
         agentMap[agent.id] = agent.name;
       }
     }

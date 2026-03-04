@@ -107,7 +107,7 @@ export default function ChatPanel() {
           <button
             onClick={() => setChatMinimized(true)}
             className="text-[var(--muted)] hover:text-white text-lg w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white/10 transition-all"
-            title={t('common.minimize') || '收起'}
+            title={t('common.minimize')}
           >
             ▾
           </button>

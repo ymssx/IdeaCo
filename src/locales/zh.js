@@ -144,6 +144,7 @@ const zh = {
     viewAgentDetail: '查看员工详情',
     groupChatCount: '🏢 {dept} · {n} 条消息',
     noGroupChatHint: '任务执行时员工的沟通消息会在这里显示',
+    groupChatInput: '在群聊中发言，负责人会看到并做出响应...',
   },
   dept: {
     title: '🏢 公司架构',
@@ -268,6 +269,7 @@ const zh = {
     shortTermMemory: '⚡ 短期记忆 ({n})', longTermMemory: '💾 长期记忆 ({n})',
     noShortTerm: '暂无短期记忆', noLongTerm: '暂无长期记忆',
     noPerformance: '暂无绩效记录', noTasks: '暂无任务记录',
+    incentiveTitle: '获得激励 ({n})', incentive_outstanding: '卓越表现', incentive_excellent: '优秀表现', scorePoints: '{score}分',
     totalCost: '总费用', totalTokens: '总 Token', promptTokens: 'Prompt Tokens', completionTokens: 'Completion Tokens',
     callCount: 'LLM 调用次数', callUnit: '次',
     usageHint: '💡 消耗数据基于实际 LLM API 调用返回的 usage 信息累计',
@@ -337,7 +339,7 @@ const zh = {
     deleteConfirm: { title: '🗑 删除需求', desc: '确定要删除该需求吗？此操作无法撤销。', confirmBtn: '确认删除' },
     summary: { tasks: '✅ {n}/{total} 任务', duration: '⏱️ {n}秒' },
     timeDuration: '⏱ 耗时 {n}秒',
-    workflow: { progress: '整体进度', running: '运行中', completed: '已完成', failed: '失败', pending: '待执行', typing: '正在工作...', notParsed: '工作流尚未拆解' },
+    workflow: { progress: '整体进度', running: '运行中', completed: '已完成', failed: '失败', pending: '待执行', typing: '正在工作...', notParsed: '工作流尚未拆解', leader: '负责人', planning: '正在分析和拆解任务中...' },
     live: {
       stuck: '🔴 可能卡住了', waiting: '🟡 等待响应中...', running: '🟢 正在执行',
       secondsAgo: '{n}秒前', minutesAgo: '{n}分钟前',

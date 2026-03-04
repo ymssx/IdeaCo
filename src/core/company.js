@@ -12,7 +12,7 @@ import { debouncedSave } from './persistence.js';
 import { llmClient } from './llm-client.js';
 import { loadAgentMemory, saveAgentMemory } from './memory-store.js';
 import { Memory } from './memory.js';
-import { RequirementManager } from './requirement.js';
+import { RequirementManager, RequirementStatus } from './requirement.js';
 import { hookRegistry, HookEvent } from './hooks.js';
 import { sessionManager } from './session.js';
 import { cronScheduler } from './cron.js';
@@ -1035,6 +1035,16 @@ const dept = this.findDepartment(departmentId);
 
     // 2. Leader decomposes workflow
     const leader = dept.getLeader() || members[0];
+
+    // 更新 liveStatus：planning 阶段记录 leader 信息
+    requirement.updateLiveStatus({
+      currentAgent: leader.name,
+      currentAgentId: leader.id,
+      currentAgentAvatar: leader.avatar,
+      currentAction: `${leader.name} is analyzing and decomposing the requirement...`,
+    });
+    this.save();
+
     try {
       await this.requirementManager.planWorkflow(
         requirement, members, leader.provider
@@ -1128,6 +1138,264 @@ const dept = this.findDepartment(departmentId);
       })),
       completedAt: new Date(),
     };
+  }
+
+  /**
+   * Boss sends a message in a requirement's group chat
+   * The leader will see the message and decide whether to adjust the plan
+   * @param {string} requirementId - Requirement ID
+   * @param {string} message - Boss's message
+   * @returns {Promise<object>} Leader's response
+   */
+  async sendBossGroupMessage(requirementId, message) {
+    const requirement = this.requirementManager.get(requirementId);
+    if (!requirement) throw new Error('Requirement not found');
+
+    const dept = this.findDepartment(requirement.departmentId);
+    if (!dept) throw new Error('Department not found');
+
+    const leader = dept.getLeader() || dept.getMembers()[0];
+    if (!leader) throw new Error('No leader found in department');
+
+    // 1. 将 Boss 消息加入群聊
+    requirement.addGroupMessage(
+      {
+        id: 'boss',
+        name: this.bossName || 'Boss',
+        avatar: this.bossAvatar || null,
+        role: 'Boss',
+      },
+      message,
+      'message'
+    );
+    this.save();
+
+    // 2. Leader 异步处理 Boss 消息（用 LLM 判断是否需要调整）
+    const leaderResponse = await this._leaderHandleBossMessage(leader, requirement, dept, message);
+
+    // 3. Leader 的回复加入群聊
+    if (leaderResponse.reply) {
+      requirement.addGroupMessage(leader, leaderResponse.reply, 'message');
+    }
+
+    // 4. 根据 Leader 的决策执行操作
+    if (leaderResponse.action === 'stop') {
+      // 停止项目
+      requirement.status = 'failed';
+      requirement.completedAt = new Date();
+      requirement.updateLiveStatus({
+        currentAction: 'Boss requested stop, project halted',
+        currentAgent: null,
+      });
+      requirement.addGroupMessage(
+        { name: 'System', role: 'system' },
+        `⏹️ 项目已被老板要求停止`,
+        'system'
+      );
+    } else if (leaderResponse.action === 'restart') {
+      // 重新开始项目（标记为失败，前端可以用 restart 按钮）
+      requirement.addGroupMessage(
+        { name: 'System', role: 'system' },
+        `🔄 老板要求重新开始项目，正在重新规划...`,
+        'system'
+      );
+      // 异步重新执行，不阻塞
+      const title = requirement.title;
+      const description = requirement.description;
+      const deptId = requirement.departmentId;
+      // 删除旧需求
+      this.requirementManager.requirements.delete(requirementId);
+      // 重新派发
+      this.assignTaskToDepartment(deptId, description, title).catch(e => {
+        console.error('Restart requirement failed:', e.message);
+      });
+    } else if (leaderResponse.action === 'adjust' && leaderResponse.adjustments) {
+      // 调整方案：leader 已在回复中说明了调整内容，触发实际的 workflow 修改
+      requirement.addGroupMessage(
+        { name: 'System', role: 'system' },
+        `📝 ${leader.name} 正在根据老板指示调整方案...`,
+        'system'
+      );
+
+      // 记录旧 workflow 用于参考
+      const previousWorkflow = requirement.workflow?.nodes?.map(n =>
+        `- [${n.status}] ${n.title} → ${n.assigneeName || 'unknown'}${n.dependencies?.length ? ` (deps: ${n.dependencies.join(', ')})` : ''}`
+      ).join('\n') || 'No previous workflow';
+
+      // 记录已有的产出文件（调整时保留，不删除）
+      const existingOutputs = requirement.outputs || [];
+
+      // 重置 requirement 状态（保留 outputs，不删除已有文件）
+      requirement.status = RequirementStatus.PLANNING;
+      requirement.workflow = null;
+      // 注意：不清空 outputs，在原有基础上修改/补充
+      requirement.summary = null;
+      requirement.completedAt = null;
+      requirement.updateLiveStatus({
+        currentAgent: leader.name,
+        currentAgentId: leader.id,
+        currentAgentAvatar: leader.avatar,
+        currentAction: `${leader.name} is re-planning the workflow based on Boss's instructions...`,
+        toolCallsInProgress: [],
+        recentFileChanges: [],
+      });
+      this.save();
+
+      // 异步重新规划 + 执行（不阻塞 API 返回）
+      const members = dept.getMembers();
+      const adjustmentContext = {
+        bossMessage: message,
+        adjustments: leaderResponse.adjustments,
+        previousWorkflow,
+        existingOutputs: existingOutputs.map(o => o.fileName || o.title || 'unknown').join(', '),
+      };
+
+      (async () => {
+        try {
+          await this.requirementManager.planWorkflow(
+            requirement, members, leader.provider, adjustmentContext
+          );
+          this.save();
+
+          // 重新执行调整后的 workflow
+          await this.requirementManager.executeWorkflow(
+            requirement, dept, this.performanceSystem
+          );
+          this.save();
+
+          // 完成后 leader 发送汇报邮件
+          if (leader) {
+            const summary = requirement.summary || {};
+            let reportContent = `需求 "${requirement.title}" 调整后已重新完成！\n\n`;
+            reportContent += `📊 执行结果：\n`;
+            reportContent += `- 完成任务: ${summary.successTasks || 0}/${summary.totalTasks || 0}\n`;
+            reportContent += `- 总耗时: ${Math.round((summary.totalDuration || 0) / 1000)}s\n\n`;
+            reportContent += `📝 调整原因: ${message}\n`;
+            leader.sendMailToBoss(`📋 Adjusted Requirement Report: ${requirement.title}`, reportContent, this);
+          }
+        } catch (e) {
+          console.error('Adjust workflow failed:', e.message);
+          requirement.status = RequirementStatus.FAILED;
+          requirement.completedAt = new Date();
+          requirement.addGroupMessage(
+            { name: 'System', role: 'system' },
+            `❌ 调整方案执行失败: ${e.message}`,
+            'system'
+          );
+          this.save();
+        }
+      })();
+    }
+    // action === 'continue' → 无需特殊处理，照常继续
+
+    this.save();
+
+    return {
+      requirementId,
+      bossMessage: message,
+      leaderReply: leaderResponse.reply,
+      action: leaderResponse.action,
+    };
+  }
+
+  /**
+   * Leader 使用 LLM 处理 Boss 在群聊中的消息
+   * @private
+   */
+  async _leaderHandleBossMessage(leader, requirement, department, bossMessage) {
+    if (!leader.provider?.enabled || !leader.provider?.apiKey) {
+      return {
+        reply: `收到老板的指示！我会认真执行。`,
+        action: 'continue',
+      };
+    }
+
+    try {
+      // 构建群聊历史上下文（最近20条）
+      const recentChat = (requirement.groupChat || []).slice(-20).map(m => {
+        const sender = m.from?.name || 'Unknown';
+        const role = m.from?.role ? `(${m.from.role})` : '';
+        return `[${sender}${role}]: ${m.content}`;
+      }).join('\n');
+
+      // 构建 workflow 状态
+      const workflowStatus = requirement.workflow?.nodes?.map(n => {
+        const agent = department.agents.get(n.assigneeId);
+        return `- [${n.status}] ${n.title} (assigned to: ${agent?.name || n.assigneeName || 'unknown'})`;
+      }).join('\n') || 'No workflow yet';
+
+      const p = leader.personality || {};
+      const response = await llmClient.chat(leader.provider, [
+        {
+          role: 'system',
+          content: `You are "${leader.name}", the project leader of department "${department.name}".
+Your personality: ${p.trait || 'Professional'}. Speaking style: ${p.tone || 'Normal'}.
+You are leading the team to work on requirement "${requirement.title}": ${requirement.description}
+
+Current project status: ${requirement.status}
+Current workflow:
+${workflowStatus}
+
+Recent group chat:
+${recentChat}
+
+The Boss (your employer) just sent a message in the group chat. You need to:
+1. Carefully analyze the Boss's intent
+2. Decide what action to take
+3. Reply naturally in your personality style, addressing the Boss respectfully
+
+You MUST reply in JSON format:
+{
+  "reply": "Your natural reply to the Boss (addressing them as Boss/老板, speaking in your personality style, explaining what you'll do)",
+  "action": "continue|adjust|stop|restart",
+  "adjustments": "If action is 'adjust', briefly describe what changes you'll make to the plan"
+}
+
+Action rules:
+- "continue": Boss is just commenting/encouraging, no changes needed. Or giving minor feedback that doesn't change the plan.
+- "adjust": Boss wants to modify, supplement, or revise the current plan. IMPORTANT: This means working on top of existing results — existing files and outputs will be PRESERVED, only new/modified content will be added. Use this when Boss says things like "add more", "revise", "change X to Y", "also include", "补充", "修改", "调整" etc.
+- "stop": Boss explicitly says to stop, halt, or cancel the project.
+- "restart": Boss EXPLICITLY wants to start over completely from scratch, redo everything, or completely restart. Use ONLY when Boss clearly says "从头开始", "start over", "重新来", "redo from scratch" etc. All existing files will be DELETED.
+
+Reply in the same language the Boss used. Be concise but warm.`
+        },
+        {
+          role: 'user',
+          content: `Boss says: "${bossMessage}"`
+        },
+      ], { temperature: 0.7, maxTokens: 512 });
+
+      leader._trackUsage(response.usage);
+
+      // 解析 JSON
+      const tick = String.fromCharCode(96);
+      const fence = tick + tick + tick;
+      let jsonStr = response.content
+        .replace(fence + 'json', '').replace(fence, '')
+        .replace(fence + 'json', '').replace(fence, '')
+        .trim();
+
+      try {
+        const parsed = JSON.parse(jsonStr);
+        return {
+          reply: parsed.reply || 'Understood, Boss!',
+          action: ['continue', 'adjust', 'stop', 'restart'].includes(parsed.action) ? parsed.action : 'continue',
+          adjustments: parsed.adjustments || null,
+        };
+      } catch {
+        // JSON 解析失败，用原始回复
+        return {
+          reply: response.content?.trim() || 'Understood, Boss!',
+          action: 'continue',
+        };
+      }
+    } catch (e) {
+      console.error(`Leader ${leader.name} failed to handle boss message:`, e.message);
+      return {
+        reply: `收到老板的指示，我会尽快处理！`,
+        action: 'continue',
+      };
+    }
   }
 
   /**

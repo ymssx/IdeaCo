@@ -193,6 +193,7 @@ When the boss communicates with you, you need to:
     viewAgentDetail: 'View agent details',
     groupChatCount: '🏢 {dept} · {n} messages',
     noGroupChatHint: 'Employee communications during task execution will appear here',
+    groupChatInput: 'Send a message in the group chat. The leader will see it and respond...',
   },
 
   // === Department View ===
@@ -403,6 +404,7 @@ When the boss communicates with you, you need to:
     noLongTerm: 'No long-term memory',
     noPerformance: 'No performance records',
     noTasks: 'No task records',
+    incentiveTitle: 'Incentives ({n})', incentive_outstanding: 'Outstanding', incentive_excellent: 'Excellent', scorePoints: '{score} pts',
     totalCost: 'Total Cost',
     totalTokens: 'Total Tokens',
     promptTokens: 'Prompt Tokens',
@@ -524,6 +526,8 @@ When the boss communicates with you, you need to:
       pending: 'Pending',
       typing: 'Working...',
       notParsed: 'Workflow not parsed yet',
+      leader: 'Leader',
+      planning: 'Analyzing and decomposing the requirement...',
     },
     live: {
       stuck: '🔴 Possibly stuck',

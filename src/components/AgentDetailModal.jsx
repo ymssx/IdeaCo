@@ -64,7 +64,12 @@ export default function AgentDetailModal({ agentId, onClose }) {
       <div className="card max-w-2xl w-full mx-4 max-h-[80vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
         {/* Header */}
         <div className="flex items-start gap-4 pb-4 border-b border-[var(--border)]">
-          <img src={agent.avatar} alt={agent.name} className="w-16 h-16 rounded-full bg-[var(--border)]" />
+          <div className="relative shrink-0">
+            <img src={agent.avatar} alt={agent.name} className="w-16 h-16 rounded-full bg-[var(--border)]" />
+            {agent.avgScore >= 80 && (
+              <span className="absolute -top-1 -right-1 text-base animate-pulse drop-shadow-lg" title="高绩效员工">🌸</span>
+            )}
+          </div>
           <div className="flex-1">
             <div className="flex items-center gap-2">
               <h2 className="text-xl font-bold">{agent.name}</h2>
@@ -120,7 +125,7 @@ export default function AgentDetailModal({ agentId, onClose }) {
         </div>
 
         {/* Content area */}
-        <div className="flex-1 overflow-auto p-4">
+        <div className="flex-1 overflow-auto px-0 py-4">
           {activeTab === 'info' && (
             <div className="space-y-4 animate-fade-in">
               {/* 基本信息 */}
@@ -186,6 +191,27 @@ export default function AgentDetailModal({ agentId, onClose }) {
 
           {activeTab === 'performance' && (
             <div className="space-y-3 animate-fade-in">
+              {/* 激励展示区 */}
+              {agent.incentives?.length > 0 && (
+                <div className="bg-gradient-to-r from-pink-900/15 to-orange-900/15 border border-pink-500/20 rounded-xl p-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-base">🌸</span>
+                    <span className="text-sm font-semibold text-pink-300">{t('agent.incentiveTitle', { n: agent.incentives.length })}</span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {agent.incentives.map((inc, i) => (
+                      <div key={i} className="flex items-center gap-1.5 bg-pink-500/10 border border-pink-500/15 rounded-lg px-2.5 py-1.5">
+                        <span className="text-sm">{inc.emoji}</span>
+                        <div>
+                          <div className="text-xs font-medium text-pink-200">{t(`agent.incentive_${inc.label}`)}</div>
+                          <div className="text-[10px] text-pink-300/60 truncate max-w-[120px]" title={inc.task}>{inc.task}</div>
+                        </div>
+                        <span className="text-[10px] text-pink-400 font-bold ml-1">{t('agent.scorePoints', { score: inc.score })}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               {agent.reviews.length === 0 ? (
                 <p className="text-sm text-[var(--muted)]">{t('agent.noPerformance')}</p>
               ) : agent.reviews.map((r) => (

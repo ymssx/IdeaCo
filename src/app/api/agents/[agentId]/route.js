@@ -40,6 +40,18 @@ export async function GET(request, { params }) {
             avgScore: agent.performanceHistory.length > 0
               ? Math.round(agent.performanceHistory.reduce((s, p) => s + p.score, 0) / agent.performanceHistory.length)
               : null,
+            // 激励：基于绩效记录生成（高分获得小红花）
+            incentives: agent.performanceHistory
+              .filter(p => p.score >= 80)
+              .map(p => ({
+                type: 'flower',
+                emoji: '🌸',
+                label: p.score >= 90 ? 'outstanding' : 'excellent',
+                task: p.task,
+                score: p.score,
+                level: p.level,
+                date: p.date,
+              })),
           },
         });
       }
