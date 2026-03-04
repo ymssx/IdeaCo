@@ -29,3 +29,4 @@ export { SessionManager, sessionManager, SessionState, SendPolicy, buildSessionK
 export { ConfigValidator, configValidator, ConfigType, enterpriseConfigSchema } from './config-validator.js';
 export { SkillRegistry, skillRegistry, SkillDefinition, SkillCategory, SkillState } from './skills.js';
 export { KnowledgeManager, knowledgeManager, KnowledgeType, EntryType } from './knowledge.js';
+export { ChatStore, chatStore } from './chat-store.js';

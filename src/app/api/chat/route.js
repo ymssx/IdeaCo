@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getCompany } from '@/lib/store';
+import { chatStore } from '@/core/chat-store.js';
 
 // Store running task states
 const runningTasks = new Map();
@@ -48,12 +49,14 @@ export async function POST(request) {
           });
 
           // Append a secretary message to notify the boss
-          company.chatHistory.push({
+          const notifyMsg = {
             role: 'secretary',
             content: `🎉 "${dept.name}" department has been created! Recruited ${dept.agents.size} employees:\n${dept.getMembers().map(a => `  • ${a.name} (${a.role})`).join('\n')}\n\nTeam is ready, awaiting tasks!`,
             action: { type: 'department_created', departmentId: dept.id, departmentName: dept.name },
             time: new Date(),
-          });
+          };
+          company.chatHistory.push(notifyMsg);
+          chatStore.appendMessage(company.chatSessionId, notifyMsg);
           company.save();
 
           setTimeout(() => runningTasks.delete(taskId), 30 * 60 * 1000);
@@ -61,11 +64,13 @@ export async function POST(request) {
           console.error(`❌ Department creation failed:`, err.message);
           runningTasks.set(taskId, { status: 'failed', error: err.message, failedAt: Date.now() });
 
-          company.chatHistory.push({
+          const errMsg1 = {
             role: 'secretary',
             content: `😥 Encountered a problem creating the department: ${err.message}\n\nShall we try again?`,
             time: new Date(),
-          });
+          };
+          company.chatHistory.push(errMsg1);
+          chatStore.appendMessage(company.chatSessionId, errMsg1);
           company.save();
 
           setTimeout(() => runningTasks.delete(taskId), 30 * 60 * 1000);
@@ -91,12 +96,14 @@ export async function POST(request) {
           console.log(`✅ Auto-created department: ${dept.name}, ${dept.agents.size} people ready`);
 
           // Append secretary message
-          company.chatHistory.push({
+          const autoCreateMsg = {
             role: 'secretary',
             content: `🎉 I've auto-created the "${dept.name}" department (${dept.agents.size} people), now starting task execution...`,
             action: { type: 'department_created', departmentId: dept.id },
             time: new Date(),
-          });
+          };
+          company.chatHistory.push(autoCreateMsg);
+          chatStore.appendMessage(company.chatSessionId, autoCreateMsg);
           company.save();
 
           // Step 2: Assign task
@@ -109,11 +116,13 @@ export async function POST(request) {
           console.error(`❌ Create department and assign task failed:`, err.message);
           runningTasks.set(taskId, { status: 'failed', error: err.message, failedAt: Date.now() });
 
-          company.chatHistory.push({
+          const errMsg2 = {
             role: 'secretary',
             content: `😥 Encountered a problem creating the department and assigning the task: ${err.message}\n\nPlease try creating the department manually and try again.`,
             time: new Date(),
-          });
+          };
+          company.chatHistory.push(errMsg2);
+          chatStore.appendMessage(company.chatSessionId, errMsg2);
           company.save();
 
           setTimeout(() => runningTasks.delete(taskId), 30 * 60 * 1000);
@@ -146,11 +155,13 @@ export async function POST(request) {
           runningTasks.set(taskId, { status: 'failed', error: err.message, failedAt: Date.now() });
 
           // Append secretary message to notify boss of task failure
-          company.chatHistory.push({
+          const taskFailMsg = {
             role: 'secretary',
             content: `❌ Task execution failed... Error: ${err.message}\n\nShall we try again?`,
             time: new Date(),
-          });
+          };
+          company.chatHistory.push(taskFailMsg);
+          chatStore.appendMessage(company.chatSessionId, taskFailMsg);
           company.save();
 
           setTimeout(() => runningTasks.delete(taskId), 30 * 60 * 1000);

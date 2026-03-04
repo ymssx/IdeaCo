@@ -18,6 +18,7 @@ import { sessionManager } from './session.js';
 import { cronScheduler } from './cron.js';
 import { pluginRegistry } from './plugin.js';
 import { auditLogger, AuditCategory, AuditLevel } from './audit.js';
+import { chatStore } from './chat-store.js';
 
 /**
  * Company - AI Enterprise
@@ -35,7 +36,15 @@ export class Company {
     this.hr = new HRSystem(this.providerRegistry, this.talentMarket);
     this.logs = [];
     // Chat history with secretary
+    // chatHistory 保留为内存缓存（供前端 UI 快速访问），同时写入 chatStore 文件持久化
     this.chatHistory = [];
+    // 聊天会话 ID（用于 chatStore 文件存储）
+    this.chatSessionId = `boss-secretary-${this.id}`;
+    chatStore.createSession(this.chatSessionId, {
+      title: `${bossName} & Secretary`,
+      participants: [bossName, 'Secretary'],
+      type: 'boss-secretary',
+    });
     // Department progress reports
     this.progressReports = [];
     // Mailbox: private messages from Agents to boss
@@ -89,21 +98,32 @@ export class Company {
    * @returns {Promise<object>} Secretary's reply
    */
   async chatWithSecretary(message) {
-    this.chatHistory.push({
+    const bossMsg = {
       role: 'boss',
       content: message,
       time: new Date(),
-    });
+    };
+    this.chatHistory.push(bossMsg);
+    // 持久化到文件存储
+    chatStore.appendMessage(this.chatSessionId, bossMsg);
 
     // Let secretary analyze whether it's task assignment or casual conversation
     const reply = await this.secretary.handleBossMessage(message, this);
 
-    this.chatHistory.push({
+    const secretaryMsg = {
       role: 'secretary',
       content: reply.content,
       action: reply.action || null,
       time: new Date(),
-    });
+    };
+    this.chatHistory.push(secretaryMsg);
+    // 持久化到文件存储
+    chatStore.appendMessage(this.chatSessionId, secretaryMsg);
+
+    // 内存中只保留最近 50 条（前端缓存用）
+    if (this.chatHistory.length > 50) {
+      this.chatHistory = this.chatHistory.slice(-50);
+    }
 
     this._log('Secretary chat', `Boss: "${message.slice(0, 30)}..." → Secretary replied`);
     return reply;
@@ -1063,6 +1083,7 @@ const dept = this.findDepartment(departmentId);
       providerConfigs,
       talentPool,
       mailbox: this.mailbox.slice(-200),
+      chatSessionId: this.chatSessionId,
       chatHistory: this.chatHistory.slice(-50),
       progressReports: this.progressReports.slice(-30),
       logs: this.logs.slice(-100),
@@ -1183,6 +1204,14 @@ const dept = this.findDepartment(departmentId);
     // Restore mailbox, chat history, progress reports, logs
     company.mailbox = data.mailbox || [];
     company.chatHistory = data.chatHistory || [];
+    // 恢复聊天会话 ID
+    if (data.chatSessionId) {
+      company.chatSessionId = data.chatSessionId;
+    }
+    // 如果有旧版 chatHistory 数据且文件存储为空，则迁移
+    if (company.chatHistory.length > 0 && chatStore.getMessageCount(company.chatSessionId) === 0) {
+      chatStore.migrateFromArray(company.chatSessionId, company.chatHistory);
+    }
     company.progressReports = data.progressReports || [];
     company.logs = data.logs || [];
 

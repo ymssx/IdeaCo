@@ -6,6 +6,7 @@ import { JobTemplates } from './hr.js';
 import { pluginRegistry } from './plugin.js';
 import { skillRegistry } from './skills.js';
 import { knowledgeManager } from './knowledge.js';
+import { chatStore } from './chat-store.js';
 
 /**
  * Secretary's Dedicated HR Assistant
@@ -546,6 +547,9 @@ Requirements:
    * LLM-driven boss message handling
    */
   async _llmHandleBossMessage(message, company) {
+    // === 唤醒前整理记忆：清理过期短期记忆、去重 ===
+    this.agent.memory.consolidateMemories();
+
     // Build company context
     const deptCount = company.departments.size;
     const departments = [...company.departments.values()].map(d => ({
@@ -562,11 +566,38 @@ Requirements:
     const agentCount = departments.reduce((s, d) => s + d.memberCount, 0);
     const talentCount = company.talentMarket.listAvailable().length;
 
-    // Get recent chat history (as multi-turn context)
-    const recentHistory = (company.chatHistory || []).slice(-20).map(h => ({
-      role: h.role === 'boss' ? 'user' : 'assistant',
-      content: h.content,
-    }));
+    // === 从 chatStore 读取最近 10 条消息作为多轮上下文 ===
+    let recentHistory = [];
+    try {
+      const recentMessages = chatStore.getRecentMessages(company.chatSessionId, 10);
+      recentHistory = recentMessages.map(h => ({
+        role: h.role === 'boss' ? 'user' : 'assistant',
+        content: h.content,
+      }));
+    } catch (e) {
+      // 回退到内存中的 chatHistory
+      recentHistory = (company.chatHistory || []).slice(-10).map(h => ({
+        role: h.role === 'boss' ? 'user' : 'assistant',
+        content: h.content,
+      }));
+    }
+
+    // === 通过关键词搜索历史消息中的相关上下文 ===
+    let searchContextSection = '';
+    try {
+      const searchResults = chatStore.searchWithContext(company.chatSessionId, message, 3, 1);
+      if (searchResults.length > 0) {
+        searchContextSection = '\n## Related Historical Context (from past conversations)\n';
+        for (const result of searchResults) {
+          const contextStr = result.context.map(m => 
+            `  [${m.role}] ${m.content.slice(0, 150)}${m.content.length > 150 ? '...' : ''}`
+          ).join('\n');
+          searchContextSection += `- Relevance: ${result.score.toFixed(2)}\n${contextStr}\n\n`;
+        }
+      }
+    } catch (e) {
+      // 搜索失败不影响主流程
+    }
 
     const secretaryPrompt = this.agent.prompt || '';
 
@@ -631,6 +662,7 @@ Requirements:
 ${secretaryPrompt ? `\nYour core persona: ${secretaryPrompt}\n` : ''}
 Your personality: smart, efficient, approachable. Communicate with the boss like a real, thoughtful secretary — natural, warm, not robotic.
 ${memorySection}
+${searchContextSection}
 Current company "${company.name}" status:
 - Departments: ${deptCount}
 - Active employees: ${agentCount}
