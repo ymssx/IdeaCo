@@ -91,7 +91,7 @@ export default function OrgTree({ embedded = false }) {
           <img src={company.secretary?.avatar} alt="secretary" className="w-10 h-10 rounded-full bg-[var(--border)] mb-1" />
           <div className="text-sm font-medium">{company.secretary?.name}</div>
           <div className="text-[10px] text-purple-400">
-            {company.secretary?.gender === 'female' ? '👩' : '👨'}{company.secretary?.age ? ` ${company.secretary.age}岁` : ''} · {t('orgTree.secretary')}
+{company.secretary?.gender === 'female' ? '👩' : '👨'}{company.secretary?.age ? ` ${t('display.ageYears', { n: company.secretary.age })}` : ''} · {t('orgTree.secretary')}
           </div>
         </div>
         <div className="w-px h-6 bg-[var(--border)]" />

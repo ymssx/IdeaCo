@@ -68,7 +68,7 @@ export default function TalentMarket({ asModal = false, onClose = null }) {
                 <div>
                   <h3 className="font-semibold">{talent.name}</h3>
                   <div className="text-xs text-[var(--muted)]">
-                    {talent.gender === 'female' ? '👩' : '👨'}{talent.age ? ` ${talent.age}岁` : ''} · {talent.role}
+{talent.gender === 'female' ? '👩' : '👨'}{talent.age ? ` ${t('display.ageYears', { n: talent.age })}` : ''} · {talent.role}
                   </div>
                 </div>
                 {talent.performanceScore && (

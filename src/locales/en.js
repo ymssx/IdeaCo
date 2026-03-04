@@ -360,6 +360,29 @@ When the boss communicates with you, you need to:
     noRecordsHint: 'Agents will automatically generate communication messages during task execution',
   },
 
+  // === Common Display ===
+  display: {
+    ageYears: '{n} yrs',
+    ageLabel: 'Age',
+    ageUnknown: 'Unknown',
+    genderFemale: '👩',
+    genderMale: '👨',
+    genderFemaleText: '👩 Female',
+    genderMaleText: '👨 Male',
+    personality: 'Personality',
+  },
+
+  // === File Reference ===
+  fileRef: {
+    viewFile: 'View File',
+    loading: 'Loading...',
+    loadFailed: 'Failed to load file content',
+    close: 'Close',
+    lines: '{n} lines',
+    copyPath: 'Copy Path',
+    copied: 'Copied!',
+  },
+
   // === Agent Detail Modal ===
   agent: {
     notFound: 'Employee info not found',

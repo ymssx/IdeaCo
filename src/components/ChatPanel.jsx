@@ -6,6 +6,7 @@ import { getAvatarUrl } from '@/lib/avatar';
 import { useI18n } from '@/lib/i18n';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { parseFileReferences, FileRefList } from './FileReference';
 
 export default function ChatPanel() {
   const { company, chatWithSecretary, chatOpen, setChatOpen } = useStore();
@@ -108,7 +109,9 @@ export default function ChatPanel() {
           </div>
         )}
 
-        {localHistory.map((msg, i) => (
+        {localHistory.map((msg, i) => {
+          const { cleanContent, fileRefs } = parseFileReferences(msg.content);
+          return (
           <div key={i} className={`flex gap-2 ${msg.role === 'boss' ? 'flex-row-reverse' : ''}`}>
             {msg.role === 'secretary' && (
               <img
@@ -164,9 +167,10 @@ export default function ChatPanel() {
                     td: ({ children }) => <td className="border border-white/20 px-2 py-1">{children}</td>,
                   }}
                 >
-                  {msg.content}
+                  {cleanContent}
                 </ReactMarkdown>
               </div>
+              <FileRefList fileRefs={fileRefs} />
               {msg.action && (
                 <div className="mt-2 pt-2 border-t border-white/10 text-[10px] text-blue-300">
                   {msg.action.type === 'task_assigned' && (
@@ -183,7 +187,8 @@ export default function ChatPanel() {
               </div>
             )}
           </div>
-        ))}
+          );
+        })}
 
         {sending && (
           <div className="flex gap-2">

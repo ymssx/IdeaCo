@@ -240,6 +240,27 @@ const zh = {
     totalMessages: '总消息数', activeAgents: '活跃Agent', messageTypes: '消息类型',
     noRecords: '暂无通信记录', noRecordsHint: 'Agent执行任务时会自动产生通信消息',
   },
+  // === 通用展示 ===
+  display: {
+    ageYears: '{n}岁',
+    ageLabel: '年龄',
+    ageUnknown: '未知',
+    genderFemale: '👩',
+    genderMale: '👨',
+    genderFemaleText: '👩 女',
+    genderMaleText: '👨 男',
+    personality: '性格',
+  },
+  fileRef: {
+    viewFile: '查看文件',
+    loading: '加载中...',
+    loadFailed: '加载文件内容失败',
+    close: '关闭',
+    lines: '{n} 行',
+    copyPath: '复制路径',
+    copied: '已复制!',
+  },
+
   agent: {
     notFound: '员工信息未找到',
     tabs: { info: '📋 基本信息', memory: '🧠 记忆', performance: '📊 绩效', tasks: '📝 任务历史', usage: '💰 消耗' },

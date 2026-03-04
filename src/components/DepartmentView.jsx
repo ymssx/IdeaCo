@@ -266,7 +266,7 @@ export default function DepartmentView() {
                           <span className={`status-dot ${member.status}`} />
                         </div>
                         <div className="text-xs text-[var(--muted)]">
-                          {member.gender === 'female' ? '👩' : '👨'}{member.age ? ` ${member.age}岁` : ''} · {member.role}
+{member.gender === 'female' ? '👩' : '👨'}{member.age ? ` ${t('display.ageYears', { n: member.age })}` : ''} · {member.role}
                         </div>
                         <div className="text-[10px] text-[var(--muted)] italic mt-1 truncate">"{member.signature}"</div>
                       </div>

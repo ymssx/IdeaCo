@@ -7,6 +7,7 @@ import AgentDetailModal from './AgentDetailModal';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useI18n } from '@/lib/i18n';
+import { parseFileReferences, FileRefList } from './FileReference';
 
 // Markdown render component mapping for chat bubbles
 const chatMarkdownComponents = {
@@ -566,6 +567,7 @@ export default function Mailbox() {
                       </div>
                     );
                   }
+                  const { cleanContent: groupClean, fileRefs: groupFileRefs } = parseFileReferences(msg.content);
                   return (
                     <div key={msg.id} className="flex gap-2">
                       {msg.from?.avatar ? (
@@ -594,9 +596,10 @@ export default function Mailbox() {
                         }`}>
                         <div className="break-words text-sm leading-relaxed chat-markdown">
                           <ReactMarkdown remarkPlugins={[remarkGfm]} components={chatMarkdownComponents}>
-                            {cleanMessageContent(msg.content)}
+                            {cleanMessageContent(groupClean)}
                           </ReactMarkdown>
                         </div>
+                        <FileRefList fileRefs={groupFileRefs} />
                         </div>
                       </div>
                     </div>
@@ -630,6 +633,7 @@ export default function Mailbox() {
  */
 function MessageBubble({ isMe, avatar, name, content, time, action, subject, agentId, onClickAvatar }) {
   const { t } = useI18n();
+  const { cleanContent, fileRefs } = parseFileReferences(content);
   return (
     <div className={`flex gap-2 ${isMe ? 'flex-row-reverse' : ''}`}>
       {!isMe ? (
@@ -670,9 +674,10 @@ function MessageBubble({ isMe, avatar, name, content, time, action, subject, age
         }`}>
           <div className="break-words chat-markdown">
             <ReactMarkdown remarkPlugins={[remarkGfm]} components={chatMarkdownComponents}>
-              {cleanMessageContent(content)}
+              {cleanMessageContent(cleanContent)}
             </ReactMarkdown>
           </div>
+          <FileRefList fileRefs={fileRefs} />
         </div>
         {/* Action tag */}
         {action && (

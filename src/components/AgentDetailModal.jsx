@@ -65,7 +65,7 @@ export default function AgentDetailModal({ agentId, onClose }) {
             </div>
             <div className="text-sm text-[var(--muted)]">{agent.role} · {agent.department}</div>
             <div className="text-xs text-[var(--muted)] mt-1">
-              {agent.gender === 'female' ? '👩' : '👨'} {agent.age ? `${agent.age}岁` : ''}
+              {agent.gender === 'female' ? '👩' : '👨'} {agent.age ? t('display.ageYears', { n: agent.age }) : ''}
               {agent.personality?.trait && <span className="ml-2 text-purple-400">· {agent.personality.trait}</span>}
             </div>
             <div className="text-xs text-[var(--muted)] italic mt-1">"{agent.signature}"</div>
@@ -107,16 +107,16 @@ export default function AgentDetailModal({ agentId, onClose }) {
               {/* 基本信息 */}
               <div className="grid grid-cols-3 gap-3">
                 <div className="bg-[var(--background)] border border-[var(--border)] rounded-lg p-3">
-                  <div className="text-xs text-[var(--muted)] mb-1">性别</div>
-                  <div className="text-sm font-medium">{agent.gender === 'female' ? '👩 女' : '👨 男'}</div>
+                  <div className="text-xs text-[var(--muted)] mb-1">{t('setup.gender')}</div>
+                  <div className="text-sm font-medium">{agent.gender === 'female' ? t('display.genderFemaleText') : t('display.genderMaleText')}</div>
                 </div>
                 <div className="bg-[var(--background)] border border-[var(--border)] rounded-lg p-3">
-                  <div className="text-xs text-[var(--muted)] mb-1">年龄</div>
-                  <div className="text-sm font-medium">{agent.age || '未知'}岁</div>
+                  <div className="text-xs text-[var(--muted)] mb-1">{t('display.ageLabel')}</div>
+                  <div className="text-sm font-medium">{agent.age ? t('display.ageYears', { n: agent.age }) : t('display.ageUnknown')}</div>
                 </div>
                 <div className="bg-[var(--background)] border border-[var(--border)] rounded-lg p-3">
-                  <div className="text-xs text-[var(--muted)] mb-1">性格</div>
-                  <div className="text-sm font-medium text-purple-400">{agent.personality?.trait || '未知'}</div>
+                  <div className="text-xs text-[var(--muted)] mb-1">{t('display.personality')}</div>
+                  <div className="text-sm font-medium text-purple-400">{agent.personality?.trait || t('display.ageUnknown')}</div>
                 </div>
               </div>
               <div>

@@ -55,7 +55,7 @@ export class Agent {
 
     // 性别和年龄：由招聘时随机生成或手动指定，不再从名字推断
     this.gender = gender || (Math.random() > 0.5 ? 'male' : 'female');
-    this.age = age || Math.floor(Math.random() * 20) + 22; // 默认22-42岁
+    this.age = age || Math.floor(Math.random() * 20) + 22; // Default 22-42 years old
 
     // 头像：基于性别+年龄+随机数生成，记录在个人信息中
     if (avatar) {
