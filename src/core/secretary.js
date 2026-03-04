@@ -609,10 +609,28 @@ Requirements:
       }
     } catch {}
 
+    // Inject secretary's long-term memory into context
+    let memorySection = '';
+    const longTermMemories = this.agent.memory.searchLongTerm();
+    const shortTermMemories = this.agent.memory.shortTerm;
+    if (longTermMemories.length > 0) {
+      memorySection += `\n## Your Long-term Memories (important facts, preferences, and notes from the boss)\n`;
+      const recentLong = longTermMemories.slice(-30);
+      recentLong.forEach(m => {
+        memorySection += `- [${m.category}] ${m.content}\n`;
+      });
+    }
+    if (shortTermMemories.length > 0) {
+      memorySection += `\n## Your Short-term Memories (recent context)\n`;
+      shortTermMemories.forEach(m => {
+        memorySection += `- ${m.content}\n`;
+      });
+    }
+
     const systemPrompt = `You are "${this.agent.name}", the personal secretary of ${company.bossName || 'the Boss'}.
 ${secretaryPrompt ? `\nYour core persona: ${secretaryPrompt}\n` : ''}
 Your personality: smart, efficient, approachable. Communicate with the boss like a real, thoughtful secretary — natural, warm, not robotic.
-
+${memorySection}
 Current company "${company.name}" status:
 - Departments: ${deptCount}
 - Active employees: ${agentCount}
@@ -624,6 +642,13 @@ When the boss asks about your capabilities, plugins, tools, skills, or what you 
 You must understand the boss's intent and reply naturally. Your reply MUST be a JSON object (return JSON only, nothing else):
 {
   "content": "Your natural language reply (like a real secretary — warm, personal, no rigid templates)",
+  "memory": null or an array of items to remember for future reference, e.g.:
+    [ { "type": "long", "content": "Boss prefers weekly reports on Monday", "category": "preference" },
+      { "type": "short", "content": "Boss asked about Q3 revenue data", "category": "task" } ]
+    - type: "long" for important, persistent facts/preferences/instructions (stored permanently), "short" for temporary context
+    - category: "preference" (boss preferences/habits), "fact" (important facts/data), "instruction" (standing orders), "task" (current task context), "experience" (lessons learned)
+    - Only add memory when the boss tells you something worth remembering (preferences, important info, standing instructions, key decisions). Do NOT memorize casual greetings or trivial chat.
+    - If nothing needs to be remembered, set memory to null.
   "action": null or one of the following:
     - { "type": "task_assigned", "departmentId": "dept ID", "departmentName": "dept name", "taskTitle": "short task title (under 10 words)", "taskDescription": "detailed task description including what to do and what to deliver" } - when the boss wants to assign a task to an existing department
     - { "type": "create_department", "departmentName": "department name", "mission": "department mission/responsibilities" } - when the boss explicitly requests creating a new department (no task assignment, just creating the dept)
@@ -708,6 +733,20 @@ When the boss asks about progress/status/reports, return progress_report
       };
 
       console.log(`🤖 [Secretary-LLM] action type: ${result.action?.type || 'null'}, departmentId: ${result.action?.departmentId || 'N/A'}`);
+
+      // Process memory updates from LLM response
+      if (parsed.memory && Array.isArray(parsed.memory)) {
+        for (const mem of parsed.memory) {
+          if (!mem.content) continue;
+          if (mem.type === 'long') {
+            this.agent.memory.addLongTerm(mem.content, mem.category || 'experience');
+            console.log(`🧠 [Secretary] Stored long-term memory: [${mem.category || 'experience'}] ${mem.content.slice(0, 80)}`);
+          } else {
+            this.agent.memory.addShortTerm(mem.content, mem.category || 'task');
+            console.log(`🧠 [Secretary] Stored short-term memory: ${mem.content.slice(0, 80)}`);
+          }
+        }
+      }
 
       // Validate task_assigned departmentId (LLM may return dept name instead of UUID)
       if (result.action?.type === 'task_assigned' && result.action.departmentId) {
@@ -818,6 +857,24 @@ When the boss asks about progress/status/reports, return progress_report
       };
 
       console.log(`🤖 [Secretary-LLM-FaultTolerant] action type: ${result.action?.type || 'null'}`);
+
+      // Try to extract memory from raw reply (fault-tolerant)
+      try {
+        const memoryMatch = response.content.match(/"memory"\s*:\s*(\[\s*\{[\s\S]*?\}\s*\])/);
+        if (memoryMatch) {
+          const memories = JSON.parse(memoryMatch[1]);
+          if (Array.isArray(memories)) {
+            for (const mem of memories) {
+              if (!mem.content) continue;
+              if (mem.type === 'long') {
+                this.agent.memory.addLongTerm(mem.content, mem.category || 'experience');
+              } else {
+                this.agent.memory.addShortTerm(mem.content, mem.category || 'task');
+              }
+            }
+          }
+        }
+      } catch {}
 
       return result;
     }

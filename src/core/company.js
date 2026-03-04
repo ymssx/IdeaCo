@@ -11,6 +11,7 @@ import { WorkspaceManager } from './workspace.js';
 import { debouncedSave } from './persistence.js';
 import { llmClient } from './llm-client.js';
 import { loadAgentMemory, saveAgentMemory } from './memory-store.js';
+import { Memory } from './memory.js';
 import { RequirementManager } from './requirement.js';
 import { hookRegistry, HookEvent } from './hooks.js';
 import { sessionManager } from './session.js';
@@ -1126,6 +1127,15 @@ const dept = this.findDepartment(departmentId);
     // Restore secretary signature
     if (data.secretary?.signature) {
       company.secretary.agent.signature = data.secretary.signature;
+    }
+
+    // Restore secretary memory from separate memory file
+    if (company.secretary?.agent?.id) {
+      const secretaryMemory = loadAgentMemory(company.secretary.agent.id);
+      if (secretaryMemory) {
+        company.secretary.agent.memory = Memory.deserialize(secretaryMemory);
+        console.log(`  🧠 Secretary memory restored: ${secretaryMemory.shortTerm?.length || 0} short-term, ${secretaryMemory.longTerm?.length || 0} long-term`);
+      }
     }
 
     // Restore departments and Agents
