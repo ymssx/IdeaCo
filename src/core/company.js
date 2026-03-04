@@ -747,7 +747,8 @@ const dept = this.findDepartment(departmentId);
     // Save again after workflow decomposition
     this.save();
 
-    // 3. Execute by workflow DAG    let summary;
+    // 3. Execute by workflow DAG
+    let summary;
     try {
       summary = await this.requirementManager.executeWorkflow(
         requirement, dept, this.performanceSystem
