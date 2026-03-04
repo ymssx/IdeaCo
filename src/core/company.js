@@ -85,6 +85,10 @@ export class Company {
       secretaryAge: secretaryConfig?.secretaryAge || 18,
     });
 
+    // Initialize secretary's toolKit so she can use tools (shell, file ops, etc.)
+    const secretaryWorkspace = this.workspaceManager.createDepartmentWorkspace('secretary', 'secretary');
+    this.secretary.agent.initToolKit(secretaryWorkspace, this.messageBus);
+
     this._log('Company founded', `"${this.name}" founded by ${this.bossName}`);
     this._log('Secretary ready', `Secretary ${this.secretary.agent.name} using model ${secretaryProviderConfig.name}`);
 

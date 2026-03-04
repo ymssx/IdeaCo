@@ -133,6 +133,57 @@ export async function POST(request) {
       reply.action.taskStatus = 'running';
     }
 
+    // If secretary decided to handle the task herself
+    if (reply.action?.type === 'secretary_handle') {
+      const taskId = `secretary_${Date.now()}`;
+      const { taskDescription } = reply.action;
+
+      runningTasks.set(taskId, { status: 'running', type: 'secretary_handle', startedAt: Date.now() });
+
+      // Async execution of secretary's own task
+      (async () => {
+        try {
+          const result = await company.secretary.executeTaskDirectly(taskDescription || message, company);
+
+          runningTasks.set(taskId, {
+            status: 'completed',
+            summary: { content: result.content, success: result.success },
+            completedAt: Date.now(),
+          });
+
+          // Push the result as a secretary message
+          const resultMsg = {
+            role: 'secretary',
+            content: result.content,
+            action: { type: 'secretary_task_completed', taskId },
+            time: new Date(),
+          };
+          company.chatHistory.push(resultMsg);
+          chatStore.appendMessage(company.chatSessionId, resultMsg);
+          company.save();
+
+          setTimeout(() => runningTasks.delete(taskId), 30 * 60 * 1000);
+        } catch (err) {
+          console.error(`❌ Secretary task failed:`, err.message);
+          runningTasks.set(taskId, { status: 'failed', error: err.message, failedAt: Date.now() });
+
+          const errMsg = {
+            role: 'secretary',
+content: `😥 Encountered a problem while handling the task: ${err.message}\n\nWant me to try again?`,
+            time: new Date(),
+          };
+          company.chatHistory.push(errMsg);
+          chatStore.appendMessage(company.chatSessionId, errMsg);
+          company.save();
+
+          setTimeout(() => runningTasks.delete(taskId), 30 * 60 * 1000);
+        }
+      })();
+
+      reply.action.taskId = taskId;
+      reply.action.taskStatus = 'running';
+    }
+
     // If secretary returned task_assigned action, auto-trigger background task execution
     if (reply.action?.type === 'task_assigned' && reply.action.departmentId) {
       const taskId = `task_${Date.now()}`;

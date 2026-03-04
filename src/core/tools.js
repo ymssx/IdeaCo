@@ -312,6 +312,7 @@ export class AgentToolKit {
       'ls', 'cat', 'head', 'tail', 'grep', 'find', 'wc',
       'node', 'npm', 'npx', 'echo', 'mkdir', 'cp', 'mv',
       'tree', 'pwd', 'which', 'git',
+      'curl', 'wget', 'date', 'python', 'python3', 'env', 'sort', 'uniq', 'awk', 'sed', 'jq',
     ];
 
     const cmdName = command.trim().split(/\s+/)[0];

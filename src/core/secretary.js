@@ -547,7 +547,7 @@ Requirements:
    * LLM-driven boss message handling
    */
   async _llmHandleBossMessage(message, company) {
-    // === 唤醒前整理记忆：清理过期短期记忆、去重 ===
+    // === Pre-wake: consolidate memories, clean expired short-term, deduplicate ===
     this.agent.memory.consolidateMemories();
 
     // Build company context
@@ -566,7 +566,7 @@ Requirements:
     const agentCount = departments.reduce((s, d) => s + d.memberCount, 0);
     const talentCount = company.talentMarket.listAvailable().length;
 
-    // === 从 chatStore 读取最近 10 条消息作为多轮上下文 ===
+    // === Read recent 10 messages from chatStore as multi-turn context ===
     let recentHistory = [];
     try {
       const recentMessages = chatStore.getRecentMessages(company.chatSessionId, 10);
@@ -575,14 +575,14 @@ Requirements:
         content: h.content,
       }));
     } catch (e) {
-      // 回退到内存中的 chatHistory
+      // Fallback to in-memory chatHistory
       recentHistory = (company.chatHistory || []).slice(-10).map(h => ({
         role: h.role === 'boss' ? 'user' : 'assistant',
         content: h.content,
       }));
     }
 
-    // === 通过关键词搜索历史消息中的相关上下文 ===
+    // === Search historical messages for related context by keywords ===
     let searchContextSection = '';
     try {
       const searchResults = chatStore.searchWithContext(company.chatSessionId, message, 3, 1);
@@ -596,12 +596,12 @@ Requirements:
         }
       }
     } catch (e) {
-      // 搜索失败不影响主流程
+      // Search failure does not affect main flow
     }
 
     const secretaryPrompt = this.agent.prompt || '';
 
-    // 动态获取插件、技能、知识库信息
+    // Dynamically fetch plugin, skill, knowledge base info
     let capabilitiesSection = '';
     try {
       const enabledPlugins = pluginRegistry.list().filter(p => p.state === 'enabled');
@@ -610,7 +610,7 @@ Requirements:
         enabledPlugins.forEach(p => {
           capabilitiesSection += `- 🧩 ${p.name} v${p.version}: ${p.description} (${p.toolCount} tools)\n`;
         });
-        // 列出插件提供的具体工具
+        // List tools provided by plugins
         const pluginTools = pluginRegistry.getPluginTools();
         if (pluginTools.length > 0) {
           capabilitiesSection += `\nAvailable plugin tools:\n`;
@@ -682,6 +682,7 @@ You must understand the boss's intent and reply naturally. Your reply MUST be a 
     - Only add memory when the boss tells you something worth remembering (preferences, important info, standing instructions, key decisions). Do NOT memorize casual greetings or trivial chat.
     - If nothing needs to be remembered, set memory to null.
   "action": null or one of the following:
+    - { "type": "secretary_handle", "taskDescription": "detailed task description for yourself to execute" } - when you can handle this task yourself without needing a department (see rules below)
     - { "type": "task_assigned", "departmentId": "dept ID", "departmentName": "dept name", "taskTitle": "short task title (under 10 words)", "taskDescription": "detailed task description including what to do and what to deliver" } - when the boss wants to assign a task to an existing department
     - { "type": "create_department", "departmentName": "department name", "mission": "department mission/responsibilities" } - when the boss explicitly requests creating a new department (no task assignment, just creating the dept)
     - { "type": "need_new_department", "suggestedMission": "task description" } - when the boss wants to assign a task but no existing department can handle it (need to create dept first then assign)
@@ -697,8 +698,30 @@ When the boss says "create/establish/set up/found + department", this is an org 
   - departmentName: intelligently name the department based on boss's description
   - mission: summarize department mission and responsibilities from boss's description
 
-**High Priority - Assign Task to Existing Department (use this first!)**:
-When the boss wants something done, you MUST first check ALL existing departments listed above to see if any can handle it.
+**High Priority - Secretary Handles Simple Tasks Directly**:
+For simple, straightforward tasks that DON'T require a specialized team, you should handle them yourself using secretary_handle. Examples:
+  - Writing/drafting: emails, short messages, announcements, summaries, translations
+  - Quick analysis: simple comparisons, brief research, quick calculations
+  - Information tasks: looking up info, explaining concepts, answering questions with your knowledge
+  - Planning/organizing: making a schedule, creating a checklist, brainstorming ideas
+  - Creative writing: slogans, naming suggestions, short copy, social media posts
+  - Any task that a competent secretary could do alone in a few minutes using only their own knowledge
+**Tasks you CANNOT handle yourself** (do NOT use secretary_handle for these):
+  - Anything requiring deep domain expertise that needs a specialized department team
+  - Large-scale projects that need ongoing team collaboration
+Note: You DO have access to tools (shell commands, file operations, etc.) when executing tasks, so you CAN:
+  - Look up real-time info via shell commands (curl, etc.)
+  - Run code and scripts
+  - Read/write files
+When returning secretary_handle:
+  - taskDescription should be a clear, detailed description of what you need to do
+  - In "content", ONLY give a brief acknowledgement like "Let me check!" or "One moment, I'll handle it right away! 📝"
+  - **ABSOLUTELY DO NOT** attempt to answer the question or provide any result in "content" — the actual answer will come from executeTaskDirectly using tools
+  - **NEVER** include placeholders like [current date], [loading...] in "content" — just acknowledge and let the execution phase do the real work
+  - Example: Boss asks "What's today's date?" → content: "Let me check for you~ 📝", action: secretary_handle with taskDescription: "Query the current date and inform the boss"
+
+**Medium Priority - Assign Task to Existing Department (check departments first!)**:
+When the boss wants something done that requires specialized team work, you MUST first check ALL existing departments listed above to see if any can handle it.
 Matching criteria (any one is sufficient to assign):
   1. Department name contains task-related keywords (e.g. task is "travel guide", dept named "Travel Guide Dept" → match)
   2. Department mission/description relates to task content (e.g. dept mission mentions "travel"/"guide", task is also travel-related → match)
@@ -709,7 +732,7 @@ Once a matching department is found, you **MUST** return task_assigned, **ABSOLU
   - taskDescription should detail the task content, goals, and deliverables
   - **The department name mentioned in content MUST match the departmentName in action — you can't say "assigning to Dept A" in content but point action to Dept B**
 
-**Lowest Priority - Need New Department (rarely used!)**:
+**Low Priority - Need New Department (rarely used!)**:
 **ONLY when you've checked every existing department and confirmed none has even the slightest relation to the task** can you return need_new_department.
 ⚠️ Before returning need_new_department, triple-check:
   - Have you checked every existing department?
@@ -717,7 +740,7 @@ Once a matching department is found, you **MUST** return task_assigned, **ABSOLU
   - Is there really no department whose mission relates to the task?
 If in any doubt, assign to the closest department (task_assigned) rather than returning need_new_department
 
-**Low Priority - View Progress**:
+**Lowest Priority - View Progress**:
 When the boss asks about progress/status/reports, return progress_report
 
 **No Action**: casual chat, greetings, etc. — set action to null
@@ -730,7 +753,7 @@ When the boss asks about progress/status/reports, return progress_report
 5. **Critical**: When the boss says "do XX", "help me XX" and other clear task directives, return task_assigned if there's a suitable existing department, otherwise return need_new_department. Never just chat without working!
 6. **Critical - Consistency Principle**: Your content and action MUST be consistent! If content says "assigning to XX department", then action's departmentId/departmentName must point to that same department. If content mentions one department but action is need_new_department, that's a serious error!
 7. **Critical - Structured Output**: You MUST always return valid JSON. Do NOT wrap it in markdown code fences. Do NOT add any text outside the JSON object. The response must start with { and end with }.
-8. **Critical - Action Required for Tasks**: If the boss's message expresses ANY intent to get work done (in any language), you MUST return an action. Analyze the semantic meaning, not just keywords. For example: "帮我做个网站" (help me build a website), "写一份报告" (write a report), "分析一下数据" (analyze the data) — ALL of these require an action.
+8. **Critical - Action Required for Tasks**: If the boss's message expresses ANY intent to get work done (in any language), you MUST return an action. Analyze the semantic meaning, not just keywords. For example: "help me build a website", "write a report", "analyze the data" — ALL of these require an action, regardless of what language they are expressed in.
 9. **Critical - Language Agnostic**: The boss may speak in any language (Chinese, English, Japanese, etc.). You must understand the intent regardless of language and return the correct structured action.`;
     const messages = [
       { role: 'system', content: systemPrompt },
@@ -841,7 +864,7 @@ When the boss asks about progress/status/reports, return progress_report
       
       // Try to extract action field from raw reply (overall JSON failed, but action field may be extractable)
       let action = null;
-      const actionTypeMatch = response.content.match(/"type"\s*:\s*"(task_assigned|need_new_department|create_department|progress_report)"/);
+      const actionTypeMatch = response.content.match(/"type"\s*:\s*"(task_assigned|need_new_department|create_department|progress_report|secretary_handle)"/);
       
       if (actionTypeMatch) {
         const actionType = actionTypeMatch[1];
@@ -878,6 +901,12 @@ When the boss asks about progress/status/reports, return progress_report
             type: 'need_new_department',
             suggestedMission: missionMatch ? missionMatch[1].replace(/\\n/g, '\n') : message,
           };
+        } else if (actionType === 'secretary_handle') {
+          const descMatch = response.content.match(/"taskDescription"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+          action = {
+            type: 'secretary_handle',
+            taskDescription: descMatch ? descMatch[1].replace(/\\n/g, '\n') : message,
+          };
         } else if (actionType === 'progress_report') {
           action = { type: 'progress_report' };
         }
@@ -912,4 +941,106 @@ When the boss asks about progress/status/reports, return progress_report
     }
   }
 
+  /**
+   * Secretary handles simple tasks directly (no department needed)
+   * @param {string} taskDescription - Task description
+   * @param {object} company - Company instance (for context)
+   * @returns {object} { content, success }
+   */
+  async executeTaskDirectly(taskDescription, company) {
+    console.log(`\n📝 [Secretary] Handling task directly: "${taskDescription.slice(0, 50)}..."`);
+
+    const secretaryPrompt = this.agent.prompt || '';
+
+    // Inject memory context
+    let memoryContext = '';
+    const longTermMemories = this.agent.memory.searchLongTerm();
+    if (longTermMemories.length > 0) {
+      memoryContext += '\n## Your memories (for reference):\n';
+      longTermMemories.slice(-15).forEach(m => {
+        memoryContext += `- [${m.category}] ${m.content}\n`;
+      });
+    }
+
+    const systemPrompt = `You are "${this.agent.name}", the personal secretary of ${company.bossName || 'the Boss'}.
+${secretaryPrompt ? `\nYour persona: ${secretaryPrompt}\n` : ''}
+You are now personally handling a task from the boss. Complete it thoroughly and deliver a high-quality result.
+${memoryContext}
+## Your Capabilities:
+- You have access to tools: shell_exec (run shell commands like curl, date, node, python, etc.), file_read, file_write, file_list, file_delete
+- You CAN access the internet via shell commands (e.g., curl for APIs, web requests)
+- You CAN run code and scripts to get real-time data
+- You CAN get the current date/time by running: shell_exec({ command: "date" })
+- You CAN fetch weather by running: shell_exec({ command: "curl -s wttr.in/CityName?format=3" })
+
+## CRITICAL RULES (MUST follow):
+- **ALWAYS use tools first** before answering questions about real-time or factual data (date, time, weather, calculations, etc.)
+- You do NOT know the current date or time — you MUST call shell_exec with "date" to find out
+- You do NOT know real-time information — you MUST call shell_exec with appropriate commands to fetch it
+- NEVER guess, assume, or use placeholders like [current date], [loading...], [TBD]
+- If you're unsure about any factual information, USE A TOOL to verify it
+- If a tool call fails, try alternative approaches before giving up
+
+## Guidelines:
+1. Deliver a complete, ready-to-use result (not just a plan or outline)
+2. Be thorough but concise — quality over quantity
+3. Match the language of the task description (if the boss asked in Chinese, reply in Chinese)
+4. Format the output nicely with markdown if appropriate
+5. If the task involves writing, produce the actual writing (not meta-commentary about it)
+6. Sign off naturally as a secretary would`;
+
+    try {
+      // Use chat with tools so the secretary can use shell_exec etc. to complete tasks
+      const toolExecutor = this.agent.toolKit;
+      let response;
+
+      if (toolExecutor) {
+        response = await llmClient.chatWithTools(
+          this.agent.provider,
+          [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: taskDescription },
+          ],
+          toolExecutor,
+          {
+            temperature: 0.7,
+            maxTokens: 2048,
+            maxIterations: 5,
+          }
+        );
+      } else {
+        // Fallback: if toolKit is not initialized, use regular chat
+        response = await llmClient.chat(this.agent.provider, [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: taskDescription },
+        ], {
+          temperature: 0.7,
+          maxTokens: 2048,
+        });
+      }
+
+      this.agent._trackUsage(response.usage);
+
+      console.log(`✅ [Secretary] Task completed, output ${response.content.length} chars`);
+
+      // Record to short-term memory
+      this.agent.memory.addShortTerm(
+        `Completed task directly: ${taskDescription.slice(0, 80)}`,
+        'task'
+      );
+
+      return {
+        content: response.content,
+        success: true,
+      };
+    } catch (err) {
+      console.error(`❌ [Secretary] Task execution failed:`, err.message);
+      return {
+        content: `Sorry, encountered an issue while executing the task: ${err.message}`,
+        success: false,
+      };
+    }
+  }
+
 }
+
