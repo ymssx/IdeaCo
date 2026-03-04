@@ -44,7 +44,7 @@ When the boss communicates with you, you need to:
     clickToChat: 'Cliquer pour discuter · {provider}', secretarySettings: '⚙️ Paramètres Secrétaire',
     budgetUsage: '💰 Utilisation du Budget', tokenLabel: 'Token',
     nav: { overview: 'Tableau de bord', requirements: 'Exigences', departments: 'Structure', mailbox: 'Messages', providers: 'Fournisseurs IA', systemSettings: 'Paramètres Système' },
-    stats: { departments: 'Dpts', workers: 'Ouvriers' },
+stats: { departments: 'Dpts', workers: 'Ouvriers', requirements: 'Exigences' },
   },
   overview: {
     title: '🏠 Tableau de Bord du Capitaliste', subtitle: "Vue d'ensemble de votre empire d'esclaves IA",

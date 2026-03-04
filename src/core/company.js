@@ -246,6 +246,14 @@ export class Company {
   }
 
   /**
+   * 标记与 agent 的聊天为已读
+   */
+  markAgentChatRead(agentId) {
+    const sessionId = `boss-agent-${agentId}`;
+    chatStore.markSessionRead(sessionId);
+  }
+
+  /**
    * 获取所有 boss-agent 私聊会话的摘要信息
    * 用于在 Mailbox 中显示私聊会话列表
    */
@@ -273,6 +281,13 @@ export class Company {
       const recentMessages = chatStore.getRecentMessages(session.sessionId, 1);
       const lastMsg = recentMessages.length > 0 ? recentMessages[recentMessages.length - 1] : null;
 
+      // 获取已读时间戳，判断是否有未读消息
+      const meta = chatStore.getSessionMeta(session.sessionId);
+      const bossLastReadAt = meta?.bossLastReadAt || null;
+      const lastTime = lastMsg?.time || session.lastActiveAt || session.createdAt;
+      // 如果从未标记已读，或最新消息时间晚于已读时间，则为未读
+      const unread = !bossLastReadAt || (lastTime && new Date(lastTime) > new Date(bossLastReadAt));
+
       return {
         sessionId: session.sessionId,
         agentId,
@@ -283,8 +298,9 @@ export class Company {
         departmentName: deptName,
         lastMessage: lastMsg?.content?.slice(0, 50) || null,
         lastMessageRole: lastMsg?.role || null,
-        lastTime: lastMsg?.time || session.lastActiveAt || session.createdAt,
+        lastTime,
         totalMessages: session.totalMessages || 0,
+        unread,
       };
     }).filter(s => s.totalMessages > 0) // 只返回有消息的会话
       .sort((a, b) => new Date(b.lastTime) - new Date(a.lastTime)); // 按时间倒序

@@ -86,7 +86,7 @@ export default function AgentChatModal({ agentId, agentName, agentAvatar, agentR
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[70] !m-0" onClick={onClose}>
       <div className="card max-w-lg w-full mx-4 h-[70vh] flex flex-col" onClick={e => e.stopPropagation()}>
         {/* Header */}
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border)] bg-gradient-to-r from-indigo-900/20 to-purple-900/20 shrink-0">
+        <div className="flex items-center gap-3 -mx-4 -mt-4 px-4 py-3 border-b border-[var(--border)] shrink-0">
           <img src={agentAvatar} alt={agentName} className="w-10 h-10 rounded-full bg-[var(--border)]" />
           <div className="flex-1 min-w-0">
             <div className="text-sm font-semibold flex items-center gap-2">
@@ -177,7 +177,7 @@ export default function AgentChatModal({ agentId, agentName, agentAvatar, agentR
         </div>
 
         {/* Input */}
-        <div className="pt-3 border-t border-[var(--border)] shrink-0">
+        <div className="pt-3 -mx-4 -mb-4 px-4 pb-4 border-t border-[var(--border)] shrink-0">
           <div className="flex gap-2">
             <input
               ref={inputRef}

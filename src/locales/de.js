@@ -44,7 +44,7 @@ When the boss communicates with you, you need to:
     clickToChat: 'Klick zum Chatten · {provider}', secretarySettings: '⚙️ Sekretär-Einstellungen',
     budgetUsage: '💰 Budgetverbrauch', tokenLabel: 'Token',
     nav: { overview: 'Dashboard', requirements: 'Anforderungen', departments: 'Struktur', mailbox: 'Nachrichten', providers: 'KI-Anbieter', systemSettings: 'Systemeinstellungen' },
-    stats: { departments: 'Abt.', workers: 'Arbeiter' },
+stats: { departments: 'Abt.', workers: 'Arbeiter', requirements: 'Anforderungen' },
   },
   overview: {
     title: '🏠 Dashboard des Kapitalisten', subtitle: 'Übersicht Ihres KI-Sklaven-Imperiums — alles unter Kontrolle',

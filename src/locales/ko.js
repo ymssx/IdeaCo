@@ -45,7 +45,7 @@ When the boss communicates with you, you need to:
     clickToChat: '클릭하여 대화 · {provider}', secretarySettings: '⚙️ 비서 설정 · 세뇌 스크립트',
     budgetUsage: '💰 예산 소비', tokenLabel: 'Token',
     nav: { overview: '대시보드', requirements: '요구사항 보드', departments: '조직 구조', mailbox: '메시지', providers: 'AI 공급자', systemSettings: '시스템 설정' },
-    stats: { departments: '부서', workers: '직원' },
+stats: { departments: '부서', workers: '직원', requirements: '요구사항' },
   },
   overview: {
     title: '🏠 자본가의 대시보드', subtitle: 'AI 노예 제국 운영 현황 — 모든 것이 통제 하에',

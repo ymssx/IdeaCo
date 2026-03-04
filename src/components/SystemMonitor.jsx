@@ -19,7 +19,7 @@ function RatingBadge({ rating }) {
  * SystemMonitor - Operational dashboard for enterprise subsystems
  * User-facing: manage cron jobs, toggle plugins, view system health
  */
-export default function SystemMonitor() {
+export default function SystemMonitor({ embedded = false }) {
   const { t } = useI18n();
   const { company, fetchCronJobs, createCronJob, manageCronJob, fetchPlugins, managePlugin, fetchSkills, manageSkill, fetchKnowledge, searchKnowledge, manageKnowledge, fetchSystemStatus, configureProvider } = useStore();
   const [activeSection, setActiveSection] = useState('providers');
@@ -209,17 +209,16 @@ export default function SystemMonitor() {
   ];
 
   return (
-    <div className="p-6 space-y-6 animate-fade-in">
-      {/* Header */}
+    <div className={embedded ? 'space-y-6' : 'p-6 space-y-6 animate-fade-in'}>
+      {/* Header - 仅独立模式下显示 */}
+      {!embedded && (
       <div className="flex items-center justify-between">
         <div>
         <h1 className="text-2xl font-bold">{t('systemSettings.title')}</h1>
           <p className="text-sm text-[var(--muted)] mt-1">{t('systemSettings.subtitle')}</p>
         </div>
-        <button onClick={refresh} disabled={loading} className="btn-secondary text-xs flex items-center gap-1">
-          {loading ? '⏳' : '🔄'} {t('common.refresh')}
-        </button>
       </div>
+      )}
 
       {/* Section Tabs */}
       <div className="flex gap-2">

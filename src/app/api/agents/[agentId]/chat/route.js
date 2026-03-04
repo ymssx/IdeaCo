@@ -47,3 +47,20 @@ export async function GET(request, { params }) {
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
 }
+
+/**
+ * PUT /api/agents/[agentId]/chat - Mark agent chat as read
+ */
+export async function PUT(request, { params }) {
+  const company = getCompany();
+  if (!company) {
+    return NextResponse.json({ error: 'Please create a company first' }, { status: 400 });
+  }
+  try {
+    const { agentId } = await params;
+    company.markAgentChatRead(agentId);
+    return NextResponse.json({ success: true });
+  } catch (e) {
+    return NextResponse.json({ error: e.message }, { status: 500 });
+  }
+}

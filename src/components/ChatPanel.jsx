@@ -9,12 +9,11 @@ import remarkGfm from 'remark-gfm';
 import { parseFileReferences, FileRefList } from './FileReference';
 
 export default function ChatPanel() {
-  const { company, chatWithSecretary, chatOpen, setChatOpen } = useStore();
+  const { company, chatWithSecretary, chatOpen, setChatOpen, chatMinimized, setChatMinimized } = useStore();
   const { t } = useI18n();
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [localHistory, setLocalHistory] = useState([]);
-  const [minimized, setMinimized] = useState(false);
   const messagesEndRef = useRef(null);
 
   useEffect(() => {
@@ -25,13 +24,13 @@ export default function ChatPanel() {
 
   // Auto scroll to bottom: on message update or panel open
   useEffect(() => {
-    if (chatOpen && !minimized) {
+    if (chatOpen && !chatMinimized) {
       // Use setTimeout to ensure DOM is rendered before scrolling
       setTimeout(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
       }, 50);
     }
-  }, [localHistory, chatOpen, minimized]);
+  }, [localHistory, chatOpen, chatMinimized]);
 
   if (!company || !chatOpen) return null;
 
@@ -67,10 +66,10 @@ export default function ChatPanel() {
   };
 
   // 收起状态：只显示一个浮动气泡
-  if (minimized) {
+  if (chatMinimized) {
     return (
       <button
-        onClick={() => setMinimized(false)}
+        onClick={() => setChatMinimized(false)}
         className="fixed bottom-6 right-6 w-14 h-14 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 shadow-2xl flex items-center justify-center z-[70] hover:scale-110 transition-all animate-fade-in group"
         title={t('chat.openChat', { name: secretary?.name || t('setup.defaultSecretary') })}
       >
@@ -106,7 +105,7 @@ export default function ChatPanel() {
         </div>
         <div className="flex items-center gap-1">
           <button
-            onClick={() => setMinimized(true)}
+            onClick={() => setChatMinimized(true)}
             className="text-[var(--muted)] hover:text-white text-lg w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white/10 transition-all"
             title={t('common.minimize') || '收起'}
           >

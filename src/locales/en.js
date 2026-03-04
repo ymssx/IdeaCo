@@ -95,6 +95,7 @@ When the boss communicates with you, you need to:
     stats: {
       departments: 'Depts',
       workers: 'Workers',
+      requirements: 'Reqs',
     },
   },
 

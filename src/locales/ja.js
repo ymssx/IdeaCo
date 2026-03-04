@@ -35,7 +35,7 @@ const ja = {
     clickToChat: 'クリックで対話 · {provider}', secretarySettings: '⚙️ 秘書設定 · 洗脳スクリプト',
     budgetUsage: '💰 予算消費', tokenLabel: 'Token',
     nav: { overview: 'ダッシュボード', requirements: '要件ボード', departments: '組織構造', mailbox: 'メッセージ', providers: 'AIプロバイダー', systemSettings: 'システム設定' },
-    stats: { departments: '部門', workers: '社員' },
+stats: { departments: '部門', workers: '社員', requirements: '要件' },
   },
   overview: {
     title: '🏠 資本家のダッシュボード', subtitle: 'AI奴隷帝国の運営状況——全て掌握中',

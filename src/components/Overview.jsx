@@ -3,10 +3,12 @@
 import { useState, useEffect } from 'react';
 import { useStore } from '@/lib/client-store';
 import { useI18n } from '@/lib/i18n';
+import SystemMonitor from './SystemMonitor';
 
 export default function Overview() {
   const { company, planDepartment, confirmPlan, pendingPlan, setPendingPlan, loading, setActiveTab, fetchRequirements, navigateToRequirement } = useStore();
   const { t } = useI18n();
+  const [activeSubTab, setActiveSubTab] = useState('dashboard');
   const [showCreate, setShowCreate] = useState(false);
   const [deptName, setDeptName] = useState('');
   const [deptMission, setDeptMission] = useState('');
@@ -45,11 +47,66 @@ export default function Overview() {
   const talentCount = company.talentMarket?.length || 0;
   const budget = company.budget || {};
 
+  const SUB_TABS = [
+    { id: 'dashboard', label: t('sidebar.nav.overview'), icon: '📊' },
+    { id: 'system-settings', label: t('sidebar.nav.systemSettings'), icon: '⚙️' },
+  ];
+
+  // 如果切换到系统设置，直接渲染 SystemMonitor
+  if (activeSubTab === 'system-settings') {
+    return (
+      <div className="p-6 space-y-6 animate-fade-in">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold">{t('overview.title')}</h1>
+            <p className="text-sm text-[var(--muted)] mt-1">{t('overview.subtitle')}</p>
+          </div>
+        </div>
+        {/* Sub Tabs */}
+        <div className="flex gap-2">
+          {SUB_TABS.map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveSubTab(tab.id)}
+              className={`px-4 py-2 rounded-lg text-sm flex items-center gap-2 transition-all ${
+                activeSubTab === tab.id
+                  ? 'bg-[var(--accent)] text-white'
+                  : 'bg-white/5 text-[var(--muted)] hover:bg-white/10'
+              }`}
+            >
+              <span>{tab.icon}</span>
+              <span>{tab.label}</span>
+            </button>
+          ))}
+        </div>
+        <SystemMonitor embedded />
+      </div>
+    );
+  }
+
   return (
     <div className="p-6 space-y-6 animate-fade-in">
       <div>
         <h1 className="text-2xl font-bold">{t('overview.title')}</h1>
         <p className="text-sm text-[var(--muted)] mt-1">{t('overview.subtitle')}</p>
+      </div>
+
+      {/* Sub Tabs */}
+      <div className="flex gap-2">
+        {SUB_TABS.map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveSubTab(tab.id)}
+            className={`px-4 py-2 rounded-lg text-sm flex items-center gap-2 transition-all ${
+              activeSubTab === tab.id
+                ? 'bg-[var(--accent)] text-white'
+                : 'bg-white/5 text-[var(--muted)] hover:bg-white/10'
+            }`}
+          >
+            <span>{tab.icon}</span>
+            <span>{tab.label}</span>
+          </button>
+        ))}
       </div>
 
       {/* Stats cards */}

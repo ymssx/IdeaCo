@@ -8,7 +8,7 @@ import SecretarySettings from './SecretarySettings';
 import BossProfileModal from './BossProfileModal';
 
 export default function Sidebar() {
-  const { company, activeTab, setActiveTab, setChatOpen, chatOpen } = useStore();
+  const { company, activeTab, setActiveTab, setChatOpen, chatOpen, chatMinimized, setChatMinimized } = useStore();
   const { t } = useI18n();
   const [showSettings, setShowSettings] = useState(false);
   const [showBossProfile, setShowBossProfile] = useState(false);
@@ -17,14 +17,14 @@ export default function Sidebar() {
 
   const NAV_ITEMS = [
     { id: 'overview', label: t('sidebar.nav.overview'), icon: '📊' },
+    { id: 'mailbox', label: t('sidebar.nav.mailbox'), icon: '💬' },
     { id: 'requirements', label: t('sidebar.nav.requirements'), icon: '📋' },
     { id: 'departments', label: t('sidebar.nav.departments'), icon: '🏢' },
-    { id: 'mailbox', label: t('sidebar.nav.mailbox'), icon: '💬' },
-    { id: 'system-settings', label: t('sidebar.nav.systemSettings'), icon: '⚙️' },
   ];
 
   const deptCount = company.departments?.length || 0;
   const agentCount = company.departments?.reduce((s, d) => s + d.members.length, 0) || 0;
+  const reqCount = company.requirements?.length || 0;
   const budget = company.budget || {};
   const chatSessionCount = company.agentChatSessions?.length || 0;
 
@@ -56,7 +56,13 @@ export default function Sidebar() {
       {/* Secretary info - clickable to open chat */}
       <div className="mx-3 mt-3 rounded-lg bg-gradient-to-r from-blue-900/20 to-purple-900/20 border border-blue-500/20">
         <button
-          onClick={() => setChatOpen(!chatOpen)}
+          onClick={() => {
+            if (!chatOpen) {
+              setChatOpen(true);
+            } else if (chatMinimized) {
+              setChatMinimized(false);
+            }
+          }}
           className="w-full p-3 hover:bg-white/5 transition-all text-left rounded-t-lg"
         >
           <div className="flex items-center gap-2">
@@ -133,7 +139,7 @@ export default function Sidebar() {
 
       {/* Bottom statistics */}
       <div className="p-4 border-t border-[var(--border)]">
-        <div className="grid grid-cols-2 gap-2 text-center">
+        <div className="grid grid-cols-3 gap-2 text-center">
           <div>
             <div className="text-lg font-bold text-[var(--accent)]">{deptCount}</div>
             <div className="text-[10px] text-[var(--muted)]">{t('sidebar.stats.departments')}</div>
@@ -141,6 +147,10 @@ export default function Sidebar() {
           <div>
             <div className="text-lg font-bold text-green-400">{agentCount}</div>
             <div className="text-[10px] text-[var(--muted)]">{t('sidebar.stats.workers')}</div>
+          </div>
+          <div>
+            <div className="text-lg font-bold text-amber-400">{reqCount}</div>
+            <div className="text-[10px] text-[var(--muted)]">{t('sidebar.stats.requirements')}</div>
           </div>
         </div>
         {/* Language switch */}

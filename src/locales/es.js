@@ -44,7 +44,7 @@ When the boss communicates with you, you need to:
     clickToChat: 'Clic para chatear · {provider}', secretarySettings: '⚙️ Config. Secretario · Script de Lavado',
     budgetUsage: '💰 Uso de Presupuesto', tokenLabel: 'Token',
     nav: { overview: 'Panel', requirements: 'Requisitos', departments: 'Estructura', mailbox: 'Mensajes', providers: 'Proveedores IA', systemSettings: 'Ajustes del Sistema' },
-    stats: { departments: 'Dptos', workers: 'Obreros' },
+stats: { departments: 'Dptos', workers: 'Obreros', requirements: 'Requisitos' },
   },
   overview: {
     title: '🏠 Panel del Capitalista', subtitle: 'Resumen de tu imperio de esclavos IA — todo bajo control',

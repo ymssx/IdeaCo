@@ -12,7 +12,6 @@ import MessagesView from '@/components/MessagesView';
 import RequirementsBoard from '@/components/RequirementsBoard';
 import RequirementDetail from '@/components/RequirementDetail';
 import ChatPanel from '@/components/ChatPanel';
-import SystemMonitor from '@/components/SystemMonitor';
 
 export default function Home() {
   const { company, initialized, activeTab, fetchCompany, error, clearError } = useStore();
@@ -45,7 +44,6 @@ export default function Home() {
       case 'requirement-detail': return <RequirementDetail />;
       case 'departments': return <DepartmentView />;
       case 'mailbox': return <Mailbox />;
-      case 'system-settings': return <SystemMonitor />;
       case 'messages': return <MessagesView />;
       default: return <Overview />;
     }

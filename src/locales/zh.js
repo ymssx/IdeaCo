@@ -81,7 +81,7 @@ const zh = {
       providers: '大脑供应商',
       systemSettings: '系统设置',
     },
-    stats: { departments: '部门', workers: '苦力' },
+    stats: { departments: '部门', workers: '苦力', requirements: '需求' },
   },
   overview: {
     title: '🏠 资本家的仪表盘',

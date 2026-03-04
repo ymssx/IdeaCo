@@ -73,7 +73,7 @@ export default function Mailbox() {
     company,
     chatWithSecretary, chatOpen, setChatOpen,
     navigateToRequirement, fetchRequirements, fetchRequirementDetail,
-    chatWithAgent, fetchAgentChatHistory,
+    chatWithAgent, fetchAgentChatHistory, markAgentChatRead,
   } = useStore();
 
   const [activeChat, setActiveChat] = useState(null); // { type: 'secretary' } | { type: 'agent-chat', agentId, ... }
@@ -87,7 +87,6 @@ export default function Mailbox() {
   const [reqChatDetail, setReqChatDetail] = useState(null); // Requirement group chat detail
   const [agentChatMessages, setAgentChatMessages] = useState([]); // Agent 1-on-1 chat messages
   const [agentChatLoading, setAgentChatLoading] = useState(false); // Agent chat loading state
-  const [readAgentChats, setReadAgentChats] = useState(new Set()); // 已读的agent-chat agentId集合
   const reqChatPollRef = useRef(null);
   const messagesEndRef = useRef(null);
   const activeChatRef = useRef(null); // 追踪当前活跃的聊天对象，防止异步消息串台
@@ -148,7 +147,7 @@ export default function Mailbox() {
   }, [activeChat]);
 
   // Build conversation list: sorted by latest message time
-  const allConversations = buildConversations(secretary, secretaryHistory, requirements, t, agentChatSessions, readAgentChats);
+  const allConversations = buildConversations(secretary, secretaryHistory, requirements, t, agentChatSessions);
 
   // Filter conversations by category
   const conversations = allConversations.filter(conv => {
@@ -236,8 +235,8 @@ export default function Mailbox() {
         agentDepartment: conv.departmentName,
       });
       setActiveReqChat(null);
-      // 标记为已读
-      setReadAgentChats(prev => new Set([...prev, conv.agentId]));
+      // 标记为已读（持久化到后端）
+      markAgentChatRead(conv.agentId);
       // 加载聊天历史
       setAgentChatLoading(true);
       fetchAgentChatHistory(conv.agentId).then(msgs => {
@@ -771,7 +770,7 @@ function ChatInput({ value, onChange, onSend, onKeyDown, sending, placeholder })
 /**
  * Build conversation list: secretary pinned on top + employees sorted by latest message desc
  */
-function buildConversations(secretary, secretaryHistory, requirements = [], t = (k) => k, agentChatSessions = [], readAgentChats = new Set()) {
+function buildConversations(secretary, secretaryHistory, requirements = [], t = (k) => k, agentChatSessions = []) {
   const convs = [];
 
   // Pin secretary on top
@@ -831,7 +830,7 @@ function buildConversations(secretary, secretaryHistory, requirements = [], t = 
       departmentName: session.departmentName,
       lastMessage: lastMsgPreview,
       lastTime: session.lastTime,
-      unread: !readAgentChats.has(session.agentId),
+      unread: !!session.unread,
       pinned: false,
       totalMessages: session.totalMessages,
     });

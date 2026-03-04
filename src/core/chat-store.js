@@ -328,6 +328,39 @@ export class ChatStore {
   }
 
   /**
+   * 标记会话为已读（更新 bossLastReadAt）
+   * @param {string} sessionId
+   */
+  markSessionRead(sessionId) {
+    const dir = getSessionDir(sessionId);
+    const metaPath = path.join(dir, 'meta.json');
+    if (!fs.existsSync(metaPath)) return;
+    try {
+      const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+      meta.bossLastReadAt = new Date().toISOString();
+      fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), 'utf-8');
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  /**
+   * 获取会话元信息
+   * @param {string} sessionId
+   * @returns {object|null}
+   */
+  getSessionMeta(sessionId) {
+    const dir = getSessionDir(sessionId);
+    const metaPath = path.join(dir, 'meta.json');
+    if (!fs.existsSync(metaPath)) return null;
+    try {
+      return JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * 删除会话
    * @param {string} sessionId 
    */

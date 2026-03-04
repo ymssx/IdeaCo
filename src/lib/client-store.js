@@ -56,14 +56,16 @@ export const useStore = create((set, get) => ({
   initialized: false,
   loading: false,
   error: null,
-  activeTab: 'overview',
+activeTab: 'overview',
 chatOpen: true,
+chatMinimized: false,
 
   // === Recruitment Plan ===
   pendingPlan: null, // Current pending recruitment plan
 
   setActiveTab: (tab) => set({ activeTab: tab }),
-  setChatOpen: (open) => set({ chatOpen: open }),
+  setChatOpen: (open) => set({ chatOpen: open, chatMinimized: false }),
+  setChatMinimized: (minimized) => set({ chatMinimized: minimized }),
   setError: (error) => set({ error }),
   clearError: () => set({ error: null }),
   setPendingPlan: (plan) => set({ pendingPlan: plan }),
@@ -529,6 +531,16 @@ chatOpen: true,
       return data.data || [];
     } catch (e) {
       return [];
+    }
+  },
+
+  markAgentChatRead: async (agentId) => {
+    try {
+      await apiCall(`/agents/${agentId}/chat`, { method: 'PUT' });
+      // 刷新 company 状态以获取最新的 unread 状态
+      await get().fetchCompany();
+    } catch (e) {
+      // 标记已读失败不影响使用
     }
   },
 
