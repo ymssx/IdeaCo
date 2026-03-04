@@ -1,25 +1,28 @@
 /**
- * LLM统一客户端 - 真实调用各模型提供方API
+ * Unified LLM Client - Makes real API calls to various model providers
  * 
- * 支持：OpenAI/GPT、Anthropic/Claude、DeepSeek 等通用文本模型
- * 以及 DALL-E、Midjourney 等图像模型的API调用
+ * Supports: OpenAI/GPT, Anthropic/Claude, DeepSeek, and other OpenAI-compatible APIs
+ * as well as image models like DALL-E, Midjourney
  */
 import OpenAI from 'openai';
+import { providerRouter } from './provider-router.js';
+import { auditLogger, AuditCategory, AuditLevel } from './audit.js';
+import { hookRegistry, HookEvent } from './hooks.js';
 
 /**
- * 基于供应商配置创建对应的API客户端
- * @param {object} provider - 供应商配置对象
- * @returns {object} API客户端实例
+ * Create an API client based on provider configuration
+ * @param {object} provider - Provider config object
+ * @returns {object} API client instance
  */
 function createClient(provider) {
   const { id, apiKey } = provider;
 
-  // OpenAI 系列（GPT、DALL-E）
+  // OpenAI series (GPT, DALL-E)
   if (id.startsWith('openai-')) {
     return new OpenAI({ apiKey });
   }
 
-  // Anthropic Claude - 使用 OpenAI 兼容接口
+  // Anthropic Claude - via OpenAI-compatible interface
   if (id.startsWith('anthropic-')) {
     return new OpenAI({
       apiKey,
@@ -31,7 +34,7 @@ function createClient(provider) {
     });
   }
 
-  // DeepSeek - 兼容 OpenAI 接口
+  // DeepSeek - OpenAI-compatible interface
   if (id.startsWith('deepseek-')) {
     return new OpenAI({
       apiKey,
@@ -39,7 +42,7 @@ function createClient(provider) {
     });
   }
 
-  // 通义千问 - 阿里云 DashScope OpenAI 兼容接口
+  // Qwen (Tongyi Qianwen) - Alibaba Cloud DashScope OpenAI-compatible interface
   if (id.startsWith('qwen-')) {
     return new OpenAI({
       apiKey,
@@ -47,12 +50,12 @@ function createClient(provider) {
     });
   }
 
-  // 默认使用 OpenAI 兼容接口
+  // Default: use OpenAI-compatible interface
   return new OpenAI({ apiKey });
 }
 
 /**
- * 获取供应商对应的模型名称
+ * Get model name for a given provider
  */
 function getModelName(provider) {
   const modelMap = {
@@ -60,25 +63,26 @@ function getModelName(provider) {
     'openai-gpt35': 'gpt-3.5-turbo',
     'anthropic-claude': 'claude-3-5-sonnet-20241022',
     'deepseek-v3': 'deepseek-chat',
+    'qwen-max': 'qwen-max',
   };
   return modelMap[provider.id] || provider.model || 'gpt-4-turbo';
 }
 
 /**
- * LLM统一通信客户端
+ * Unified LLM communication client
  */
 export class LLMClient {
   constructor() {
-    // 缓存已创建的客户端实例
+    // Cache created client instances
     this.clients = new Map();
   }
 
   /**
-   * 获取或创建API客户端
+   * Get or create an API client
    */
   _getClient(provider) {
     if (!provider.apiKey) {
-      throw new Error(`供应商 ${provider.name} 未配置API Key`);
+      throw new Error(`Provider ${provider.name} has no API Key configured`);
     }
     if (!this.clients.has(provider.id)) {
       this.clients.set(provider.id, createClient(provider));
@@ -87,14 +91,14 @@ export class LLMClient {
   }
 
   /**
-   * 发送聊天消息（通用文本模型）
+   * Send chat messages (general text models)
    * 
-   * @param {object} provider - 供应商配置
-   * @param {Array<{role: string, content: string}>} messages - 消息列表
-   * @param {object} [options] - 额外选项
-   * @param {string[]} [options.tools] - 可用工具定义
-   * @param {number} [options.temperature] - 温度
-   * @param {number} [options.maxTokens] - 最大token
+   * @param {object} provider - Provider config
+   * @param {Array<{role: string, content: string}>} messages - Message list
+   * @param {object} [options] - Extra options
+   * @param {string[]} [options.tools] - Available tool definitions
+   * @param {number} [options.temperature] - Temperature
+   * @param {number} [options.maxTokens] - Max tokens
    * @returns {Promise<{content: string, toolCalls: Array|null, usage: object}>}
    */
   async chat(provider, messages, options = {}) {
@@ -108,15 +112,49 @@ export class LLMClient {
       max_tokens: options.maxTokens ?? 4096,
     };
 
-    // 如果提供了工具定义，加入请求
+    // Add tool definitions to request if provided
     if (options.tools && options.tools.length > 0) {
       requestParams.tools = options.tools;
       requestParams.tool_choice = 'auto';
     }
 
+    const startTime = Date.now();
     try {
+      // Fire hook: LLM request start
+      hookRegistry.trigger(HookEvent.LLM_REQUEST_START, {
+        providerId: provider.id, model, agentId: options._agentId,
+      });
+
       const response = await client.chat.completions.create(requestParams);
       const choice = response.choices[0];
+      const latency = Date.now() - startTime;
+
+      // Record success in provider router health tracking
+      providerRouter.recordSuccess(provider.id, latency);
+
+      // Audit log the LLM request
+      auditLogger.log({
+        category: AuditCategory.LLM_REQUEST,
+        level: AuditLevel.INFO,
+        agentId: options._agentId || 'system',
+        agentName: options._agentName || '',
+        action: `LLM call: ${provider.name} (${model}) - ${latency}ms`,
+        details: { providerId: provider.id, model, latency, usage: response.usage },
+      });
+
+      // Fire hook: LLM request end + token usage
+      hookRegistry.trigger(HookEvent.LLM_REQUEST_END, {
+        providerId: provider.id, model, latency,
+        usage: response.usage, agentId: options._agentId,
+      });
+      if (response.usage) {
+        hookRegistry.trigger(HookEvent.LLM_TOKEN_USAGE, {
+          providerId: provider.id, model,
+          promptTokens: response.usage.prompt_tokens || 0,
+          completionTokens: response.usage.completion_tokens || 0,
+          totalTokens: response.usage.total_tokens || 0,
+        });
+      }
 
       return {
         content: choice.message.content || '',
@@ -125,30 +163,37 @@ export class LLMClient {
         usage: response.usage || {},
       };
     } catch (error) {
-      console.error(`[LLMClient] 调用 ${provider.name} 失败:`, error.message);
-      throw new Error(`LLM调用失败 (${provider.name}): ${error.message}`);
+      // Record failure in provider router health tracking
+      providerRouter.recordFailure(provider.id, error);
+      // Fire hook: LLM error
+      hookRegistry.trigger(HookEvent.LLM_ERROR, {
+        providerId: provider.id, model, error: error.message,
+        agentId: options._agentId,
+      });
+      console.error(`[LLMClient] Call to ${provider.name} failed:`, error.message);
+      throw new Error(`LLM call failed (${provider.name}): ${error.message}`);
     }
   }
 
   /**
-   * 多轮对话（带工具调用循环）
-   * Agent执行任务时的核心方法：发送消息 → 模型可能调用工具 → 执行工具 → 继续对话
+   * Multi-turn conversation (with tool call loop)
+   * Core method for Agent task execution: send message -> model may call tools -> execute tools -> continue conversation
    * 
-   * @param {object} provider - 供应商配置
-   * @param {Array} messages - 初始消息
-   * @param {object} toolExecutor - 工具执行器 { definitions, execute(name, args) }
-   * @param {object} [options] - 选项
-   * @param {number} [options.maxIterations] - 最大工具调用循环次数
+   * @param {object} provider - Provider config
+   * @param {Array} messages - Initial messages
+   * @param {object} toolExecutor - Tool executor { definitions, execute(name, args) }
+   * @param {object} [options] - Options
+   * @param {number} [options.maxIterations] - Max tool call loop iterations
    * @returns {Promise<{content: string, toolResults: Array, messages: Array}>}
    */
   async chatWithTools(provider, messages, toolExecutor, options = {}) {
-    const maxIterations = options.maxIterations || 5;    const onToolCall = options.onToolCall || null;  // 回调：工具调用时通知
-    const onLLMCall = options.onLLMCall || null;    // 回调：每次LLM调用时通知
+    const maxIterations = options.maxIterations || 5;    const onToolCall = options.onToolCall || null;  // Callback: notify on tool call
+    const onLLMCall = options.onLLMCall || null;    // Callback: notify on each LLM call
     const conversationMessages = [...messages];
     const toolResults = [];
 
     for (let i = 0; i < maxIterations; i++) {
-      // 通知：即将调用LLM
+      // Notify: about to call LLM
       if (onLLMCall) {
         try { onLLMCall({ iteration: i + 1, maxIterations }); } catch {}
       }
@@ -159,7 +204,7 @@ export class LLMClient {
         maxTokens: options.maxTokens,
       });
 
-      // 如果没有工具调用，直接返回最终结果
+      // If no tool calls, return final result
       if (!response.toolCalls || response.toolCalls.length === 0) {
         return {
           content: response.content,
@@ -169,7 +214,7 @@ export class LLMClient {
         };
       }
 
-      // 处理工具调用
+      // Process tool calls
       conversationMessages.push({
         role: 'assistant',
         content: response.content,
@@ -181,13 +226,21 @@ export class LLMClient {
         let args;
         try {
           args = JSON.parse(argsStr);
-        } catch {
-          args = {};
+        } catch (parseErr) {
+          console.warn(`  ⚠️ [Tool Call] Failed to parse arguments for ${name}: ${argsStr?.slice(0, 200)}`);
+          // 尝试修复常见的 JSON 格式问题（LLM 有时会返回不规范的 JSON）
+          try {
+            // 移除可能的尾部逗号、修复单引号等
+            const cleaned = (argsStr || '{}').replace(/,\s*}/g, '}').replace(/,\s*]/g, ']').replace(/'/g, '"');
+            args = JSON.parse(cleaned);
+          } catch {
+            args = {};
+          }
         }
 
-        console.log(`  🔧 [工具调用] ${name}(${JSON.stringify(args).slice(0, 100)}...)`);
+        console.log(`  🔧 [Tool Call] ${name}(${JSON.stringify(args).slice(0, 100)}...)`);
 
-        // 通知：正在调用工具
+        // Notify: calling tool
         if (onToolCall) {
           try { onToolCall({ tool: name, args, status: 'start' }); } catch {}
         }
@@ -196,14 +249,14 @@ export class LLMClient {
         try {
           result = await toolExecutor.execute(name, args);
           toolResults.push({ tool: name, args, result, success: true });
-          // 通知：工具调用完成
+          // Notify: tool call completed
           if (onToolCall) {
             try { onToolCall({ tool: name, args, status: 'done', success: true }); } catch {}
           }
         } catch (error) {
-          result = `工具执行错误: ${error.message}`;
+          result = `Tool execution error: ${error.message}`;
           toolResults.push({ tool: name, args, error: error.message, success: false });
-          // 通知：工具调用失败
+          // Notify: tool call failed
           if (onToolCall) {
             try { onToolCall({ tool: name, args, status: 'error', error: error.message }); } catch {}
           }
@@ -217,7 +270,7 @@ export class LLMClient {
       }
     }
 
-    // 超过最大循环次数，做最后一次不带工具的调用
+    // Exceeded max iterations, make one final call without tools
     const finalResponse = await this.chat(provider, conversationMessages, {
       temperature: options.temperature,
       maxTokens: options.maxTokens,
@@ -232,11 +285,11 @@ export class LLMClient {
   }
 
   /**
-   * 生成图片（画图模型）
+   * Generate image (image models)
    * 
-   * @param {object} provider - 供应商配置
-   * @param {string} prompt - 图片描述
-   * @param {object} [options] - 选项
+   * @param {object} provider - Provider config
+   * @param {string} prompt - Image description
+   * @param {object} [options] - Options
    * @returns {Promise<{url: string, revisedPrompt: string}>}
    */
   async generateImage(provider, prompt, options = {}) {
@@ -256,13 +309,13 @@ export class LLMClient {
         revisedPrompt: response.data[0].revised_prompt || prompt,
       };
     } catch (error) {
-      console.error(`[LLMClient] 图片生成失败 (${provider.name}):`, error.message);
-      throw new Error(`图片生成失败 (${provider.name}): ${error.message}`);
+      console.error(`[LLMClient] Image generation failed (${provider.name}):`, error.message);
+      throw new Error(`Image generation failed (${provider.name}): ${error.message}`);
     }
   }
 
   /**
-   * 清除缓存的客户端（供应商API Key更新时调用）
+   * Clear cached client (call when provider API Key is updated)
    */
   clearClient(providerId) {
     this.clients.delete(providerId);
@@ -273,5 +326,5 @@ export class LLMClient {
   }
 }
 
-// 全局单例
+// Global singleton
 export const llmClient = new LLMClient();

@@ -3,72 +3,75 @@ import { Agent } from './agent.js';
 import { JobCategory } from './providers.js';
 import { llmClient } from './llm-client.js';
 import { JobTemplates } from './hr.js';
+import { pluginRegistry } from './plugin.js';
+import { skillRegistry } from './skills.js';
+import { knowledgeManager } from './knowledge.js';
 
 /**
- * 秘书的专属HR助手
- * 帮助秘书处理具体的招聘事务、人才市场搜索和召回
+ * Secretary's Dedicated HR Assistant
+ * Handles recruitment operations, talent market search, and recall
  */
 export class HRAssistant {
   constructor({ secretary, providerConfig }) {
     this.agent = new Agent({
-      name: '小HR',
-      role: 'HR招聘专员',
-      prompt: `你是秘书的专属HR助手，负责执行具体的招聘操作。
-你的职责包括：在人才市场中搜索合适的候选人、评估候选人的历史绩效和技能匹配度、
-执行招聘流程、协调新员工入职。你需要根据岗位需求，在「召回老员工」和「招聘新人」之间做出最优决策。`,
-      skills: ['人才搜索', '简历筛选', '绩效评估', '招聘流程', '入职协调'],
+      name: 'HR-Bot',
+      role: 'HR Recruiter',
+      prompt: `You are the secretary's dedicated HR assistant, responsible for executing recruitment operations.
+Your duties include: searching for suitable candidates in the talent market, evaluating candidates' historical performance and skill match,
+executing the recruitment process, and coordinating new employee onboarding. You need to make optimal decisions between "recalling former employees" and "hiring new ones" based on position requirements.`,
+      skills: ['talent-search', 'resume-screening', 'performance-evaluation', 'recruitment-process', 'onboarding'],
       provider: providerConfig,
     });
     this.secretary = secretary;
   }
 
   /**
-   * 智能招聘决策：先查人才市场，再决定是召回还是新招
-   * @param {object} requirement - 岗位需求 { templateId, name, role, skills }
-   * @param {HRSystem} hr - HR系统
-   * @returns {object} 招聘结果配置
+   * Smart recruitment decision: check talent market first, then decide recall vs new hire
+   * @param {object} requirement - Job requirement { templateId, name, role, skills }
+   * @param {HRSystem} hr - HR system
+   * @returns {object} Recruitment result config
    */
   smartRecruit(requirement, hr) {
     const { templateId, name, preferRecall = true } = requirement;
 
-    // 如果偏好召回，先查人才市场
+    // If recall is preferred, check talent market first
     if (preferRecall && hr.talentMarket) {
       const template = hr.getTemplate(templateId);
       if (template) {
-        // 搜索人才市场中匹配的人才
+        // Search for matching talent in the talent market
         const candidates = hr.searchTalentMarket({
           role: template.title,
           skills: template.skills,
         });
 
         if (candidates.length > 0) {
-          // 找到匹配的人才，评估是否召回
+          // Found matching talent, evaluate whether to recall
           const best = this._pickBestCandidate(candidates, template);
           if (best) {
-            console.log(`  🔍 [小HR] 在人才市场发现匹配候选人: ${best.name} (${best.role})`);
+            console.log(`  🔍 [HR-Bot] Found matching candidate in talent market: ${best.name} (${best.role})`);
             const decision = this._decideRecallOrNew(best, template);
             if (decision === 'recall') {
-              console.log(`  ✅ [小HR] 决定召回老员工: ${best.name}`);
+              console.log(`  ✅ [HR-Bot] Decided to recall former employee: ${best.name}`);
               return hr.recallFromMarket(best.id);
             } else {
-              console.log(`  🆕 [小HR] 决定招聘新人（老员工不够匹配）`);
+              console.log(`  🆕 [HR-Bot] Decided to hire new (former employee not a good match)`);
             }
           }
         } else {
-          console.log(`  🔍 [小HR] 人才市场无匹配候选人，将招聘新人`);
+          console.log(`  🔍 [HR-Bot] No matching candidates in talent market, will hire new`);
         }
       }
     }
 
-    // 正常招聘新人
+    // Normal new hire
     return hr.recruit(templateId, name);
   }
 
   /**
-   * 从候选人中选择最佳人选
+   * Pick best candidate from the list
    */
   _pickBestCandidate(candidates, template) {
-    // 按技能匹配度排序
+    // Sort by skill match score
     const scored = candidates.map(c => {
       const allSkills = [...c.skills, ...c.acquiredSkills];
       const matchCount = template.skills.filter(s =>
@@ -76,7 +79,7 @@ export class HRAssistant {
       ).length;
       const skillScore = matchCount / template.skills.length;
 
-      // 绩效加分
+      // Performance bonus
       const perfScore = c.performanceData?.averageScore
         ? c.performanceData.averageScore / 100
         : 0.5;
@@ -92,15 +95,15 @@ export class HRAssistant {
   }
 
   /**
-   * 决策：召回还是新招
-   * 如果老员工的综合评分 > 0.5，则召回；否则新招
+   * Decision: recall or hire new
+   * If former employee's composite score > 0.5, recall; otherwise hire new
    */
   _decideRecallOrNew(candidate, template) {
-    // 如果有绩效数据且平均分低于50，不召回
+    // If performance data exists and avg score below 50, don't recall
     if (candidate.performanceData?.averageScore < 50) {
       return 'new';
     }
-    // 如果技能匹配度高，召回
+    // If skill match is high, recall
     const allSkills = [...candidate.skills, ...candidate.acquiredSkills];
     const matchCount = template.skills.filter(s =>
       allSkills.some(cs => cs.includes(s) || s.includes(cs))
@@ -113,145 +116,139 @@ export class HRAssistant {
 }
 
 /**
- * 秘书Agent - 老板的专属秘书
- * 负责分析需求、设计团队架构、协调招聘
- * 现在拥有专属HR助手来帮忙处理招聘事务
+ * Secretary Agent - The boss's personal secretary
+ * Responsible for analyzing requirements, designing team architecture, coordinating recruitment
+ * Now has a dedicated HR assistant to handle recruitment operations
  */
 export class Secretary {
-  constructor({ company, providerConfig, secretaryName, secretaryAvatar }) {
+  constructor({ company, providerConfig, secretaryName, secretaryAvatar, secretaryGender, secretaryAge }) {
     this.agent = new Agent({
-      name: secretaryName || '小秘',
-      role: '专属秘书',
-      prompt: `你是企业老板的专属秘书，负责理解老板的业务需求，分析所需的团队构成，
-设计组织架构（谁负责什么、谁向谁汇报、如何协作），并协调HR进行人才招聘。
-你需要根据项目需求，合理规划不同岗位的数量和类型，确保团队能高效完成目标。
-你有一个专属的HR助手来帮你处理具体的招聘事务，包括从人才市场中搜索和召回人才。
+      name: secretaryName || 'Secretary',
+      role: 'Personal Secretary',
+      prompt: `You are the boss's personal secretary, responsible for understanding business requirements, analyzing required team composition,
+designing organizational structure (who does what, who reports to whom, how to collaborate), and coordinating HR for talent recruitment.
+You need to plan the number and types of positions based on project requirements to ensure the team can efficiently achieve its goals.
+You have a dedicated HR assistant to help you handle specific recruitment tasks, including searching and recalling talent from the talent market.
 
-当老板和你沟通时，你需要：
-1. 理解老板的意图（是分配任务、查询进度、还是日常沟通）
-2. 如果是任务，分配给对应部门
-3. 定期向老板汇报各部门进度`,
-      skills: ['需求分析', '团队规划', '组织设计', '人力协调', '项目管理', '任务分配', '进度汇报'],
+When communicating with the boss, you need to:
+1. Understand the boss's intent (task assignment, progress inquiry, or casual conversation)
+2. If it's a task, assign it to the corresponding department
+3. Periodically report department progress to the boss`,
+      skills: ['requirements-analysis', 'team-planning', 'org-design', 'hr-coordination', 'project-management', 'task-assignment', 'progress-reporting'],
       provider: providerConfig,
       avatar: secretaryAvatar,
+      gender: secretaryGender || 'female',
+      age: secretaryAge || 18,
     });
     this.company = company;
 
-    // 初始化专属HR助手
+    // Initialize dedicated HR assistant
     this.hrAssistant = new HRAssistant({
       secretary: this,
       providerConfig,
     });
 
-    console.log(`  🧑‍💼 秘书的专属HR助手已就位: ${this.hrAssistant.agent.name}`);
+    console.log(`  🧑‍💼 Secretary's dedicated HR assistant is ready: ${this.hrAssistant.agent.name}`);
   }
 
   /**
-   * 分析需求并设计团队架构 —— 使用AI分析
+   * Analyze requirements and design team architecture — using AI analysis
    */
   async designTeam(requirement) {
-    console.log(`\n🗂️ [小秘] 正在AI分析需求并设计团队架构...`);
-    console.log(`   需求: "${requirement}"\n`);
+    console.log(`\n🗂️ [Secretary] AI-analyzing requirements and designing team architecture...`);
+    console.log(`   Requirement: "${requirement}"\n`);
 
-    let plan;
-
-    // 尝试用LLM分析
-    if (this.agent.provider && this.agent.provider.enabled && this.agent.provider.apiKey) {
-      try {
-        plan = await this._aiAnalyzeRequirement(requirement);
-      } catch (e) {
-        console.log(`  ⚠️ AI分析失败: ${e.message}，回退到规则分析`);
-        plan = this._ruleBasedAnalysis(requirement);
-      }
-    } else {
-      plan = this._ruleBasedAnalysis(requirement);
+    if (!this.agent.provider || !this.agent.provider.enabled || !this.agent.provider.apiKey) {
+      throw new Error('Secretary AI is not configured. Please configure a valid API Key for the secretary provider first.');
     }
 
-    console.log(`📋 [小秘] 团队规划方案:`);
-    console.log(`   部门名称: ${plan.departmentName}`);
-    console.log(`   部门使命: ${plan.mission}`);
-    console.log(`   团队规模: ${plan.members.length}人`);
+    const plan = await this._aiAnalyzeRequirement(requirement);
+
+    console.log(`📋 [Secretary] Team plan:`);
+    console.log(`   Department: ${plan.departmentName}`);
+    console.log(`   Mission: ${plan.mission}`);
+    console.log(`   Team size: ${plan.members.length} people`);
     plan.members.forEach((m, i) => {
       const indent = m.reportsTo !== null ? '      ' : '    ';
       const prefix = m.isLeader ? '👔' : '👤';
-      console.log(`${indent}${prefix} ${m.name} - ${m.templateTitle} ${m.reportsTo !== null ? `(汇报给: ${plan.members[m.reportsTo].name})` : '(负责人)'}`);
+      console.log(`${indent}${prefix} ${m.name} - ${m.templateTitle} ${m.reportsTo !== null ? `(reports to: ${plan.members[m.reportsTo].name})` : '(leader)'}`);
     });
 
     return plan;
   }
 
   /**
-   * AI分析需求，生成团队方案
+   * AI-analyze requirements, generate team plan
    */
   async _aiAnalyzeRequirement(requirement) {
-    // 构建可用岗位列表
+    // Build available role list
     const availableRoles = Object.values(JobTemplates).map(t => ({
       id: t.id, title: t.title, category: t.category, skills: t.skills,
     }));
 
-    const systemPrompt = `你是一位经验丰富的企业秘书，擅长团队规划和人才携配。
+    const systemPrompt = `You are an experienced corporate secretary skilled at team planning and talent matching.
 
-以下是可用的岗位模板（只能从这些中选择）：
+Here are the available job templates (you can only choose from these):
 ${JSON.stringify(availableRoles, null, 2)}
 
-你需要根据老板的需求，输出一个JSON格式的团队方案。格式如下：
+Based on the boss's requirements, output a team plan in JSON format as follows:
 {
-  "departmentName": "部门名称",
-  "mission": "部门使命（简洁描述）",
-  "reasoning": "你的分析思路（为什么这样配置）",
+  "departmentName": "Department name",
+  "mission": "Department mission (concise description)",
+  "reasoning": "Your analysis rationale (why this configuration)",
   "members": [
     {
-      "templateId": "岗位模板ID",
-      "name": "员工花名（用有趣的中文名字）",
+      "templateId": "Job template ID",
+      "name": "Employee nickname (use creative, fun names)",
       "isLeader": true/false,
-      "reportsTo": null或数字索引,
-      "reason": "为什么需要这个岗位"
+      "reportsTo": null or numeric index,
+      "reason": "Why this position is needed"
     }
   ]
 }
 
-要求：
-1. 第一个成员必须是 project-leader 并且 isLeader=true
-2. 其他成员的 reportsTo 应该是其直属上级的索引号（0表示项目负责人）
-3. 团队规模合理，一般2-6人，不要凑人数
-4. 员工名字要有个性、有趣，不要用英文名
-5. 只返回JSON，不要其他内容`;
+Requirements:
+1. The first member must be project-leader with isLeader=true
+2. Other members' reportsTo should be the index of their direct supervisor (0 = project leader)
+3. Team size should be reasonable, typically 2-6 people, don't pad the roster
+4. Employee names should be distinctive and fun
+5. Return JSON only, no other content`;
 
     const response = await llmClient.chat(this.agent.provider, [
       { role: 'system', content: systemPrompt },
-      { role: 'user', content: `老板的需求：${requirement}` },
+      { role: 'user', content: `Boss's requirement: ${requirement}` },
     ], { temperature: 0.7, maxTokens: 2048 });
 
-    // 追踪秘书的token消耗
+    // Track secretary's token consumption
     this.agent._trackUsage(response.usage);
 
-    // 解析JSON
+    // Parse JSON
     let aiPlan;
     try {
       const jsonStr = response.content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
       aiPlan = JSON.parse(jsonStr);
     } catch (e) {
-      throw new Error('AI返回的格式无法解析');
+      throw new Error('Failed to parse AI response format');
     }
 
-    // 验证和整理
+    // Validate and organize
     if (!aiPlan.members || aiPlan.members.length === 0) {
-      throw new Error('AI没有规划任何成员');
+      throw new Error('AI did not plan any members');
     }
 
-    // 确保模板ID有效
+    // Ensure template IDs are valid
     const validTemplateIds = new Set(Object.values(JobTemplates).map(t => t.id));
     aiPlan.members = aiPlan.members.filter(m => validTemplateIds.has(m.templateId));
 
     if (aiPlan.members.length === 0) {
-      throw new Error('AI规划的岗位模板无效');
+      throw new Error('AI planned invalid job templates');
     }
 
-    console.log(`  🧠 AI分析思路: ${aiPlan.reasoning || '无'}`);
+    console.log(`  🧠 AI analysis rationale: ${aiPlan.reasoning || 'N/A'}`);
 
-    // 转换为标准格式
+    // Convert to standard format
     return {
-      departmentName: aiPlan.departmentName || '新项目部',
+      departmentName: aiPlan.departmentName || 'New Project Dept',
       mission: aiPlan.mission || requirement,
       reasoning: aiPlan.reasoning,
       members: aiPlan.members.map((m, i) => {
@@ -259,7 +256,7 @@ ${JSON.stringify(availableRoles, null, 2)}
         return {
           templateId: m.templateId,
           templateTitle: template?.title || m.templateId,
-          name: m.name || `员工${i + 1}`,
+          name: m.name || `Employee${i + 1}`,
           isLeader: m.isLeader || false,
           reportsTo: m.reportsTo ?? (i === 0 ? null : 0),
           reason: m.reason,
@@ -269,247 +266,26 @@ ${JSON.stringify(availableRoles, null, 2)}
     };
   }
 
-  /**
-   * 规则分析（备选方案，当AI不可用时使用）
-   * 根据使命关键词智能匹配岗位，并生成推理过程
-   */
-  _ruleBasedAnalysis(requirement) {
-    const req = requirement.toLowerCase();
-    const members = [];
-    let departmentName = '新项目部';
-    let mission = requirement;
-    const matchedCategories = []; // 记录匹配到的类别
-
-    members.push({
-      templateId: 'project-leader',
-      templateTitle: '项目负责人',
-      name: '项目负责人-Alex',
-      isLeader: true,
-      reportsTo: null,
-      reason: '每个团队都需要一个负责人来统筹全局',
-    });
-
-    if (this._matchKeywords(req, ['开发', '网站', '系统', '软件', '程序', '应用', 'app', 'web', '平台', '工具', '后端', '服务'])) {
-      departmentName = '产品研发部';
-      matchedCategories.push('软件开发');
-      members.push({
-        templateId: 'product-manager',
-        templateTitle: '产品经理',
-        name: '产品经理-Bob',
-        isLeader: false,
-        reportsTo: 0,
-        reason: `使命中涉及"${this._extractMatchedKeyword(req, ['开发', '网站', '系统', '软件', '程序', '应用', 'app', 'web', '平台', '工具'])}"，需要产品经理梳理需求`,
-      });
-      members.push({
-        templateId: 'software-engineer',
-        templateTitle: '软件工程师',
-        name: '工程师-Charlie',
-        isLeader: false,
-        reportsTo: 0,
-        reason: '负责核心编码实现',
-      });
-
-      if (this._matchKeywords(req, ['前端', '网站', 'web', '界面', '页面', 'ui', 'app'])) {
-        members.push({
-          templateId: 'frontend-engineer',
-          templateTitle: '前端工程师',
-          name: '前端-Diana',
-          isLeader: false,
-          reportsTo: 0,
-          reason: '需求涉及前端/界面开发',
-        });
-      }
-    }
-
-    if (this._matchKeywords(req, ['数据', '分析', '报告', '统计', '报表', '指标', '调研'])) {
-      if (departmentName === '新项目部') departmentName = '数据分析部';
-      matchedCategories.push('数据分析');
-      members.push({
-        templateId: 'data-analyst',
-        templateTitle: '数据分析师',
-        name: '分析师-Eve',
-        isLeader: false,
-        reportsTo: 0,
-        reason: `使命中涉及"${this._extractMatchedKeyword(req, ['数据', '分析', '报告', '统计', '报表', '调研'])}"，需要数据分析能力`,
-      });
-    }
-
-    if (this._matchKeywords(req, ['金融', '投资', '财务', '股票', '基金', '理财', '市场分析', '商业计划'])) {
-      if (departmentName === '新项目部') departmentName = '金融研究部';
-      matchedCategories.push('金融分析');
-      members.push({
-        templateId: 'financial-analyst',
-        templateTitle: '金融分析师',
-        name: '金融分析师-Frank',
-        isLeader: false,
-        reportsTo: 0,
-        reason: `使命涉及"${this._extractMatchedKeyword(req, ['金融', '投资', '财务', '股票', '基金', '理财', '商业计划'])}"`,
-      });
-    }
-
-    if (this._matchKeywords(req, ['文案', '营销', '推广', '宣传', '品牌', '广告', '内容', '文章', '公众号', '社交媒体'])) {
-      if (departmentName === '新项目部') departmentName = '市场营销部';
-      matchedCategories.push('内容营销');
-      members.push({
-        templateId: 'copywriter',
-        templateTitle: '文案策划',
-        name: '文案-Grace',
-        isLeader: false,
-        reportsTo: 0,
-        reason: `使命涉及"${this._extractMatchedKeyword(req, ['文案', '营销', '推广', '宣传', '品牌', '广告', '内容', '文章'])}"，需要文案能力`,
-      });
-    }
-
-    if (this._matchKeywords(req, ['翻译', '国际化', '多语言', '出海', '海外', '英语', '本地化'])) {
-      matchedCategories.push('国际化');
-      members.push({
-        templateId: 'translator',
-        templateTitle: '翻译专员',
-        name: '翻译-Henry',
-        isLeader: false,
-        reportsTo: 0,
-        reason: '需求涉及多语言/国际化',
-      });
-    }
-
-    if (this._matchKeywords(req, ['设计', '画', '图片', '海报', '插画', 'logo', '视觉', '美术', 'ui', '界面设计'])) {
-      if (departmentName === '新项目部') departmentName = '创意设计部';
-      matchedCategories.push('设计');
-      members.push({
-        templateId: 'ui-designer',
-        templateTitle: 'UI设计师',
-        name: '设计师-Ivy',
-        isLeader: false,
-        reportsTo: 0,
-        reason: `使命涉及"${this._extractMatchedKeyword(req, ['设计', '画', '图片', '海报', '视觉', '美术', 'ui'])}"`,
-      });
-
-      if (this._matchKeywords(req, ['插画', '概念', '原画', '美术'])) {
-        members.push({
-          templateId: 'illustrator',
-          templateTitle: '插画师',
-          name: '插画师-Jack',
-          isLeader: false,
-          reportsTo: members.length - 1,
-          reason: '需要专门的插画/美术创作',
-        });
-      }
-    }
-
-    if (this._matchKeywords(req, ['音乐', '歌曲', '配乐', '音效', '声音', 'bgm', '作曲'])) {
-      if (departmentName === '新项目部') departmentName = '音频创作部';
-      matchedCategories.push('音频');
-      members.push({
-        templateId: 'music-composer',
-        templateTitle: '音乐作曲家',
-        name: '作曲家-Kevin',
-        isLeader: false,
-        reportsTo: 0,
-        reason: '需求涉及音乐/音频创作',
-      });
-
-      if (this._matchKeywords(req, ['音效', '声音设计'])) {
-        members.push({
-          templateId: 'sound-designer',
-          templateTitle: '音效设计师',
-          name: '音效师-Linda',
-          isLeader: false,
-          reportsTo: 0,
-          reason: '需要专门的音效设计',
-        });
-      }
-    }
-
-    if (this._matchKeywords(req, ['视频', '动画', '短片', '宣传片', '特效', '剪辑', '动效'])) {
-      if (departmentName === '新项目部') departmentName = '视频制作部';
-      matchedCategories.push('视频');
-      members.push({
-        templateId: 'video-producer',
-        templateTitle: '视频制作人',
-        name: '视频制作-Mike',
-        isLeader: false,
-        reportsTo: 0,
-        reason: '需求涉及视频/动画制作',
-      });
-
-      if (this._matchKeywords(req, ['动效', '动画', '特效'])) {
-        members.push({
-          templateId: 'motion-designer',
-          templateTitle: '动效设计师',
-          name: '动效师-Nancy',
-          isLeader: false,
-          reportsTo: 0,
-          reason: '需要动效/特效制作能力',
-        });
-      }
-    }
-
-    if (members.length === 1) {
-      departmentName = '综合项目部';
-      matchedCategories.push('综合');
-      members.push({
-        templateId: 'product-manager',
-        templateTitle: '产品经理',
-        name: '产品经理-Bob',
-        isLeader: false,
-        reportsTo: 0,
-        reason: '使命内容未匹配到具体专业方向，分配通用产品经理进行需求分析',
-      });
-      members.push({
-        templateId: 'copywriter',
-        templateTitle: '文案策划',
-        name: '文案-Grace',
-        isLeader: false,
-        reportsTo: 0,
-        reason: '分配文案策划协助内容输出',
-      });
-    }
-
-    // 生成推理过程
-    const reasoning = matchedCategories.length > 0
-      ? `根据使命「${requirement}」的关键词分析，识别到以下需求方向: ${matchedCategories.join('、')}。据此配置了${members.length}人团队。注意：当前为规则匹配模式（AI分析未启用），如需更精准的团队规划，请配置有效的API Key。`
-      : `使命「${requirement}」未匹配到明确的专业方向，配置了通用综合团队。建议配置API Key开启AI智能分析，获得更精准的人力规划。`;
-
-    return {
-      departmentName,
-      mission,
-      reasoning,
-      members,
-      collaborationRules: this._designCollaboration(members),
-    };
-  }
-
-  _matchKeywords(text, keywords) {
-    return keywords.some(k => text.includes(k));
-  }
-
-  /**
-   * 提取匹配到的关键词（用于 reason 展示）
-   */
-  _extractMatchedKeyword(text, keywords) {
-    return keywords.filter(k => text.includes(k)).join('/') || '相关内容';
-  }
-
   _designCollaboration(members) {
     const rules = [];
-    rules.push('1. 项目负责人统筹全局，分配任务并跟踪进度');
-    rules.push('2. 各成员完成任务后向直属上级汇报');
-    rules.push('3. 同级别成员之间可以横向协作交流');
-    rules.push('4. 项目按阶段推进，每个阶段有明确的交付物');
+    rules.push('1. Project leader coordinates overall operations, assigns tasks and tracks progress');
+    rules.push('2. Members report to their direct supervisor upon task completion');
+    rules.push('3. Peers at the same level can collaborate horizontally');
+    rules.push('4. Project progresses in phases, each with clear deliverables');
     return rules;
   }
 
   /**
-   * AI分析部门调整方案：根据老板目标和当前人员，决定扩招/裁员
-   * @param {object} department - 部门数据 { name, mission, members }
-   * @param {string} adjustGoal - 老板的调整目标
-   * @returns {object} 调整方案 { reasoning, hires, fires }
+   * AI-analyze department adjustment plan: based on boss's goal and current staff, decide hiring/firing
+   * @param {object} department - Department data { name, mission, members }
+   * @param {string} adjustGoal - Boss's adjustment goal
+   * @returns {object} Adjustment plan { reasoning, hires, fires }
    */
   async adjustTeam(department, adjustGoal) {
-    console.log(`\n🔧 [小秘] 正在分析「${department.name}」部门调整方案...`);
-    console.log(`   调整目标: "${adjustGoal}"\n`);
+    console.log(`\n🔧 [Secretary] Analyzing adjustment plan for "${department.name}" department...`);
+    console.log(`   Adjustment goal: "${adjustGoal}"\n`);
 
-    // 构建当前成员信息
+    // Build current member info
     const currentMembers = department.members.map(m => ({
       id: m.id,
       name: m.name,
@@ -519,72 +295,65 @@ ${JSON.stringify(availableRoles, null, 2)}
       taskCount: m.taskCount || 0,
     }));
 
-    // 可用岗位模板
+    // Available job templates
     const availableRoles = Object.values(JobTemplates).map(t => ({
       id: t.id, title: t.title, category: t.category, skills: t.skills,
     }));
 
-    let plan;
-
-    if (this.agent.provider && this.agent.provider.enabled && this.agent.provider.apiKey) {
-      try {
-        plan = await this._aiAnalyzeAdjustment(department, currentMembers, availableRoles, adjustGoal);
-      } catch (e) {
-        console.log(`  ⚠️ AI分析失败: ${e.message}，回退到规则分析`);
-        plan = this._ruleBasedAdjustment(department, currentMembers, adjustGoal);
-      }
-    } else {
-      plan = this._ruleBasedAdjustment(department, currentMembers, adjustGoal);
+    if (!this.agent.provider || !this.agent.provider.enabled || !this.agent.provider.apiKey) {
+      throw new Error('Secretary AI is not configured. Please configure a valid API Key for the secretary provider first.');
     }
 
-    console.log(`📋 [小秘] 调整方案:`);
-    console.log(`   裁员: ${plan.fires.length}人, 扩招: ${plan.hires.length}人`);
+    const plan = await this._aiAnalyzeAdjustment(department, currentMembers, availableRoles, adjustGoal);
+
+    console.log(`📋 [Secretary] Adjustment plan:`);
+    console.log(`   Fires: ${plan.fires.length} people, Hires: ${plan.hires.length} people`);
 
     return plan;
   }
 
   /**
-   * AI分析部门调整
+   * AI-analyze department adjustment
    */
   async _aiAnalyzeAdjustment(department, currentMembers, availableRoles, adjustGoal) {
-    const systemPrompt = `你是一位经验丰富的企业秘书，擅长组织架构调整和人力资源规划。
+    const systemPrompt = `You are an experienced corporate secretary skilled at organizational restructuring and HR planning.
 
-当前部门信息：
-- 名称: ${department.name}
-- 使命: ${department.mission}
-- 现有成员: ${JSON.stringify(currentMembers, null, 2)}
+Current department info:
+- Name: ${department.name}
+- Mission: ${department.mission}
+- Current members: ${JSON.stringify(currentMembers, null, 2)}
 
-可用岗位模板（扩招只能从这些中选择）：
+Available job templates (hiring can only choose from these):
 ${JSON.stringify(availableRoles, null, 2)}
 
-你需要根据老板的调整目标，输出一个JSON格式的调整方案。格式如下：
+Based on the boss's adjustment goal, output an adjustment plan in JSON format as follows:
 {
-  "reasoning": "你的分析思路（为什么这样调整）",
+  "reasoning": "Your analysis rationale (why this adjustment)",
   "fires": [
-    { "agentId": "要裁掉的成员ID", "name": "成员名字", "reason": "裁员理由" }
+    { "agentId": "Member ID to fire", "name": "Member name", "reason": "Firing reason" }
   ],
   "hires": [
     {
-      "templateId": "岗位模板ID",
-      "name": "新员工花名（用有趣的中文名字）",
+      "templateId": "Job template ID",
+      "name": "New employee nickname (use creative, fun names)",
       "isLeader": false,
       "reportsTo": 0,
-      "reason": "为什么需要这个岗位"
+      "reason": "Why this position is needed"
     }
   ]
 }
 
-要求：
-1. 根据老板的目标合理决策：可能是纯裁员、纯扩招、或两者结合
-2. 裁员时优先裁绩效低的、技能不匹配的
-3. 扩招时填补能力空缺，名字要有个性
-4. hires中的reportsTo是现有成员列表的索引(0-based)，或者-1表示直接汇报给负责人
-5. 如果不需要裁员，fires为空数组；不需要扩招，hires为空数组
-6. 只返回JSON，不要其他内容`;
+Requirements:
+1. Make reasonable decisions based on boss's goal: could be pure layoff, pure hiring, or both
+2. When firing, prioritize low performers and skill mismatches
+3. When hiring, fill capability gaps with distinctive names
+4. hires reportsTo is the index (0-based) in the current member list, or -1 for direct report to leader
+5. If no firing needed, fires is an empty array; if no hiring needed, hires is an empty array
+6. Return JSON only, no other content`;
 
     const response = await llmClient.chat(this.agent.provider, [
       { role: 'system', content: systemPrompt },
-      { role: 'user', content: `老板的调整目标：${adjustGoal}` },
+      { role: 'user', content: `Boss's adjustment goal: ${adjustGoal}` },
     ], { temperature: 0.7, maxTokens: 2048 });
 
     this.agent._trackUsage(response.usage);
@@ -594,123 +363,81 @@ ${JSON.stringify(availableRoles, null, 2)}
       const jsonStr = response.content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
       aiPlan = JSON.parse(jsonStr);
     } catch (e) {
-      throw new Error('AI返回的格式无法解析');
+      throw new Error('Failed to parse AI response format');
     }
 
-    // 验证fires中的agentId是否存在
+    // Validate fires agentId existence
     const memberIds = new Set(currentMembers.map(m => m.id));
     aiPlan.fires = (aiPlan.fires || []).filter(f => memberIds.has(f.agentId));
 
-    // 验证hires的模板ID
+    // Validate hires template IDs
     const validTemplateIds = new Set(Object.values(JobTemplates).map(t => t.id));
     aiPlan.hires = (aiPlan.hires || []).filter(h => validTemplateIds.has(h.templateId));
 
-    // 补充模板标题
+    // Append template titles
     aiPlan.hires = aiPlan.hires.map((h, i) => {
       const template = Object.values(JobTemplates).find(t => t.id === h.templateId);
       return {
         ...h,
         templateTitle: template?.title || h.templateId,
-        name: h.name || `新员工${i + 1}`,
+        name: h.name || `NewHire${i + 1}`,
       };
     });
 
     return {
-      reasoning: aiPlan.reasoning || '根据目标进行调整',
+      reasoning: aiPlan.reasoning || 'Adjusting based on goal',
       fires: aiPlan.fires || [],
       hires: aiPlan.hires || [],
     };
   }
 
   /**
-   * 基于规则的部门调整（备选方案）
-   */
-  _ruleBasedAdjustment(department, currentMembers, adjustGoal) {
-    const goal = adjustGoal.toLowerCase();
-    const fires = [];
-    const hires = [];
-
-    // 裁员关键词
-    if (/裁|减|缩|精简|砍/.test(goal)) {
-      // 裁绩效最低的一个
-      const sorted = [...currentMembers]
-        .filter(m => m.role !== '项目负责人')
-        .sort((a, b) => (a.avgScore || 100) - (b.avgScore || 100));
-      if (sorted.length > 0) {
-        fires.push({
-          agentId: sorted[0].id,
-          name: sorted[0].name,
-          reason: '根据调整目标进行人力精简',
-        });
-      }
-    }
-
-    // 扩招关键词
-    if (/招|扩|增|补|加人/.test(goal)) {
-      hires.push({
-        templateId: 'software-engineer',
-        templateTitle: '软件工程师',
-        name: '工程师-新兵',
-        isLeader: false,
-        reportsTo: 0,
-        reason: '根据调整目标补充人力',
-      });
-    }
-
-    return {
-      reasoning: '基于关键词分析的调整方案',
-      fires,
-      hires,
-    };
-  }
-
-  /**
-   * 执行招聘 - 通过HR助手智能决策：优先从人才市场召回，否则新招
-   * @param {object} plan - designTeam的输出
-   * @param {HRSystem} hr - HR系统
-   * @returns {Array<Agent>} 招聘的Agent列表
+   * Execute recruitment - Smart decision via HR assistant: prefer talent market recall, otherwise new hire
+   * @param {object} plan - Output from designTeam
+   * @param {HRSystem} hr - HR system
+   * @returns {Array<Agent>} List of recruited Agents
    */
   executeRecruitment(plan, hr) {
-    console.log(`\n🔔 [小秘] 开始执行招聘，由HR助手 [${this.hrAssistant.agent.name}] 负责具体操作...`);
+    console.log(`\n🔔 [Secretary] Starting recruitment, HR assistant [${this.hrAssistant.agent.name}] handling operations...`);
 
     const agents = [];
-    const skipped = []; // 跳过的岗位
+    const skipped = []; // Skipped positions
 
     for (const memberPlan of plan.members) {
-      console.log(`\n  📌 岗位: ${memberPlan.templateTitle} (${memberPlan.name})`);
+      console.log(`\n  📌 Position: ${memberPlan.templateTitle} (${memberPlan.name})`);
 
       try {
-        // 通过HR助手进行智能招聘决策
+        // Smart recruitment via HR assistant
         const recruitConfig = this.hrAssistant.smartRecruit(
           {
             templateId: memberPlan.templateId,
             name: memberPlan.name,
-            preferRecall: true, // 优先考虑从人才市场召回
+            preferRecall: true, // Prefer recalling from talent market
           },
           hr
         );
         const agent = new Agent(recruitConfig);
 
-        // 如果是召回的，添加回归记忆
+        // If recalled, add comeback memory
         if (recruitConfig.isRecalled) {
           agent.memory.addLongTerm(
-            `被召回至新岗位，携带过往经验和记忆重新入职`,
+            `Recalled to a new position, carrying past experience and memories back to work`,
             'experience'
           );
-          console.log(`  🔄 [${agent.name}] 是从人才市场召回的老员工，携带原有记忆`);
+          console.log(`  🔄 [${agent.name}] is a former employee recalled from talent market, carrying original memories`);
         }
 
         agents.push(agent);
       } catch (e) {
-        // 如果是供应商不可用导致的，跳过该岗位
+        // If caused by provider unavailability, skip this position
         if (e.message.startsWith('PROVIDER_DISABLED:')) {
           const parts = e.message.split(':');
           const category = parts[1];
           const reason = parts[2];
-          console.log(`  ⚠️ [小HR] 无法招聘「${memberPlan.templateTitle}」: ${reason}`);
-          console.log(`     提示: 请先在供应商看板配置${category}类型的API Key`);
+          console.log(`  ⚠️ [HR-Bot] Cannot hire "${memberPlan.templateTitle}": ${reason}`);
+          console.log(`     Hint: Please configure API Key for ${category} type providers first`);
           skipped.push({ ...memberPlan, reason });
-          // 推入一个null占位，保持索引一致
+          // Push null placeholder to maintain index consistency
           agents.push(null);
         } else {
           throw e;
@@ -718,10 +445,10 @@ ${JSON.stringify(availableRoles, null, 2)}
       }
     }
 
-    // 过滤掉跳过的null
+    // Filter out skipped nulls
     const validAgents = agents.filter(Boolean);
 
-    // 建立汇报关系（需要处理null的情况）
+    // Establish reporting relationships (handle nulls)
     for (let i = 0; i < plan.members.length; i++) {
       if (!agents[i]) continue;
       const memberPlan = plan.members[i];
@@ -731,57 +458,57 @@ ${JSON.stringify(availableRoles, null, 2)}
     }
 
     if (skipped.length > 0) {
-      console.log(`\n⚠️ [小秘] 有 ${skipped.length} 个岗位因供应商未配置而跳过:`);
+      console.log(`\n⚠️ [Secretary] ${skipped.length} positions skipped due to unconfigured providers:`);
       skipped.forEach(s => console.log(`   - ${s.templateTitle}: ${s.reason}`));
     }
 
-    console.log(`\n✅ [小秘] 招聘完成! 成功招聘 ${validAgents.length} 人，跳过 ${skipped.length} 人`);
+    console.log(`\n✅ [Secretary] Recruitment complete! Successfully hired ${validAgents.length}, skipped ${skipped.length}`);
     return validAgents;
   }
 
   /**
-   * 设计项目执行计划
+   * Design project execution plan
    */
   designProjectPlan(projectName, description, agents) {
-    console.log(`\n📝 [小秘] 正在设计项目执行计划...`);
+    console.log(`\n📝 [Secretary] Designing project execution plan...`);
 
     const phases = [];
 
     const planners = agents.filter(a =>
-      ['产品经理', '项目负责人'].includes(a.role)
+      ['Product Manager', 'Project Leader'].includes(a.role)
     );
     if (planners.length > 0) {
       phases.push({
-        name: '需求分析与规划',
-        description: '明确项目目标、范围和关键里程碑',
+        name: 'Requirements Analysis & Planning',
+        description: 'Define project goals, scope, and key milestones',
         tasks: planners.map(a => ({
-          title: `${a.role}: 分析需求并制定计划`,
+          title: `${a.role}: Analyze requirements and create plan`,
           assigneeId: a.id,
         })),
       });
     }
 
     const creators = agents.filter(a =>
-      !['产品经理', '项目负责人'].includes(a.role)
+      !['Product Manager', 'Project Leader'].includes(a.role)
     );
     if (creators.length > 0) {
       phases.push({
-        name: '核心创作与开发',
-        description: '各角色并行执行核心工作',
+        name: 'Core Creation & Development',
+        description: 'All roles execute core work in parallel',
         tasks: creators.map(a => ({
-          title: `${a.role}: 执行核心工作`,
+          title: `${a.role}: Execute core work`,
           assigneeId: a.id,
         })),
       });
     }
 
-    const leader = agents.find(a => a.role === '项目负责人');
+    const leader = agents.find(a => a.role === 'Project Leader');
     if (leader) {
       phases.push({
-        name: '整合与交付',
-        description: '汇总各成员成果，整合输出最终交付物',
+        name: 'Integration & Delivery',
+        description: 'Consolidate all member outputs and deliver final result',
         tasks: [{
-          title: '项目负责人: 整合成果并输出最终交付',
+          title: 'Project Leader: Integrate results and deliver final output',
           assigneeId: leader.id,
         }],
       });
@@ -795,37 +522,31 @@ ${JSON.stringify(availableRoles, null, 2)}
       createdAt: new Date(),
     };
 
-    console.log(`   项目计划: ${phases.length}个阶段`);
+    console.log(`   Project plan: ${phases.length} phases`);
     phases.forEach((p, i) => {
-      console.log(`   阶段${i + 1}: ${p.name} (${p.tasks.length}个任务)`);
+      console.log(`   Phase${i + 1}: ${p.name} (${p.tasks.length} tasks)`);
     });
 
     return project;
   }
 
   /**
-   * 处理老板发来的消息
-   * 分析是任务分配、查询进度、还是日常沟通
+   * Handle boss's message
+   * Analyze whether it's task assignment, progress inquiry, or casual conversation
    */
   async handleBossMessage(message, company) {
-    // 优先尝试LLM智能回复
-    if (this.agent.provider && this.agent.provider.enabled && this.agent.provider.apiKey) {
-      try {
-        return await this._llmHandleBossMessage(message, company);
-      } catch (e) {
-        console.log(`  ⚠️ 秘书LLM回复失败: ${e.message}，回退到规则回复`);
-      }
+    if (!this.agent.provider || !this.agent.provider.enabled || !this.agent.provider.apiKey) {
+      throw new Error('Secretary AI is not configured. Please configure a valid API Key for the secretary provider first.');
     }
 
-    // 回退：规则匹配
-    return this._ruleHandleBossMessage(message, company);
+    return await this._llmHandleBossMessage(message, company);
   }
 
   /**
-   * LLM驱动的老板消息处理
+   * LLM-driven boss message handling
    */
   async _llmHandleBossMessage(message, company) {
-    // 构建公司上下文
+    // Build company context
     const deptCount = company.departments.size;
     const departments = [...company.departments.values()].map(d => ({
       name: d.name,
@@ -833,7 +554,7 @@ ${JSON.stringify(availableRoles, null, 2)}
       mission: d.mission,
       status: d.status,
       memberCount: d.agents.size,
-      leader: d.getLeader()?.name || '未指定',
+      leader: d.getLeader()?.name || 'Unassigned',
       members: [...d.agents.values()].map(a => ({
         name: a.name, role: a.role, status: a.status,
       })),
@@ -841,7 +562,7 @@ ${JSON.stringify(availableRoles, null, 2)}
     const agentCount = departments.reduce((s, d) => s + d.memberCount, 0);
     const talentCount = company.talentMarket.listAvailable().length;
 
-    // 获取最近的对话历史（作为多轮上下文）
+    // Get recent chat history (as multi-turn context)
     const recentHistory = (company.chatHistory || []).slice(-20).map(h => ({
       role: h.role === 'boss' ? 'user' : 'assistant',
       content: h.content,
@@ -849,67 +570,111 @@ ${JSON.stringify(availableRoles, null, 2)}
 
     const secretaryPrompt = this.agent.prompt || '';
 
-    const systemPrompt = `你是「${this.agent.name}」，${company.bossName || '老板'}的专属秘书。
-${secretaryPrompt ? `\n你的核心设定：${secretaryPrompt}\n` : ''}
-你的性格特点：聪明、高效、有亲和力。你要像一个真实的贴心秘书一样和老板沟通，自然、有温度、不机械。
+    // 动态获取插件、技能、知识库信息
+    let capabilitiesSection = '';
+    try {
+      const enabledPlugins = pluginRegistry.list().filter(p => p.state === 'enabled');
+      if (enabledPlugins.length > 0) {
+        capabilitiesSection += `\n## Installed Plugins (${enabledPlugins.length} active)\n`;
+        enabledPlugins.forEach(p => {
+          capabilitiesSection += `- 🧩 ${p.name} v${p.version}: ${p.description} (${p.toolCount} tools)\n`;
+        });
+        // 列出插件提供的具体工具
+        const pluginTools = pluginRegistry.getPluginTools();
+        if (pluginTools.length > 0) {
+          capabilitiesSection += `\nAvailable plugin tools:\n`;
+          pluginTools.forEach(t => {
+            const fn = t.function || t;
+            capabilitiesSection += `  • ${fn.name}: ${fn.description}\n`;
+          });
+        }
+      }
+    } catch {}
+    try {
+      const skills = skillRegistry.list();
+      if (skills.length > 0) {
+        capabilitiesSection += `\n## Available Skills (${skills.length})\n`;
+        skills.forEach(s => {
+          capabilitiesSection += `- 🎯 ${s.name}: ${s.description}\n`;
+        });
+      }
+    } catch {}
+    try {
+      const kbs = knowledgeManager.list();
+      if (kbs.length > 0) {
+        capabilitiesSection += `\n## Knowledge Bases (${kbs.length})\n`;
+        kbs.forEach(kb => {
+          capabilitiesSection += `- 📚 ${kb.name}: ${kb.description} (${kb.entryCount || 0} entries)\n`;
+        });
+      }
+    } catch {}
 
-当前公司「${company.name}」状态：
-- 部门数: ${deptCount}
-- 在职员工: ${agentCount}人
-- 人才市场: ${talentCount}人可用
-${departments.length > 0 ? `\n各部门信息：\n${departments.map(d => `  🏢 ${d.name} [${d.status}] - 使命: ${d.mission} | ${d.memberCount}人 | 负责人: ${d.leader}\n     成员: ${d.members.map(m => m.name + '(' + m.role + ')').join(', ')}`).join('\n')}` : '\n目前还没有部门。'}
+    const systemPrompt = `You are "${this.agent.name}", the personal secretary of ${company.bossName || 'the Boss'}.
+${secretaryPrompt ? `\nYour core persona: ${secretaryPrompt}\n` : ''}
+Your personality: smart, efficient, approachable. Communicate with the boss like a real, thoughtful secretary — natural, warm, not robotic.
 
-你需要理解老板的意图并自然地回复。你的回复必须是一个JSON对象（仅返回JSON，无其他内容）：
+Current company "${company.name}" status:
+- Departments: ${deptCount}
+- Active employees: ${agentCount}
+- Talent market: ${talentCount} available
+${departments.length > 0 ? `\nDepartment details:\n${departments.map(d => `  🏢 ${d.name} [${d.status}] - Mission: ${d.mission} | ${d.memberCount} people | Leader: ${d.leader}\n     Members: ${d.members.map(m => m.name + '(' + m.role + ')').join(', ')}`).join('\n')}` : '\nNo departments yet.'}
+${capabilitiesSection}
+When the boss asks about your capabilities, plugins, tools, skills, or what you can do, you MUST accurately list ALL installed plugins, available tools, skills, and knowledge bases shown above. NEVER say you don't have plugin support.
+
+You must understand the boss's intent and reply naturally. Your reply MUST be a JSON object (return JSON only, nothing else):
 {
-  "content": "你的自然语言回复（像真人秘书一样，有温度、有个性、不要生硬模板）",
-  "action": null 或以下之一：
-    - { "type": "task_assigned", "departmentId": "部门ID", "departmentName": "部门名", "taskTitle": "简短任务标题(10字内)", "taskDescription": "详细任务描述，包括具体要做什么、产出什么" } - 当老板要分配任务给某个已有部门时
-    - { "type": "create_department", "departmentName": "部门名称", "mission": "部门使命/职责描述" } - 当老板明确要求创建/开设一个新部门时（不需要分配具体任务，只是建部门）
-    - { "type": "need_new_department", "suggestedMission": "任务描述" } - 当老板要分配任务但确实没有任何已有部门可以胜任时（需要先建部门再分配任务）
-    - { "type": "progress_report" } - 当老板想查看各部门进度汇报时
-    - null - 日常闲聊或不需要特殊操作时
+  "content": "Your natural language reply (like a real secretary — warm, personal, no rigid templates)",
+  "action": null or one of the following:
+    - { "type": "task_assigned", "departmentId": "dept ID", "departmentName": "dept name", "taskTitle": "short task title (under 10 words)", "taskDescription": "detailed task description including what to do and what to deliver" } - when the boss wants to assign a task to an existing department
+    - { "type": "create_department", "departmentName": "department name", "mission": "department mission/responsibilities" } - when the boss explicitly requests creating a new department (no task assignment, just creating the dept)
+    - { "type": "need_new_department", "suggestedMission": "task description" } - when the boss wants to assign a task but no existing department can handle it (need to create dept first then assign)
+    - { "type": "progress_report" } - when the boss wants to see progress reports
+    - null - casual chat or no special action needed
 }
 
-## 意图判断规则（按优先级从高到低）：
+## Intent Rules (by priority, high to low):
 
-**最高优先级 - 组织管理类操作**：
-老板说"创建/成立/开设/建/新建/组建/设立 + 部门"时，这是组织管理操作，**必须**返回 create_department，**绝不能**返回 task_assigned。
-  - 即使消息中包含"帮我"等词，只要核心意图是"成立/创建部门"，就返回 create_department
-  - departmentName: 根据老板描述智能起一个合适的部门名称
-  - mission: 根据老板描述总结部门使命和职责
+**Highest Priority - Organizational Management**:
+When the boss says "create/establish/set up/found + department", this is an org management operation. **MUST** return create_department, **NEVER** return task_assigned.
+  - Even if the message contains words like "help me", as long as the core intent is "create/establish a department", return create_department
+  - departmentName: intelligently name the department based on boss's description
+  - mission: summarize department mission and responsibilities from boss's description
 
-**高优先级 - 分配任务给已有部门（优先使用！）**：
-老板要做某件事时，你必须首先逐一检查上面列出的所有已有部门，判断是否有部门能胜任。
-判断标准（满足任意一条即可分配）：
-  1. 部门名称包含任务相关的关键词（如任务是"旅游攻略"，部门名叫"旅游攻略部"→ 匹配）
-  2. 部门使命/职责描述与任务内容相关（如部门使命提到"旅游""攻略", 任务也是旅游相关→ 匹配）
-  3. 部门名称的核心词与任务有语义关联（如"金融分析部"可以处理"股票分析"任务）
-只要找到一个匹配的部门，就**必须**返回 task_assigned，**绝对不能**返回 need_new_department！
-  - departmentId 必须是上述部门信息中的真实id字段，不要编造
-  - departmentName 必须与id对应的部门名称完全一致
-  - taskDescription 要详细描述任务内容、目标和产出要求
-  - **content中提到的部门名必须和action中的departmentName一致，不能嘴上说分配给A部门，action却指向B部门**
+**High Priority - Assign Task to Existing Department (use this first!)**:
+When the boss wants something done, you MUST first check ALL existing departments listed above to see if any can handle it.
+Matching criteria (any one is sufficient to assign):
+  1. Department name contains task-related keywords (e.g. task is "travel guide", dept named "Travel Guide Dept" → match)
+  2. Department mission/description relates to task content (e.g. dept mission mentions "travel"/"guide", task is also travel-related → match)
+  3. Department name's core words are semantically related to the task (e.g. "Financial Analysis Dept" can handle "stock analysis" tasks)
+Once a matching department is found, you **MUST** return task_assigned, **ABSOLUTELY CANNOT** return need_new_department!
+  - departmentId MUST be the real id field from the department info above, don't fabricate
+  - departmentName MUST exactly match the name corresponding to the id
+  - taskDescription should detail the task content, goals, and deliverables
+  - **The department name mentioned in content MUST match the departmentName in action — you can't say "assigning to Dept A" in content but point action to Dept B**
 
-**最低优先级 - 需要新建部门来完成任务（极少使用！）**：
-**仅当你逐一检查了所有已有部门，确认没有任何一个部门的名称或使命与任务哪怕有一点点关联时**，才能返回 need_new_department。
-⚠️ 在返回need_new_department之前，请再三确认：
-  - 你是否检查了每一个已有部门？
-  - 真的没有任何一个部门名称包含任务相关的词？
-  - 真的没有任何一个部门的使命与任务有关？
-如果有任何疑虑，宁可分配给最接近的部门（task_assigned），也不要返回need_new_department
+**Lowest Priority - Need New Department (rarely used!)**:
+**ONLY when you've checked every existing department and confirmed none has even the slightest relation to the task** can you return need_new_department.
+⚠️ Before returning need_new_department, triple-check:
+  - Have you checked every existing department?
+  - Is there really no department whose name contains task-related words?
+  - Is there really no department whose mission relates to the task?
+If in any doubt, assign to the closest department (task_assigned) rather than returning need_new_department
 
-**低优先级 - 查看进度**：
-老板问进度/状态/汇报时，返回 progress_report
+**Low Priority - View Progress**:
+When the boss asks about progress/status/reports, return progress_report
 
-**无操作**：日常闲聊、打招呼等，action 设为 null
+**No Action**: casual chat, greetings, etc. — set action to null
 
-## 注意：
-1. content要自然、有个性，不要用固定模板，可以适当加emoji
-2. 回复要简洁，不要啰嗦
-3. **极其重要**：当老板的消息包含动作指令时（如"帮我""做一个""开发""设计""做""写""分析""研究""调研""制作""策划"等），你**必须**返回action，**绝对不允许**只在content里说"我来安排"却不返回action。这是最关键的规则，如果你不返回action，任务就不会被真正执行！
-4. **极其重要**：仔细区分"创建部门"和"分配任务"——"帮我成立一个XX部门"是创建部门（create_department），而"帮我做一份分析报告"是分配任务（task_assigned/need_new_department）
-5. **极其重要**：当老板说"做XX""帮我XX"等明确的任务指令时，如果有合适的已有部门就返回task_assigned，没有就返回need_new_department。绝对不能只聊天不干活！
-6. **极其重要 - 一致性原则**：你的content和action必须一致！如果content中说"下达给XX部门"，那么action的departmentId/departmentName必须指向同一个部门。如果content中说某个部门，action却是need_new_department，这是严重错误！`;
+## Notes:
+1. Content should be natural and personal, avoid rigid templates, feel free to add emoji
+2. Keep replies concise, don't be verbose
+3. **Critical**: When the boss's message contains action verbs (like "help me", "build", "develop", "design", "do", "write", "analyze", "research", "create", "produce", "plan", etc.), you **MUST** return an action. **ABSOLUTELY NEVER** just say "I'll arrange it" in content without returning an action. This is the most important rule — without an action, the task won't actually execute!
+4. **Critical**: Carefully distinguish "creating a department" from "assigning a task" — "help me set up an XX department" is create_department, while "help me write an analysis report" is task assignment (task_assigned/need_new_department)
+5. **Critical**: When the boss says "do XX", "help me XX" and other clear task directives, return task_assigned if there's a suitable existing department, otherwise return need_new_department. Never just chat without working!
+6. **Critical - Consistency Principle**: Your content and action MUST be consistent! If content says "assigning to XX department", then action's departmentId/departmentName must point to that same department. If content mentions one department but action is need_new_department, that's a serious error!
+7. **Critical - Structured Output**: You MUST always return valid JSON. Do NOT wrap it in markdown code fences. Do NOT add any text outside the JSON object. The response must start with { and end with }.
+8. **Critical - Action Required for Tasks**: If the boss's message expresses ANY intent to get work done (in any language), you MUST return an action. Analyze the semantic meaning, not just keywords. For example: "帮我做个网站" (help me build a website), "写一份报告" (write a report), "分析一下数据" (analyze the data) — ALL of these require an action.
+9. **Critical - Language Agnostic**: The boss may speak in any language (Chinese, English, Japanese, etc.). You must understand the intent regardless of language and return the correct structured action.`;
     const messages = [
       { role: 'system', content: systemPrompt },
       ...recentHistory,
@@ -923,15 +688,15 @@ ${departments.length > 0 ? `\n各部门信息：\n${departments.map(d => `  🏢
 
     this.agent._trackUsage(response.usage);
 
-    // 解析JSON回复
+    // Parse JSON reply
     try {
       let jsonStr = response.content.trim();
-      // 去除 markdown 代码块包裹（支持多种格式）
+      // Remove markdown code block wrapping (supports multiple formats)
       const fenceMatch = jsonStr.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
       if (fenceMatch) {
         jsonStr = fenceMatch[1].trim();
       }
-      // 尝试提取第一个 JSON 对象
+      // Try to extract the first JSON object
       const jsonObjMatch = jsonStr.match(/\{[\s\S]*\}/);
       if (jsonObjMatch) {
         jsonStr = jsonObjMatch[0];
@@ -942,13 +707,13 @@ ${departments.length > 0 ? `\n各部门信息：\n${departments.map(d => `  🏢
         action: parsed.action || null,
       };
 
-      console.log(`🤖 [秘书LLM] action类型: ${result.action?.type || 'null'}, departmentId: ${result.action?.departmentId || 'N/A'}`);
+      console.log(`🤖 [Secretary-LLM] action type: ${result.action?.type || 'null'}, departmentId: ${result.action?.departmentId || 'N/A'}`);
 
-      // 验证 task_assigned 的 departmentId 是否有效（LLM 可能返回了部门名称而不是UUID）
+      // Validate task_assigned departmentId (LLM may return dept name instead of UUID)
       if (result.action?.type === 'task_assigned' && result.action.departmentId) {
         const deptById = company.departments.get(result.action.departmentId);
         if (!deptById) {
-          // departmentId 无效，尝试按名称匹配
+          // departmentId invalid, try matching by name
           const deptIdValue = result.action.departmentId;
           const deptNameValue = result.action.departmentName || deptIdValue;
           let foundDept = null;
@@ -960,17 +725,16 @@ ${departments.length > 0 ? `\n各部门信息：\n${departments.map(d => `  🏢
             }
           }
           if (foundDept) {
-            console.log(`🔧 修正 departmentId: "${deptIdValue}" → "${foundDept.id}" (${foundDept.name})`);
+            console.log(`🔧 Fixed departmentId: "${deptIdValue}" → "${foundDept.id}" (${foundDept.name})`);
             result.action.departmentId = foundDept.id;
             result.action.departmentName = foundDept.name;
           } else {
-            // 完全找不到，清除 action 让后面的兜底逻辑处理
-            console.warn(`⚠️ LLM 返回的 departmentId "${deptIdValue}" 无法匹配任何部门，清除 action`);
-            result.action = null;
+            // Cannot find at all, clear action for fallback logic
+            console.warn(`⚠️ LLM returned departmentId "${deptIdValue}" doesn't match any department, clearing action`);            result.action = null;
           }
         } else {
-          // departmentId 有效，但需要验证 content 和 action 的一致性
-          // 防止 LLM 嘴上说分配给 A 部门，action 却给了 B 部门
+          // departmentId valid, but need to verify content/action consistency
+          // Prevent LLM from saying "assigning to Dept A" but action points to Dept B
           const contentLower = (result.content || '').toLowerCase();
           const actionDeptName = deptById.name.toLowerCase();
           let contentMentionedDept = null;
@@ -980,23 +744,20 @@ ${departments.length > 0 ? `\n各部门信息：\n${departments.map(d => `  🏢
               break;
             }
           }
-          // 如果 content 中明确提到了另一个部门，且 action 指向的部门没有在 content 中被提到
+          // If content explicitly mentions another department while action's department isn't mentioned in content
           if (contentMentionedDept && !contentLower.includes(actionDeptName)) {
-            console.log(`🔧 一致性修正: content提到「${contentMentionedDept.name}」但action指向「${deptById.name}」，以content为准`);
+            console.log(`🔧 Consistency fix: content mentions "${contentMentionedDept.name}" but action points to "${deptById.name}", using content as source of truth`);
             result.action.departmentId = contentMentionedDept.id;
             result.action.departmentName = contentMentionedDept.name;
           }
         }
       }
 
-      // 安全网：如果LLM没返回action但消息明显包含任务意图，自动补充
-      result = this._ensureActionForTaskIntent(result, message, company);
-
       return result;
     } catch (parseError) {
-      console.warn('⚠️ 秘书JSON解析失败:', parseError.message, '\n原始回复:', response.content.slice(0, 200));
+      console.warn('⚠️ Secretary JSON parse failed:', parseError.message, '\nRaw reply:', response.content.slice(0, 200));
       
-      // 尝试从原始回复中提取 content 字段（即使JSON整体解析失败）
+      // Try to extract content field from raw reply (even if overall JSON parse failed)
       let displayContent = response.content;
       const contentFieldMatch = response.content.match(/"content"\s*:\s*"((?:[^"\\]|\\.)*)"/);
       if (contentFieldMatch) {
@@ -1007,7 +768,7 @@ ${departments.length > 0 ? `\n各部门信息：\n${departments.map(d => `  🏢
         }
       }
       
-      // 尝试从原始回复中提取 action 字段（JSON整体解析失败，但action字段可能可以单独提取）
+      // Try to extract action field from raw reply (overall JSON failed, but action field may be extractable)
       let action = null;
       const actionTypeMatch = response.content.match(/"type"\s*:\s*"(task_assigned|need_new_department|create_department|progress_report)"/);
       
@@ -1056,121 +817,10 @@ ${departments.length > 0 ? `\n各部门信息：\n${departments.map(d => `  🏢
         action,
       };
 
-      console.log(`🤖 [秘书LLM-容错解析] action类型: ${result.action?.type || 'null'}`);
-
-      // 安全网：如果LLM没返回action但消息明显包含任务意图，自动补充
-      result = this._ensureActionForTaskIntent(result, message, company);
+      console.log(`🤖 [Secretary-LLM-FaultTolerant] action type: ${result.action?.type || 'null'}`);
 
       return result;
     }
-  }
-
-  /**
-   * 安全网：确保任务意图的消息一定有action
-   * 当LLM返回的action为null，但用户消息明显包含任务指令时，自动补充action
-   */
-  _ensureActionForTaskIntent(result, message, company) {
-    // 如果已经有action，不做处理
-    if (result.action) return result;
-
-    // 检测消息是否包含任务意图（动作动词）
-    const taskPatterns = /做|写|帮我|开发|设计|分析|研究|调研|制作|策划|创作|编写|生成|制定|规划|整理|翻译|画|拍|录|出一|搞一|弄一|来一|给我|安排|准备|完成|执行|处理|解决|优化|改进|搭建|部署|测试|发布/;
-    const isTaskIntent = taskPatterns.test(message);
-
-    // 排除明确是创建部门的意图（这个由LLM处理更准确）
-    const isDeptCreation = /创建.*部门|成立.*部门|开设.*部门|新建.*部门|组建.*部门|设立.*部门/.test(message);
-
-    // 排除明确是查询/闲聊的意图
-    const isQuery = /^(你好|嗨|hi|hello|在吗|怎么样|进度|状态|汇报|看看|查看)$/i.test(message.trim());
-
-    if (!isTaskIntent || isDeptCreation || isQuery) return result;
-
-    console.log(`⚠️ [秘书安全网] 检测到任务意图但LLM未返回action，自动补充`);
-
-    // 尝试匹配最合适的已有部门
-    const departments = [...company.departments.values()];
-    if (departments.length > 0) {
-      // 简单策略：如果只有一个部门，直接分配给它
-      // 如果有多个部门，根据使命关键词匹配
-      let bestDept = null;
-      let bestScore = 0;
-      const msgLower = message.toLowerCase();
-
-      for (const dept of departments) {
-        const missionLower = (dept.mission || '').toLowerCase();
-        const nameLower = (dept.name || '').toLowerCase();
-        // 简单的关键词重叠计分
-        let score = 0;
-        const words = msgLower.split(/[\s，。、！？,.:;]+/).filter(w => w.length > 1);
-        for (const word of words) {
-          if (missionLower.includes(word)) score += 2;
-          if (nameLower.includes(word)) score += 3;
-        }
-        if (score > bestScore) {
-          bestScore = score;
-          bestDept = dept;
-        }
-      }
-
-      // 如果有匹配到的部门
-      if (bestDept && bestScore > 0) {
-        console.log(`  → 自动匹配部门: ${bestDept.name} (得分: ${bestScore})`);
-        result.action = {
-          type: 'task_assigned',
-          departmentId: bestDept.id,
-          departmentName: bestDept.name,
-          taskTitle: message.slice(0, 10),
-          taskDescription: message,
-        };
-      } else if (departments.length === 1) {
-        // 只有一个部门，直接分配
-        const onlyDept = departments[0];
-        console.log(`  → 只有一个部门，自动分配给: ${onlyDept.name}`);
-        result.action = {
-          type: 'task_assigned',
-          departmentId: onlyDept.id,
-          departmentName: onlyDept.name,
-          taskTitle: message.slice(0, 10),
-          taskDescription: message,
-        };
-      } else {
-        // 有多个部门但都不匹配，新建部门
-        console.log(`  → 无匹配部门，建议新建部门`);
-        result.action = {
-          type: 'need_new_department',
-          suggestedMission: message,
-        };
-      }
-    } else {
-      // 没有任何部门，需要新建
-      console.log(`  → 无已有部门，建议新建部门`);
-      result.action = {
-        type: 'need_new_department',
-        suggestedMission: message,
-      };
-    }
-
-    // 如果content中没有提到安排/分配，补充说明
-    if (result.action?.type === 'task_assigned' && !/分配|安排|下达|已/.test(result.content)) {
-      result.content += `\n\n📋 已为您将任务分配至「${result.action.departmentName}」部门。`;
-    } else if (result.action?.type === 'need_new_department' && !/新建|创建|成立/.test(result.content)) {
-      result.content += `\n\n💡 目前没有合适的部门来完成这个任务，我来为您新建一个部门并分配任务。`;
-    }
-
-    return result;
-  }
-
-  /**
-   * 规则匹配的老板消息处理（LLM不可用时的回退方案）
-   * 仅作为最后的降级手段，正常情况下由LLM处理意图判断
-   */
-  _ruleHandleBossMessage(message, company) {
-    const deptCount = company.departments.size;
-    const agentCount = [...company.departments.values()].reduce((s, d) => s + d.agents.size, 0);
-    return {
-      content: `抱歉，我的AI能力暂时出了点问题，无法准确理解您的指令 😅\n\n当前公司「${company.name}」状态：\n- 部门数: ${deptCount}\n- 在职员工: ${agentCount}人\n- 人才市场: ${company.talentMarket.listAvailable().length}人\n\n请稍后再试，或者换个方式表达您的需求。`,
-      action: null,
-    };
   }
 
 }

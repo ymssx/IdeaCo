@@ -6,8 +6,9 @@ import { getAvatarUrl } from '@/lib/avatar';
 import AgentDetailModal from './AgentDetailModal';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { useI18n } from '@/lib/i18n';
 
-// 聊天气泡中的 Markdown 渲染组件映射
+// Markdown render component mapping for chat bubbles
 const chatMarkdownComponents = {
   p: ({ children }) => <p className="mb-1 last:mb-0">{children}</p>,
   ul: ({ children }) => <ul className="list-disc list-inside mb-1 space-y-0.5">{children}</ul>,
@@ -47,25 +48,26 @@ const chatMarkdownComponents = {
 };
 
 /**
- * 清理消息内容：过滤掉LLM泄漏的内部标签（如DeepSeek的DSML工具调用格式）
+ * Clean message content: filter out leaked LLM internal tags (e.g. DeepSeek DSML tool call format)
  */
 function cleanMessageContent(content) {
   if (!content || typeof content !== 'string') return content;
-  // 移除 <｜DSML｜...> 系列标签及其包裹的工具调用内容
-  // 匹配完整的DSML工具调用块（从 <｜DSML｜function_calls> 到消息末尾，因为通常后面都是工具调用内容）
+  // Remove <｜DSML｜...> tags and their wrapped tool call content
+  // Match complete DSML tool call blocks (from <｜DSML｜function_calls> to end of message)
   let cleaned = content.replace(/<[｜|]DSML[｜|][^>]*>[\s\S]*/g, '').trim();
-  // 也处理可能的半角变体
+  // Also handle possible half-width variants
   cleaned = cleaned.replace(/<\|DSML\|[^>]*>[\s\S]*/g, '').trim();
-  // 移除其他常见的LLM内部标签泄漏
+  // Remove other common leaked LLM internal tags
   cleaned = cleaned.replace(/<\|(?:im_start|im_end|endoftext)\|>/g, '').trim();
-  return cleaned || content; // 如果清理后为空，返回原内容
+  return cleaned || content; // If cleaned result is empty, return original content
 }
 
 /**
- * IM 聊天界面 - 飞书风格
- * 左侧会话列表（秘书置顶），右侧对话气泡
+ * IM chat interface - Lark style
+ * Left: conversation list (secretary pinned on top), Right: chat bubbles
  */
 export default function Mailbox() {
+  const { t } = useI18n();
   const {
     company, replyMail, markMailRead, markAllMailRead,
     chatWithSecretary, chatOpen, setChatOpen,
@@ -76,11 +78,11 @@ export default function Mailbox() {
   const [inputText, setInputText] = useState('');
   const [sending, setSending] = useState(false);
   const [secretaryHistory, setSecretaryHistory] = useState([]);
-  const [selectedAgent, setSelectedAgent] = useState(null); // 查看员工详情
-  const [chatFilter, setChatFilter] = useState('all'); // 会话分类: all | group | private | important
-  const [requirements, setRequirements] = useState([]); // 需求列表（用于群聊会话）
-  const [activeReqChat, setActiveReqChat] = useState(null); // 当前活跃的需求群聊
-  const [reqChatDetail, setReqChatDetail] = useState(null); // 需求群聊详情
+  const [selectedAgent, setSelectedAgent] = useState(null); // View employee detail
+  const [chatFilter, setChatFilter] = useState('all'); // Chat filter: all | group | private | important
+  const [requirements, setRequirements] = useState([]); // Requirements list (for group chat sessions)
+  const [activeReqChat, setActiveReqChat] = useState(null); // Current active requirement group chat
+  const [reqChatDetail, setReqChatDetail] = useState(null); // Requirement group chat detail
   const reqChatPollRef = useRef(null);
   const messagesEndRef = useRef(null);
 
@@ -90,7 +92,7 @@ export default function Mailbox() {
   const secretary = company.secretary;
   const unread = mails.filter(m => !m.read).length;
 
-  // 加载需求列表（用于显示群聊会话）
+  // Load requirements list (for group chat sessions)
   useEffect(() => {
     fetchRequirements().then(setRequirements);
     const timer = setInterval(() => {
@@ -99,7 +101,7 @@ export default function Mailbox() {
     return () => clearInterval(timer);
   }, [company]);
 
-  // 需求群聊轮询
+  // Requirement group chat polling
   useEffect(() => {
     if (reqChatPollRef.current) clearInterval(reqChatPollRef.current);
     if (activeReqChat) {
@@ -118,32 +120,32 @@ export default function Mailbox() {
     };
   }, [activeReqChat]);
 
-  // 同步秘书聊天记录
+  // Sync secretary chat history
   useEffect(() => {
     if (company?.chatHistory) {
       setSecretaryHistory(company.chatHistory);
     }
   }, [company?.chatHistory]);
 
-  // 自动滚到底部：切换会话、消息更新、群聊内容加载时
+  // Auto scroll to bottom: on conversation switch, message update, or group chat load
   useEffect(() => {
-    // 用 setTimeout 确保 DOM 渲染完成后再滚动
+    // Use setTimeout to ensure DOM is rendered before scrolling
     setTimeout(() => {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, 50);
   }, [activeChat, secretaryHistory, mails, reqChatDetail]);
 
-  // 选中秘书时关闭 ChatPanel 避免冲突
+  // Close ChatPanel when secretary is selected to avoid conflict
   useEffect(() => {
     if (activeChat?.type === 'secretary' && chatOpen) {
       setChatOpen(false);
     }
   }, [activeChat]);
 
-  // 构建会话列表：按最新消息时间排序
-  const allConversations = buildConversations(mails, secretary, secretaryHistory, requirements);
+  // Build conversation list: sorted by latest message time
+  const allConversations = buildConversations(mails, secretary, secretaryHistory, requirements, t);
 
-  // 按分类过滤会话
+  // Filter conversations by category
   const conversations = allConversations.filter(conv => {
     if (chatFilter === 'all') return true;
     if (chatFilter === 'group') return conv.type === 'requirement';
@@ -152,12 +154,12 @@ export default function Mailbox() {
     return true;
   });
 
-  // 获取当前活跃的聊天
+  // Get current active chat
   const currentMail = activeChat?.type === 'mail'
     ? mails.find(m => m.id === activeChat.id)
     : null;
 
-  // 发送消息
+  // Send message
   const handleSend = async () => {
     if (!inputText.trim() || sending) return;
     const text = inputText.trim();
@@ -166,14 +168,14 @@ export default function Mailbox() {
 
     try {
       if (activeChat?.type === 'secretary') {
-        // 乐观更新 boss 消息
+// Optimistic update for boss message
         setSecretaryHistory(prev => [...prev, {
           role: 'boss', content: text, time: new Date().toISOString(),
         }]);
         await chatWithSecretary(text);
-        // 秘书回复通过 useEffect 同步
+        // Secretary replies sync via useEffect
       } else if (activeChat?.type === 'mail' && currentMail) {
-        // 乐观更新：先在本地立即显示 boss 消息
+// Optimistic update: immediately show boss message locally
         const { company: localCompany } = useStore.getState();
         if (localCompany?.mailbox) {
           const localMail = localCompany.mailbox.find(m => m.id === currentMail.id);
@@ -193,7 +195,7 @@ export default function Mailbox() {
       if (activeChat?.type === 'secretary') {
         setSecretaryHistory(prev => [...prev, {
           role: 'secretary',
-          content: `抱歉，处理消息时出错：${e.message}`,
+          content: `Sorry, error processing: ${e.message}`,
           time: new Date().toISOString(),
         }]);
       }
@@ -218,7 +220,7 @@ export default function Mailbox() {
     } else {
       setActiveChat({ type: 'mail', id: conv.id });
       setActiveReqChat(null);
-      // 标记该员工所有未读邮件为已读（不仅仅是最新的一封）
+      // Mark all unread mails from this employee as read (not just the latest one)
       if (conv.unread) {
         const agentMails = mails.filter(m => m.from.id === conv.fromAgentId);
         for (const m of agentMails) {
@@ -231,28 +233,26 @@ export default function Mailbox() {
 
   return (
     <div className="flex h-full animate-fade-in">
-      {/* 左侧会话列表 */}
+      {/* Left: conversation list */}
       <div className="w-80 shrink-0 border-r border-[var(--border)] flex flex-col bg-[#0d0d0d]">
-        {/* 搜索栏 */}
+        {/* Search bar */}
         <div className="border-b border-white/[0.06]">
           <div className="flex items-center justify-between px-3 py-2.5">
-            <h2 className="text-sm font-semibold leading-none">💬 消息</h2>
+            <h2 className="text-sm font-semibold leading-none">{t('mailbox.title')}</h2>
             {unread > 0 && (
               <button
                 className="text-[10px] text-[var(--muted)] hover:text-[var(--accent)] transition-colors leading-none"
                 onClick={markAllMailRead}
-              >
-                全部已读
-              </button>
+              >{t('mailbox.markAllRead')}</button>
             )}
           </div>
-          {/* 分类 Tab */}
+          {/* Category tabs */}
           <div className="flex px-3 pb-2 gap-1">
             {[
-              { key: 'all', label: '全部' },
-              { key: 'group', label: '群聊' },
-              { key: 'private', label: '私聊' },
-              { key: 'important', label: '重要' },
+              { key: 'all', label: t('mailbox.tabs.all') },
+              { key: 'group', label: t('mailbox.tabs.group') },
+              { key: 'private', label: t('mailbox.tabs.private') },
+              { key: 'important', label: t('mailbox.tabs.important') },
             ].map(tab => (
               <button
                 key={tab.key}
@@ -269,7 +269,7 @@ export default function Mailbox() {
           </div>
         </div>
 
-        {/* 会话列表 */}
+        {/* Conversation list */}
         <div className="flex-1 overflow-auto">
           {conversations.map((conv) => {
             const isActive = activeChat?.type === conv.type &&
@@ -285,7 +285,7 @@ export default function Mailbox() {
                     : 'hover:bg-white/5 border-l-2 border-l-transparent'
                 }`}
               >
-                {/* 头像 */}
+                {/* Avatar */}
                 <div className="relative shrink-0">
                   {conv.isRequirement ? (
                     <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-cyan-600 flex items-center justify-center text-lg">
@@ -306,7 +306,7 @@ export default function Mailbox() {
                   )}
                 </div>
 
-                {/* 信息 */}
+                {/* Info */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between">
                     <span className={`text-sm truncate ${conv.unread ? 'font-semibold' : 'font-medium'}`}>
@@ -314,7 +314,7 @@ export default function Mailbox() {
                       {conv.pinned && <span className="ml-1 text-[10px] text-yellow-400">📌</span>}
                     </span>
                     <span className="text-[10px] text-[var(--muted)] shrink-0 ml-2">
-                      {formatTime(conv.lastTime)}
+                      {formatTime(conv.lastTime, t)}
                     </span>
                   </div>
                   <div className="flex items-center gap-1 mt-0.5">
@@ -333,39 +333,39 @@ export default function Mailbox() {
           {conversations.length <= 1 && (
             <div className="text-center py-8 text-[var(--muted)]">
               <div className="text-3xl mb-2">🤫</div>
-              <p className="text-xs">还没有员工消息</p>
-              <p className="text-[10px] mt-1">开设部门招人后，员工会来打招呼</p>
+              <p className="text-xs">{t('mailbox.noMessages')}</p>
+              <p className="text-[10px] mt-1">{t('mailbox.noMessagesHint')}</p>
             </div>
           )}
         </div>
       </div>
 
-      {/* 右侧聊天区域 */}
+      {/* Right: chat area */}
       <div className="flex-1 flex flex-col bg-[var(--background)] min-w-0 overflow-hidden">
         {!activeChat ? (
-          /* 未选中任何会话 */
+          /* No conversation selected */
           <div className="flex-1 flex items-center justify-center text-[var(--muted)]">
             <div className="text-center">
               <div className="text-6xl mb-4">💬</div>
-              <p className="text-lg font-medium">选择一个对话</p>
-              <p className="text-sm mt-1">点击左侧的联系人开始聊天</p>
+              <p className="text-lg font-medium">{t('mailbox.selectChat')}</p>
+              <p className="text-sm mt-1">{t('mailbox.selectChatHint')}</p>
             </div>
           </div>
         ) : activeChat.type === 'secretary' ? (
-          /* 秘书聊天 */
+          /* Secretary chat */
           <>
-            {/* 秘书聊天头部 */}
+            {/* Secretary chat header */}
             <div className="flex items-center gap-3 px-4 py-3 border-b border-white/[0.06] bg-[var(--card)]">
               <img
-                src={secretary?.avatar || getAvatarUrl('secretary', 'bottts')}
-                alt="秘书"
+                src={secretary?.avatar || getAvatarUrl('secretary')}
+                alt="secretary"
                 className="w-9 h-9 rounded-full bg-[var(--border)]"
               />
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-semibold flex items-center gap-2">
-                  {secretary?.name || '小秘'}
+                  {secretary?.name || t('setup.defaultSecretary')}
                   <span className="w-2 h-2 bg-green-500 rounded-full" />
-                  <span className="text-[10px] text-[var(--muted)] font-normal">专属秘书</span>
+                  <span className="text-[10px] text-[var(--muted)] font-normal">{t('mailbox.personalSecretary')}</span>
                 </div>
                 {secretary?.signature && (
                   <div className="text-[10px] text-[var(--muted)] italic truncate" title={secretary.signature}>"{secretary.signature}"</div>
@@ -373,14 +373,14 @@ export default function Mailbox() {
               </div>
             </div>
 
-            {/* 秘书消息区 */}
+            {/* Secretary messages area */}
             <div className="flex-1 overflow-auto px-4 py-3 space-y-3">
               {secretaryHistory.length === 0 && (
                 <div className="text-center py-12">
                   <div className="text-4xl mb-2">💬</div>
-                  <p className="text-sm text-[var(--muted)]">和{secretary?.name || '秘书'}说点什么吧</p>
+                  <p className="text-sm text-[var(--muted)]">{t('mailbox.chatHint', { name: secretary?.name || t('setup.defaultSecretary') })}</p>
                   <div className="mt-3 space-y-1 max-w-xs mx-auto">
-                    {['查看各部门进度', '帮我开发一个计算器', '公司现在什么情况？'].map((q, i) => (
+                    {t('chat.suggestions').map((q, i) => (
                       <button
                         key={i}
                         className="block w-full text-xs text-left px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-[var(--muted)] hover:text-white transition-all"
@@ -397,8 +397,8 @@ export default function Mailbox() {
                 <MessageBubble
                   key={i}
                   isMe={msg.role === 'boss'}
-                  avatar={msg.role === 'secretary' ? (secretary?.avatar || getAvatarUrl('secretary', 'bottts')) : null}
-                  name={msg.role === 'boss' ? company.boss : (secretary?.name || '小秘')}
+                  avatar={msg.role === 'secretary' ? (secretary?.avatar || getAvatarUrl('secretary')) : null}
+                  name={msg.role === 'boss' ? company.boss : (secretary?.name || t('setup.defaultSecretary'))}
                   content={msg.content}
                   time={msg.time}
                   action={msg.action}
@@ -410,12 +410,12 @@ export default function Mailbox() {
               {sending && activeChat.type === 'secretary' && (
                 <div className="flex gap-2">
                   <img
-                    src={secretary?.avatar || getAvatarUrl('secretary', 'bottts')}
-                    alt="秘书"
+                src={secretary?.avatar || getAvatarUrl('secretary')}
+                alt="secretary"
                     className="w-8 h-8 rounded-full bg-[var(--border)] shrink-0"
                   />
                   <div className="bg-[var(--card)] border border-[var(--border)] rounded-2xl rounded-bl-sm px-3 py-2 text-sm">
-<span className="animate-pulse text-[var(--muted)]">正在敲键盘中...</span>
+<span className="animate-pulse text-[var(--muted)]">{t('chat.typing')}</span>
                   </div>
                 </div>
               )}
@@ -423,27 +423,27 @@ export default function Mailbox() {
               <div ref={messagesEndRef} />
             </div>
 
-            {/* 秘书输入框 */}
+            {/* Secretary input box */}
             <ChatInput
               value={inputText}
               onChange={setInputText}
               onSend={handleSend}
               onKeyDown={handleKeyDown}
               sending={sending}
-              placeholder={`跟${secretary?.name || '秘书'}说点什么...`}
+              placeholder={t('chat.inputPlaceholder', { name: secretary?.name || t('setup.defaultSecretary') })}
             />
           </>
         ) : currentMail ? (
-          /* 员工聊天 */
+          /* Employee chat */
           <>
-            {/* 员工聊天头部 */}
+            {/* Employee chat header */}
             <div className="flex items-center gap-3 px-4 py-3 border-b border-white/[0.06] bg-[var(--card)]">
               <img
                 src={currentMail.from.avatar}
                 alt={currentMail.from.name}
                 className="w-9 h-9 rounded-full bg-[var(--border)] cursor-pointer hover:ring-2 hover:ring-[var(--accent)] transition-all"
                 onClick={() => currentMail.from.id && setSelectedAgent(currentMail.from.id)}
-                title="查看员工详情"
+                title={t('mailbox.viewAgentDetail')}
               />
             <div className="flex-1 min-w-0">
                 <div className="text-sm font-semibold flex items-center gap-2">
@@ -456,9 +456,9 @@ export default function Mailbox() {
               </div>
             </div>
 
-            {/* 员工消息区 - 将邮件内容+回复渲染为气泡 */}
+            {/* Employee messages - render email content + replies as bubbles */}
             <div className="flex-1 overflow-auto px-4 py-3 space-y-3">
-              {/* 初始邮件 = 员工发的第一条消息 */}
+              {/* Initial email = first message from employee */}
               <MessageBubble
                 isMe={false}
                 avatar={currentMail.from.avatar}
@@ -470,7 +470,7 @@ export default function Mailbox() {
                 onClickAvatar={setSelectedAgent}
               />
 
-              {/* 回复历史 = 对话气泡 */}
+              {/* Reply history = conversation bubbles */}
               {currentMail.replies?.map((reply, i) => (
                 <MessageBubble
                   key={i}
@@ -492,7 +492,7 @@ export default function Mailbox() {
                     className="w-8 h-8 rounded-full bg-[var(--border)] shrink-0"
                   />
                   <div className="bg-[var(--card)] border border-[var(--border)] rounded-2xl rounded-bl-sm px-3 py-2 text-sm">
-                    <span className="animate-pulse text-[var(--muted)]">正在回复...</span>
+                    <span className="animate-pulse text-[var(--muted)]">{t('mailbox.replying')}</span>
                   </div>
                 </div>
               )}
@@ -500,20 +500,20 @@ export default function Mailbox() {
               <div ref={messagesEndRef} />
             </div>
 
-            {/* 员工输入框 */}
+            {/* Employee input box */}
             <ChatInput
               value={inputText}
               onChange={setInputText}
               onSend={handleSend}
               onKeyDown={handleKeyDown}
               sending={sending}
-              placeholder={`回复 ${currentMail.from.name}...`}
+              placeholder={t('mailbox.replyTo', { name: currentMail.from.name })}
             />
           </>
         ) : activeChat?.type === 'requirement' && reqChatDetail ? (
-          /* 需求群聊 */
+          /* Requirement group chat */
           <>
-            {/* 需求群聊头部 */}
+            {/* Requirement group chat header */}
             <div className="px-4 py-3 border-b border-white/[0.06] bg-[var(--card)]">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3 flex-1 min-w-0">
@@ -525,37 +525,35 @@ export default function Mailbox() {
                       {reqChatDetail.title}
                       {(() => {
                         const stCfg = {
-                          pending: { label: '待处理', color: 'text-gray-400', bg: 'bg-gray-900/30' },
-                          planning: { label: '规划中', color: 'text-blue-400', bg: 'bg-blue-900/30' },
-                          in_progress: { label: '执行中', color: 'text-yellow-400', bg: 'bg-yellow-900/30' },
-                          completed: { label: '已完成', color: 'text-green-400', bg: 'bg-green-900/30' },
-                          failed: { label: '失败', color: 'text-red-400', bg: 'bg-red-900/30' },
+                          pending: { label: t('requirements.status.pending'), color: 'text-gray-400', bg: 'bg-gray-900/30' },
+                          planning: { label: t('requirements.status.planning'), color: 'text-blue-400', bg: 'bg-blue-900/30' },
+                          in_progress: { label: t('requirements.status.in_progress'), color: 'text-yellow-400', bg: 'bg-yellow-900/30' },
+                          completed: { label: t('requirements.stats.completed'), color: 'text-green-400', bg: 'bg-green-900/30' },
+                          failed: { label: t('requirements.status.failed'), color: 'text-red-400', bg: 'bg-red-900/30' },
                         };
                         const s = stCfg[reqChatDetail.status] || stCfg.pending;
                         return <span className={`text-[10px] px-1.5 py-0.5 rounded ${s.bg} ${s.color}`}>{s.label}</span>;
                       })()}
                     </div>
                     <div className="text-[10px] text-[var(--muted)] truncate">
-                      🏢 {reqChatDetail.departmentName} · {reqChatDetail.groupChat?.length || 0} 条消息
+                      {t('mailbox.groupChatCount', { dept: reqChatDetail.departmentName, n: reqChatDetail.groupChat?.length || 0 })}
                     </div>
                   </div>
                 </div>
                 <button
                   onClick={() => navigateToRequirement(activeReqChat)}
                   className="text-xs text-[var(--accent)] hover:text-white bg-[var(--accent)]/10 hover:bg-[var(--accent)]/20 px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 shrink-0"
-                >
-                  📋 查看需求详情 →
-                </button>
+                >{t('mailbox.viewRequirement')}</button>
               </div>
             </div>
 
-            {/* 需求群聊消息区 */}
+            {/* Requirement group chat messages area */}
             <div className="flex-1 overflow-auto px-4 py-3 space-y-3">
               {(!reqChatDetail.groupChat || reqChatDetail.groupChat.length === 0) ? (
                 <div className="text-center py-12">
                   <div className="text-4xl mb-2">💬</div>
-                  <p className="text-sm text-[var(--muted)]">暂无群聊消息</p>
-                  <p className="text-xs text-[var(--muted)] mt-1">任务执行时员工的沟通消息会在这里显示</p>
+                  <p className="text-sm text-[var(--muted)]">{t('reqDetail.chat.noMessages')}</p>
+                  <p className="text-xs text-[var(--muted)] mt-1">{t('mailbox.noGroupChatHint')}</p>
                 </div>
               ) : (
                 reqChatDetail.groupChat.map((msg) => {
@@ -579,7 +577,7 @@ export default function Mailbox() {
                       )}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-0.5">
-                          <span className="text-xs font-medium">{msg.from?.name || '系统'}</span>
+                          <span className="text-xs font-medium">{msg.from?.name || t('mailbox.system')}</span>
                           {msg.from?.role && (
                             <span className="text-[10px] text-[var(--muted)] bg-white/5 px-1 py-0.5 rounded">{msg.from.role}</span>
                           )}
@@ -610,12 +608,12 @@ export default function Mailbox() {
           </>
         ) : (
           <div className="flex-1 flex items-center justify-center text-[var(--muted)]">
-            <p>该会话不存在</p>
+            <p>{t('mailbox.chatNotExist')}</p>
           </div>
         )}
       </div>
 
-      {/* 员工详情弹窗 */}
+      {/* Employee detail modal */}
       {selectedAgent && (
         <AgentDetailModal agentId={selectedAgent} onClose={() => setSelectedAgent(null)} />
       )}
@@ -623,14 +621,15 @@ export default function Mailbox() {
   );
 }
 
-// ============ 子组件 ============
+// ============ Sub-components ============
 
 
 
 /**
- * 消息气泡
+ * Message bubble
  */
 function MessageBubble({ isMe, avatar, name, content, time, action, subject, agentId, onClickAvatar }) {
+  const { t } = useI18n();
   return (
     <div className={`flex gap-2 ${isMe ? 'flex-row-reverse' : ''}`}>
       {!isMe ? (
@@ -648,22 +647,22 @@ function MessageBubble({ isMe, avatar, name, content, time, action, subject, age
         </div>
       )}
       <div className={`max-w-[min(70%,560px)] ${isMe ? 'items-end' : 'items-start'}`}>
-        {/* 名字 + 时间 */}
+        {/* Name + time */}
         <div className={`flex items-center gap-2 mb-0.5 ${isMe ? 'flex-row-reverse' : ''}`}>
           <span className="text-[10px] text-[var(--muted)]">{name}</span>
           {time && (
             <span className="text-[10px] text-[var(--muted)]/60">
-              {formatTime(time)}
+              {formatTime(time, t)}
             </span>
           )}
         </div>
-        {/* 主题标签（邮件首条消息） */}
+        {/* Subject tag (first message in email) */}
         {subject && (
           <div className="text-[10px] text-[var(--accent)] bg-[var(--accent)]/10 px-2 py-0.5 rounded mb-1 inline-block">
             📌 {subject}
           </div>
         )}
-        {/* 气泡 */}
+        {/* Bubble */}
         <div className={`rounded-2xl px-3 py-2 text-sm leading-relaxed ${
           isMe
             ? 'bg-[var(--accent)] text-white rounded-br-sm'
@@ -675,24 +674,24 @@ function MessageBubble({ isMe, avatar, name, content, time, action, subject, age
             </ReactMarkdown>
           </div>
         </div>
-        {/* action 标签 */}
+        {/* Action tag */}
         {action && (
           <div className="mt-1 text-[10px] text-blue-400 bg-blue-900/10 px-2 py-0.5 rounded inline-block">
             {action.type === 'task_assigned' && (
               <>
-                📋 已分配至: {action.departmentName}
-                {action.taskStatus === 'running' && <span className="ml-1 animate-pulse">⚙️ 执行中...</span>}
+                {t('chat.taskAssigned', { dept: action.departmentName })}
+                {action.taskStatus === 'running' && <span className="ml-1 animate-pulse">{t('chat.running')}</span>}
               </>
             )}
-            {action.type === 'need_new_department' && `💡 建议开设新部门`}
+            {action.type === 'need_new_department' && t('chat.needNewDept')}
             {action.type === 'create_department' && (
               <>
-                🏗️ 正在创建部门: {action.departmentName}
-                {action.taskStatus === 'running' && <span className="ml-1 animate-pulse">⚙️ 规划招聘中...</span>}
+                {t('chat.creatingDept', { dept: action.departmentName })}
+                {action.taskStatus === 'running' && <span className="ml-1 animate-pulse">{t('chat.planningHiring')}</span>}
               </>
             )}
-            {action.type === 'department_created' && `🎉 部门「${action.departmentName}」已创建`}
-            {action.type === 'progress_report' && `📊 进度汇报完成`}
+            {action.type === 'department_created' && t('chat.deptCreated', { dept: action.departmentName })}
+            {action.type === 'progress_report' && t('chat.progressReport')}
           </div>
         )}
       </div>
@@ -701,9 +700,10 @@ function MessageBubble({ isMe, avatar, name, content, time, action, subject, age
 }
 
 /**
- * 输入框组件
+ * Input box component
  */
 function ChatInput({ value, onChange, onSend, onKeyDown, sending, placeholder }) {
+  const { t } = useI18n();
   return (
     <div className="px-4 py-3 border-t border-white/[0.06] bg-[var(--card)]">
       <div className="flex gap-2 items-end">
@@ -726,36 +726,36 @@ function ChatInput({ value, onChange, onSend, onKeyDown, sending, placeholder })
           disabled={!value.trim() || sending}
           onClick={onSend}
         >
-          {sending ? '⏳' : '发送'}
+          {sending ? '⏳' : t('mailbox.sendBtn')}
         </button>
       </div>
     </div>
   );
 }
 
-// ============ 工具函数 ============
+// ============ Utility functions ============
 
 /**
- * 构建会话列表：秘书置顶 + 员工按最新消息时间降序
+ * Build conversation list: secretary pinned on top + employees sorted by latest message desc
  */
-function buildConversations(mails, secretary, secretaryHistory, requirements = []) {
+function buildConversations(mails, secretary, secretaryHistory, requirements = [], t = (k) => k) {
   const convs = [];
 
-  // 秘书置顶
+  // Pin secretary on top
   const lastSecMsg = secretaryHistory.length > 0 ? secretaryHistory[secretaryHistory.length - 1] : null;
   convs.push({
     key: 'secretary',
     type: 'secretary',
-    name: secretary?.name || '小秘',
-    avatar: secretary?.avatar || getAvatarUrl('secretary', 'bottts'),
-    role: '专属秘书',
-    lastMessage: lastSecMsg ? lastSecMsg.content?.slice(0, 40) : '点击开始对话',
+    name: secretary?.name || t('setup.defaultSecretary'),
+    avatar: secretary?.avatar || getAvatarUrl('secretary'),
+    role: t('mailbox.personalSecretary'),
+    lastMessage: lastSecMsg ? lastSecMsg.content?.slice(0, 40) : t('mailbox.clickToChat'),
     lastTime: lastSecMsg?.time || null,
     unread: false,
     pinned: true,
   });
 
-  // 需求群聊会话（置顶在秘书下方）
+  // Requirement group chat sessions (pinned below secretary)
   const activeReqs = requirements.filter(r =>
     r.status === 'in_progress' || r.status === 'planning' || r.status === 'completed' || r.status === 'failed'
   );
@@ -771,9 +771,9 @@ function buildConversations(mails, secretary, secretaryHistory, requirements = [
       type: 'requirement',
       requirementId: req.id,
       name: `📋 ${req.title}`,
-      avatar: null, // 用自定义图标代替
+      avatar: null, // Use custom icon instead
       role: req.departmentName,
-      lastMessage: `${statusEmoji[req.status] || '⏳'} ${req.chatCount || 0}条群聊 · ${req.workflow?.completedCount || 0}/${req.workflow?.nodeCount || 0}任务`,
+      lastMessage: `${statusEmoji[req.status] || '⏳'} ${req.chatCount || 0} group msgs · ${req.workflow?.completedCount || 0}/${req.workflow?.nodeCount || 0} tasks`,
       lastTime: req.createdAt,
       unread: req.status === 'in_progress',
       pinned: true,
@@ -781,7 +781,7 @@ function buildConversations(mails, secretary, secretaryHistory, requirements = [
     });
   }
 
-  // 员工会话：以发件人分组，取最新的邮件作为会话
+  // Employee sessions: grouped by sender, latest email as conversation
   const agentMap = new Map();
   for (const mail of mails) {
     const agentId = mail.from.id;
@@ -791,10 +791,10 @@ function buildConversations(mails, secretary, secretaryHistory, requirements = [
     agentMap.get(agentId).push(mail);
   }
 
-  // 按最新消息时间排序
+  // Sort by latest message time
   const agentConvs = [];
   for (const [agentId, agentMails] of agentMap) {
-    // 找最新的时间（可能是邮件时间或最新回复时间）
+    // Find latest time (could be email time or latest reply time)
     let latestTime = null;
     let latestMail = null;
     let hasUnread = false;
@@ -813,7 +813,7 @@ function buildConversations(mails, secretary, secretaryHistory, requirements = [
       : null;
 
     const lastMsg = lastReply
-      ? `${lastReply.from === 'boss' ? '你: ' : ''}${lastReply.content?.slice(0, 30)}`
+      ? `${lastReply.from === 'boss' ? t('mailbox.you') : ''}${lastReply.content?.slice(0, 30)}`
       : latestMail.content?.slice(0, 30);
 
     agentConvs.push({
@@ -833,7 +833,7 @@ function buildConversations(mails, secretary, secretaryHistory, requirements = [
     });
   }
 
-  // 按时间降序排列
+  // Sort by time descending
   agentConvs.sort((a, b) => {
     if (!a.lastTime) return 1;
     if (!b.lastTime) return -1;
@@ -854,19 +854,19 @@ function getLatestTimeFromMail(mail) {
   return latest;
 }
 
-function formatTime(time) {
+function formatTime(time, t = (k) => k) {
   if (!time) return '';
   const d = new Date(time);
   const now = new Date();
   const diff = now - d;
 
-  if (diff < 60 * 1000) return '刚刚';
-  if (diff < 60 * 60 * 1000) return `${Math.floor(diff / 60000)}分钟前`;
+  if (diff < 60 * 1000) return t('time.justNow');
+  if (diff < 60 * 60 * 1000) return t('time.minutesAgo', { n: Math.floor(diff / 60000) });
   if (diff < 24 * 60 * 60 * 1000) {
     return d.toLocaleTimeString('zh', { hour: '2-digit', minute: '2-digit' });
   }
   if (diff < 7 * 24 * 60 * 60 * 1000) {
-    const days = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+    const days = [t('time.sun'), t('time.mon'), t('time.tue'), t('time.wed'), t('time.thu'), t('time.fri'), t('time.sat')];
     return days[d.getDay()];
   }
   return d.toLocaleDateString('zh', { month: 'short', day: 'numeric' });

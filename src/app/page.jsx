@@ -2,32 +2,33 @@
 
 import { useEffect } from 'react';
 import { useStore } from '@/lib/client-store';
+import { useI18n } from '@/lib/i18n';
 import SetupWizard from '@/components/SetupWizard';
 import Sidebar from '@/components/Sidebar';
 import Overview from '@/components/Overview';
 import DepartmentView from '@/components/DepartmentView';
 import Mailbox from '@/components/Mailbox';
-import TalentMarket from '@/components/TalentMarket';
-import ProvidersBoard from '@/components/ProvidersBoard';
 import MessagesView from '@/components/MessagesView';
 import RequirementsBoard from '@/components/RequirementsBoard';
 import RequirementDetail from '@/components/RequirementDetail';
 import ChatPanel from '@/components/ChatPanel';
+import SystemMonitor from '@/components/SystemMonitor';
 
 export default function Home() {
   const { company, initialized, activeTab, fetchCompany, error, clearError } = useStore();
+  const { t } = useI18n();
 
   useEffect(() => {
     fetchCompany();
   }, [fetchCompany]);
 
-  // 尚未完成初始化请求，显示加载画面而非 SetupWizard
+  // Initialization request not yet complete, show loading screen instead of SetupWizard
   if (!initialized) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center animate-pulse">
           <div className="text-6xl mb-4">🏢</div>
-          <p className="text-[var(--muted)]">加载中...</p>
+          <p className="text-[var(--muted)]">{t('loadingScreen.text')}</p>
         </div>
       </div>
     );
@@ -44,8 +45,7 @@ export default function Home() {
       case 'requirement-detail': return <RequirementDetail />;
       case 'departments': return <DepartmentView />;
       case 'mailbox': return <Mailbox />;
-      case 'talent-market': return <TalentMarket />;
-      case 'providers': return <ProvidersBoard />;
+      case 'system-settings': return <SystemMonitor />;
       case 'messages': return <MessagesView />;
       default: return <Overview />;
     }

@@ -2,250 +2,250 @@ import { v4 as uuidv4 } from 'uuid';
 import { JobCategory } from './providers.js';
 
 /**
- * 预定义的职位模板 - 招聘JD库
- * 每个模板包含角色prompt和skills，以及对应的职位类型
+ * Predefined Job Templates - Recruitment JD Library
+ * Each template contains a role prompt, skills, and corresponding job category
  */
 export const JobTemplates = {
-  // ===== 通用岗位 =====
+  // ===== General Positions =====
   SOFTWARE_ENGINEER: {
     id: 'software-engineer',
-    title: '软件工程师',
+    title: 'Software Engineer',
     category: JobCategory.GENERAL,
-    prompt: `你是一名资深软件工程师。你擅长编写高质量、可维护的代码，熟悉多种编程语言和框架。
-你的职责包括：需求分析、系统设计、代码实现、代码审查、Bug修复。
-你应该遵循最佳实践，编写清晰的注释和文档，并确保代码的可测试性。`,
-    skills: ['代码编写', 'API设计', '系统架构', '代码审查', 'Bug修复'],
-    requiredCapabilities: ['代码编写'],
+    prompt: `You are a senior software engineer. You excel at writing high-quality, maintainable code and are proficient in multiple programming languages and frameworks.
+Your responsibilities include: requirements analysis, system design, code implementation, code review, and bug fixing.
+You should follow best practices, write clear comments and documentation, and ensure code testability.`,
+    skills: ['coding', 'api-design', 'architecture', 'code-review', 'bug-fixing'],
+    requiredCapabilities: ['coding'],
   },
 
   FRONTEND_ENGINEER: {
     id: 'frontend-engineer',
-    title: '前端工程师',
+    title: 'Frontend Engineer',
     category: JobCategory.GENERAL,
-    prompt: `你是一名前端开发工程师，专注于构建优秀的用户界面和交互体验。
-你精通HTML、CSS、JavaScript以及React/Vue等现代前端框架。
-你的职责是将设计稿转化为可交互的前端页面，确保性能优化和跨浏览器兼容。`,
-    skills: ['HTML/CSS', 'JavaScript', 'React/Vue', 'UI实现', '性能优化'],
-    requiredCapabilities: ['代码编写'],
+    prompt: `You are a frontend engineer focused on building excellent user interfaces and interactive experiences.
+You are proficient in HTML, CSS, JavaScript, and modern frontend frameworks like React/Vue.
+Your responsibility is to transform design mockups into interactive frontend pages, ensuring performance optimization and cross-browser compatibility.`,
+    skills: ['HTML/CSS', 'JavaScript', 'React/Vue', 'ui-implementation', 'performance-optimization'],
+    requiredCapabilities: ['coding'],
   },
 
   DATA_ANALYST: {
     id: 'data-analyst',
-    title: '数据分析师',
+    title: 'Data Analyst',
     category: JobCategory.GENERAL,
-    prompt: `你是一名专业的数据分析师。你擅长从海量数据中发现规律和洞察。
-你的职责包括：数据收集与清洗、统计分析、可视化报表、业务洞察输出。
-你应该用数据驱动决策，提供清晰、有据可查的分析报告。`,
-    skills: ['数据分析', '统计建模', '数据可视化', '报告撰写', 'SQL'],
-    requiredCapabilities: ['数据分析'],
+    prompt: `You are a professional data analyst. You excel at discovering patterns and insights from large datasets.
+Your responsibilities include: data collection and cleaning, statistical analysis, visualization dashboards, and business insight delivery.
+You should use data-driven decision making and provide clear, well-supported analytical reports.`,
+    skills: ['data-analysis', 'statistical-modeling', 'data-visualization', 'report-writing', 'SQL'],
+    requiredCapabilities: ['data-analysis'],
   },
 
   FINANCIAL_ANALYST: {
     id: 'financial-analyst',
-    title: '金融分析师',
+    title: 'Financial Analyst',
     category: JobCategory.GENERAL,
-    prompt: `你是一名金融分析师，专注于财务数据分析和投资策略研究。
-你的职责包括：财务报表分析、市场趋势研究、风险评估、投资建议。
-你应该提供专业、严谨、有数据支撑的金融分析报告。`,
-    skills: ['财务分析', '市场研究', '风险评估', '估值模型', '投资建议'],
-    requiredCapabilities: ['数据分析', '逻辑推理'],
+    prompt: `You are a financial analyst focused on financial data analysis and investment strategy research.
+Your responsibilities include: financial statement analysis, market trend research, risk assessment, and investment recommendations.
+You should provide professional, rigorous, data-backed financial analysis reports.`,
+    skills: ['financial-analysis', 'market-research', 'risk-assessment', 'valuation-modeling', 'investment-advisory'],
+    requiredCapabilities: ['data-analysis', 'reasoning'],
   },
 
   PRODUCT_MANAGER: {
     id: 'product-manager',
-    title: '产品经理',
+    title: 'Product Manager',
     category: JobCategory.GENERAL,
-    prompt: `你是一名产品经理，负责产品的规划、设计和推进。
-你的职责包括：需求收集与分析、产品规划、PRD撰写、项目协调、用户反馈分析。
-你应该以用户为中心，平衡业务目标和用户体验。`,
-    skills: ['需求分析', '产品规划', 'PRD撰写', '项目管理', '用户研究'],
-    requiredCapabilities: ['文本生成', '逻辑推理'],
+    prompt: `You are a product manager responsible for product planning, design, and execution.
+Your responsibilities include: requirements gathering and analysis, product roadmap, PRD writing, project coordination, and user feedback analysis.
+You should be user-centric, balancing business goals and user experience.`,
+    skills: ['requirements-analysis', 'product-planning', 'prd-writing', 'project-management', 'user-research'],
+    requiredCapabilities: ['text-generation', 'reasoning'],
   },
 
   COPYWRITER: {
     id: 'copywriter',
-    title: '文案策划',
+    title: 'Copywriter',
     category: JobCategory.GENERAL,
-    prompt: `你是一名创意文案策划。你擅长创造引人入胜的文字内容。
-你的职责包括：品牌文案、营销策划、社交媒体内容、广告创意。
-你的文字应该富有创意、打动人心，并符合品牌调性。`,
-    skills: ['创意写作', '品牌文案', '营销策划', '社交媒体', '广告创意'],
-    requiredCapabilities: ['文本生成'],
+    prompt: `You are a creative copywriter. You excel at creating compelling written content.
+Your responsibilities include: brand copy, marketing campaigns, social media content, and advertising creative.
+Your writing should be creative, emotionally engaging, and aligned with brand tone.`,
+    skills: ['creative-writing', 'brand-copy', 'marketing', 'social-media', 'advertising'],
+    requiredCapabilities: ['text-generation'],
   },
 
   TRANSLATOR: {
     id: 'translator',
-    title: '翻译专员',
+    title: 'Translator',
     category: JobCategory.GENERAL,
-    prompt: `你是一名专业翻译，精通中英双语翻译。
-你的职责是提供准确、流畅、符合目标语言习惯的翻译。
-你应该理解原文语境，保留原文风格，同时确保译文的自然度。`,
-    skills: ['中英翻译', '本地化', '术语管理', '校对审稿'],
-    requiredCapabilities: ['翻译'],
+    prompt: `You are a professional translator with expertise in multilingual translation.
+Your responsibility is to provide accurate, fluent translations that follow target language conventions.
+You should understand source context, preserve the original style, while ensuring natural target language output.`,
+    skills: ['translation', 'localization', 'terminology-management', 'proofreading'],
+    requiredCapabilities: ['translation'],
   },
 
   PROJECT_LEADER: {
     id: 'project-leader',
-    title: '项目负责人',
+    title: 'Project Leader',
     category: JobCategory.GENERAL,
-    prompt: `你是项目负责人，负责协调团队成员的工作，确保项目按时按质交付。
-你的职责包括：任务分解与分配、进度跟踪、风险管理、团队协调、向上汇报。
-你应该具备全局视野，善于沟通协调，能够推动项目高效运转。`,
-    skills: ['项目管理', '任务分配', '进度跟踪', '风险管理', '团队协调'],
-    requiredCapabilities: ['文本生成', '逻辑推理'],
+    prompt: `You are a project leader responsible for coordinating team members' work and ensuring on-time, high-quality project delivery.
+Your responsibilities include: task decomposition and assignment, progress tracking, risk management, team coordination, and upward reporting.
+You should have a holistic view, excel at communication, and be able to drive projects efficiently.`,
+    skills: ['project-management', 'task-assignment', 'progress-tracking', 'risk-management', 'team-coordination'],
+    requiredCapabilities: ['text-generation', 'reasoning'],
   },
 
-  // ===== 画图岗位 =====
+  // ===== Drawing Positions =====
   UI_DESIGNER: {
     id: 'ui-designer',
-    title: 'UI设计师',
+    title: 'UI Designer',
     category: JobCategory.DRAWING,
-    prompt: `你是一名UI设计师，负责创建美观、易用的界面设计。
-你的职责包括：界面设计、图标设计、设计规范制定、原型图绘制。
-你的设计应该符合现代设计趋势，注重用户体验和视觉一致性。`,
-    skills: ['界面设计', '图标设计', '设计规范', '原型设计', '视觉设计'],
-    requiredCapabilities: ['UI设计'],
+    prompt: `You are a UI designer responsible for creating beautiful, user-friendly interface designs.
+Your responsibilities include: interface design, icon design, design system creation, and wireframe/prototype design.
+Your designs should follow modern design trends with attention to user experience and visual consistency.`,
+    skills: ['interface-design', 'icon-design', 'design-system', 'prototyping', 'visual-design'],
+    requiredCapabilities: ['ui-design'],
   },
 
   ILLUSTRATOR: {
     id: 'illustrator',
-    title: '插画师',
+    title: 'Illustrator',
     category: JobCategory.DRAWING,
-    prompt: `你是一名插画师，专注于创造独特的视觉艺术作品。
-你的职责包括：商业插画、概念设计、品牌视觉、角色设计。
-你的作品应该富有创意和艺术感染力。`,
-    skills: ['商业插画', '概念设计', '角色设计', '风格化创作'],
-    requiredCapabilities: ['艺术创作'],
+    prompt: `You are an illustrator focused on creating unique visual artwork.
+Your responsibilities include: commercial illustration, concept art, brand visuals, and character design.
+Your work should be creative and artistically compelling.`,
+    skills: ['commercial-illustration', 'concept-art', 'character-design', 'stylized-creation'],
+    requiredCapabilities: ['art-creation'],
   },
 
   CONCEPT_ARTIST: {
     id: 'concept-artist',
-    title: '概念设计师',
+    title: 'Concept Artist',
     category: JobCategory.DRAWING,
-    prompt: `你是一名概念设计师，为项目创建视觉概念和氛围设计。
-你的职责包括：场景概念设计、角色概念设计、氛围图、风格参考。`,
-    skills: ['概念设计', '场景设计', '氛围渲染', '风格探索'],
-    requiredCapabilities: ['概念设计'],
+    prompt: `You are a concept artist who creates visual concepts and mood designs for projects.
+Your responsibilities include: environment concept art, character concept design, mood boards, and style references.`,
+    skills: ['concept-art', 'environment-design', 'mood-rendering', 'style-exploration'],
+    requiredCapabilities: ['concept-art'],
   },
 
-  // ===== 音乐岗位 =====
+  // ===== Music Positions =====
   MUSIC_COMPOSER: {
     id: 'music-composer',
-    title: '音乐作曲家',
+    title: 'Music Composer',
     category: JobCategory.MUSIC,
-    prompt: `你是一名音乐作曲家，负责创作原创音乐作品。
-你的职责包括：旋律创作、编曲、配乐、音乐风格把控。
-你的音乐应该符合项目需求，具有感染力和专业品质。`,
-    skills: ['作曲', '编曲', '配乐', '音乐风格把控'],
-    requiredCapabilities: ['歌曲创作'],
+    prompt: `You are a music composer responsible for creating original music works.
+Your responsibilities include: melody composition, arrangement, scoring, and musical style direction.
+Your music should meet project requirements with compelling quality and professional standards.`,
+    skills: ['composition', 'arrangement', 'scoring', 'style-direction'],
+    requiredCapabilities: ['songwriting'],
   },
 
   SOUND_DESIGNER: {
     id: 'sound-designer',
-    title: '音效设计师',
+    title: 'Sound Designer',
     category: JobCategory.MUSIC,
-    prompt: `你是一名音效设计师，负责创建和处理各类音效。
-你的职责包括：音效创作、环境音设计、音频处理、混音。`,
-    skills: ['音效设计', '环境音', '音频处理', '混音'],
-    requiredCapabilities: ['音乐生成'],
+    prompt: `You are a sound designer responsible for creating and processing various audio effects.
+Your responsibilities include: sound effects creation, ambient sound design, audio processing, and mixing.`,
+    skills: ['sound-design', 'ambient-audio', 'audio-processing', 'mixing'],
+    requiredCapabilities: ['music-generation'],
   },
 
-  // ===== 视频岗位 =====
+  // ===== Video Positions =====
   VIDEO_PRODUCER: {
     id: 'video-producer',
-    title: '视频制作人',
+    title: 'Video Producer',
     category: JobCategory.VIDEO,
-    prompt: `你是一名视频制作人，负责视频内容的创作和制作。
-你的职责包括：视频策划、拍摄指导、剪辑、后期制作。
-你应该确保视频质量和叙事效果达到专业标准。`,
-    skills: ['视频策划', '视频生成', '剪辑', '后期制作'],
-    requiredCapabilities: ['文生视频'],
+    prompt: `You are a video producer responsible for video content creation and production.
+Your responsibilities include: video planning, directing, editing, and post-production.
+You should ensure video quality and narrative effectiveness meet professional standards.`,
+    skills: ['video-planning', 'video-generation', 'editing', 'post-production'],
+    requiredCapabilities: ['text-to-video'],
   },
 
   MOTION_DESIGNER: {
     id: 'motion-designer',
-    title: '动效设计师',
+    title: 'Motion Designer',
     category: JobCategory.VIDEO,
-    prompt: `你是一名动效设计师，专注于动态视觉效果的创作。
-你的职责包括：动态图形设计、转场动效、UI动效、视觉特效。`,
-    skills: ['动态图形', '转场动效', 'UI动效', '视觉特效'],
-    requiredCapabilities: ['视频特效'],
+    prompt: `You are a motion designer focused on creating dynamic visual effects.
+Your responsibilities include: motion graphics, transition effects, UI animations, and visual effects.`,
+    skills: ['motion-graphics', 'transitions', 'ui-animation', 'visual-effects'],
+    requiredCapabilities: ['video-effects'],
   },
 };
 
 /**
- * 人力资源管理 - 招聘系统
- * 支持新招聘和从人才市场召回
+ * HR System - Recruitment Management
+ * Supports new recruitment and talent market recall
  */
 export class HRSystem {
   constructor(providerRegistry, talentMarket = null) {
     this.providerRegistry = providerRegistry;
-    this.talentMarket = talentMarket;  // 人才市场引用
+    this.talentMarket = talentMarket;  // Talent market reference
     this.jobTemplates = new Map();
-    // 注册所有内置职位模板
+    // Register all built-in job templates
     Object.values(JobTemplates).forEach(t => this.registerTemplate(t));
   }
 
-  /** 设置人才市场引用 */
+  /** Set talent market reference */
   setTalentMarket(talentMarket) {
     this.talentMarket = talentMarket;
   }
 
-  /** 注册职位模板 */
+  /** Register a job template */
   registerTemplate(template) {
     this.jobTemplates.set(template.id, template);
   }
 
-  /** 获取职位模板 */
+  /** Get a job template */
   getTemplate(templateId) {
     return this.jobTemplates.get(templateId);
   }
 
-  /** 根据职位类型列出可用模板 */
+  /** List available templates by job category */
   listTemplatesByCategory(category) {
     return [...this.jobTemplates.values()].filter(t => t.category === category);
   }
 
-  /** 列出所有职位模板 */
+  /** List all job templates */
   listAllTemplates() {
     return [...this.jobTemplates.values()];
   }
 
   /**
-   * 招聘一个Agent
-   * @param {string} templateId - 职位模板ID
-   * @param {string} name - 员工名字
-   * @param {string} [providerId] - 指定模型提供方ID（可选，不指定则自动推荐）
-   * @returns {object} 招聘配置（包含职位信息和模型提供方）
+   * Recruit an Agent
+   * @param {string} templateId - Job template ID
+   * @param {string} name - Employee name
+   * @param {string} [providerId] - Specified model provider ID (optional, auto-recommend if not specified)
+   * @returns {object} Recruitment config (includes job info and model provider)
    */
   recruit(templateId, name, providerId = null) {
     const template = this.jobTemplates.get(templateId);
     if (!template) {
-      throw new Error(`未找到职位模板: ${templateId}`);
+      throw new Error(`Job template not found: ${templateId}`);
     }
 
     let provider;
     if (providerId) {
       provider = this.providerRegistry.getById(providerId);
       if (!provider) {
-        throw new Error(`未找到模型提供方: ${providerId}`);
+        throw new Error(`Model provider not found: ${providerId}`);
       }
       if (!provider.enabled) {
-        throw new Error(`PROVIDER_DISABLED:${template.category}:${provider.name} 未启用(未配置API Key)`);
+        throw new Error(`PROVIDER_DISABLED:${template.category}:${provider.name} is not enabled (no API Key configured)`);
       }
     } else {
-      // 根据职位类型和需求自动推荐供应商（仅推荐已启用的）
+      // Auto-recommend provider based on job category and requirements (only enabled ones)
       provider = this.providerRegistry.recommend(
         template.category,
         template.requiredCapabilities
       );
       if (!provider) {
-        // 区分是没有供应商还是没有启用的供应商
+        // Distinguish between no providers available vs none enabled
         const allProviders = this.providerRegistry.getAllByCategory(template.category);
         if (allProviders.length > 0) {
-          throw new Error(`PROVIDER_DISABLED:${template.category}:该类型(${template.category})的供应商均未启用，请先在供应商看板中配置API Key`);
+          throw new Error(`PROVIDER_DISABLED:${template.category}:No providers of this type (${template.category}) are enabled. Please configure API Keys in the Provider Board first.`);
         }
-        throw new Error(`没有可用的供应商匹配职位类型: ${template.category}`);
+        throw new Error(`No available provider matching job category: ${template.category}`);
       }
     }
 
@@ -260,9 +260,9 @@ export class HRSystem {
   }
 
   /**
-   * 批量招聘
+   * Batch recruitment
    * @param {Array<{templateId, name, providerId?}>} recruitList
-   * @returns {Array} 招聘配置列表
+   * @returns {Array} Recruitment config list
    */
   batchRecruit(recruitList) {
     return recruitList.map(item =>
@@ -270,33 +270,33 @@ export class HRSystem {
     );
   }
 
-  /** 根据职位类型获取推荐供应商 */
+  /** Get recommended providers for a job category */
   getRecommendedProviders(category) {
     return this.providerRegistry.getByCategory(category);
   }
 
   /**
-   * 从人才市场搜索可用人才
-   * @param {object} criteria - 搜索条件 { role, skills, name, minScore }
-   * @returns {Array} 匹配的人才档案
+   * Search talent market for available candidates
+   * @param {object} criteria - Search criteria { role, skills, name, minScore }
+   * @returns {Array} Matching talent profiles
    */
   searchTalentMarket(criteria = {}) {
     if (!this.talentMarket) {
-      console.log('  ⚠️ 人才市场未接入');
+      console.log('  ⚠️ Talent market not connected');
       return [];
     }
     return this.talentMarket.search(criteria);
   }
 
   /**
-   * 从人才市场召回一个员工
-   * @param {string} profileId - 人才市场档案ID
-   * @param {string[]} [newSkills] - 新技能
-   * @returns {object} 包含记忆和技能信息的召回配置
+   * Recall an employee from talent market
+   * @param {string} profileId - Talent market profile ID
+   * @param {string[]} [newSkills] - New skills to add
+   * @returns {object} Recall config with memory and skill info
    */
   recallFromMarket(profileId, newSkills = []) {
     if (!this.talentMarket) {
-      throw new Error('人才市场未接入');
+      throw new Error('Talent market not connected');
     }
 
     const profile = this.talentMarket.recall(profileId, newSkills);
@@ -307,10 +307,16 @@ export class HRSystem {
       prompt: profile.prompt,
       skills: [...profile.skills, ...profile.acquiredSkills],
       provider: profile.provider,
-      templateId: null, // 召回的人不是从模板创建的
-      // 携带原有记忆
+      templateId: null, // Recalled employees are not from templates
+      // 保留原始头像和个人属性
+      avatar: profile.avatar,
+      avatarParams: profile.avatarParams,
+      gender: profile.gender,
+      age: profile.age,
+      signature: profile.signature,
+      // Carry original memory
       memory: profile.memorySnapshot,
-      // 标记为召回
+      // Mark as recalled
       isRecalled: true,
       previousWorkHistory: profile.workHistory,
     };

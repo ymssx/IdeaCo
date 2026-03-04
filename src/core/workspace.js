@@ -1,14 +1,14 @@
 /**
- * 工作空间管理器
+ * Workspace Manager
  * 
- * 每个部门/项目拥有独立的工作目录
- * Agent在各自的工作空间内进行文件操作
+ * Each department/project has its own independent working directory
+ * Agents perform file operations within their respective workspaces
  */
 import fs from 'fs/promises';
 import { existsSync, mkdirSync } from 'fs';
 import path from 'path';
 
-// 默认工作空间根目录
+// Default workspace root directory
 const DEFAULT_ROOT = path.resolve(process.cwd(), 'workspace');
 
 export class WorkspaceManager {
@@ -20,13 +20,13 @@ export class WorkspaceManager {
   }
 
   /**
-   * 为部门创建工作空间
-   * @param {string} departmentId - 部门ID
-   * @param {string} departmentName - 部门名称（用于目录命名）
-   * @returns {string} 工作空间路径
+   * Create a workspace for a department
+   * @param {string} departmentId - Department ID
+   * @param {string} departmentName - Department name (used for directory naming)
+   * @returns {string} Workspace path
    */
   createDepartmentWorkspace(departmentId, departmentName) {
-    // 用安全的目录名
+    // Use a safe directory name
     const safeName = departmentName.replace(/[^a-zA-Z0-9\u4e00-\u9fff_-]/g, '_');
     const dirName = `${safeName}_${departmentId.slice(0, 8)}`;
     const wsPath = path.join(this.rootDir, dirName);
@@ -39,7 +39,7 @@ export class WorkspaceManager {
   }
 
   /**
-   * 获取部门工作空间下的文件树
+   * Get the file tree under a department workspace
    */
   async getFileTree(wsPath, relativeTo = null) {
     const basePath = relativeTo || wsPath;
@@ -71,29 +71,29 @@ export class WorkspaceManager {
         }
       }
     } catch (error) {
-      // 目录不存在时返回空
+      // Return empty if directory does not exist
     }
 
     return entries;
   }
 
   /**
-   * 读取工作空间内的文件
+   * Read a file within the workspace
    */
   async readFile(wsPath, filePath) {
     const fullPath = path.join(wsPath, filePath);
     const resolved = path.resolve(fullPath);
 
-    // 安全检查
+    // Security check
     if (!resolved.startsWith(path.resolve(wsPath))) {
-      throw new Error('路径超出工作空间范围');
+      throw new Error('Path is outside workspace boundary');
     }
 
     return fs.readFile(resolved, 'utf-8');
   }
 
   /**
-   * 获取工作空间统计
+   * Get workspace statistics
    */
   async getStats(wsPath) {
     let fileCount = 0;
@@ -120,7 +120,7 @@ export class WorkspaceManager {
   }
 
   /**
-   * 获取根工作空间路径
+   * Get root workspace path
    */
   getRootDir() {
     return this.rootDir;

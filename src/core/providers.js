@@ -1,40 +1,40 @@
 /**
- * 模型提供方注册表 - 外包人力市场供应商
- * 不同职位类型对应不同的模型提供方
- * 供应商需要配置API Key后才能启用招聘
+ * Model Provider Registry - Outsourcing vendor marketplace
+ * Different job categories map to different model providers
+ * Providers need API Key configuration before enabling recruitment
  */
 
-// 职位类型枚举
+// Job category enum
 export const JobCategory = {
-  GENERAL: 'general',       // 通用岗位（文本处理、分析、编程等）
-  DRAWING: 'drawing',       // 画图岗位
-  MUSIC: 'music',           // 音乐岗位
-  VIDEO: 'video',           // 视频岗位
+  GENERAL: 'general',       // General positions (text processing, analysis, coding, etc.)
+  DRAWING: 'drawing',       // Drawing/illustration positions
+  MUSIC: 'music',           // Music positions
+  VIDEO: 'video',           // Video positions
 };
 
-// 职位类型中文名映射
+// Job category label mapping (i18n keys for frontend)
 export const JobCategoryLabel = {
-  [JobCategory.GENERAL]: '通用岗位',
-  [JobCategory.DRAWING]: '画图岗位',
-  [JobCategory.MUSIC]: '音乐岗位',
-  [JobCategory.VIDEO]: '视频岗位',
+  [JobCategory.GENERAL]: 'general',
+  [JobCategory.DRAWING]: 'drawing',
+  [JobCategory.MUSIC]: 'music',
+  [JobCategory.VIDEO]: 'video',
 };
 
-// 模型提供方（外包人力市场供应商）
+// Model Providers (outsourcing vendor marketplace)
 export const ModelProviders = {
-  // === 通用岗位供应商 ===
+  // === General Position Providers ===
   OPENAI_GPT4: {
     id: 'openai-gpt4',
     name: 'OpenAI GPT-4',
     provider: 'OpenAI',
     model: 'gpt-4-turbo',
     category: JobCategory.GENERAL,
-    capabilities: ['文本生成', '代码编写', '数据分析', '逻辑推理', '翻译'],
+    capabilities: ['text-generation', 'coding', 'data-analysis', 'reasoning', 'translation'],
     costPerToken: 0.03,
     priceLabel: '$0.03/1K tokens',
-    priceLevel: 3, // 1=便宜 2=适中 3=较贵
-    rating: 95, // 综合评分 0-100
-    description: '最强通用大模型，适合复杂推理和编程任务',
+    priceLevel: 3, // 1=cheap 2=moderate 3=expensive
+    rating: 95, // Overall score 0-100
+    description: 'Most powerful general model, ideal for complex reasoning and coding tasks',
     apiKey: '',
     enabled: false,
   },
@@ -44,12 +44,12 @@ export const ModelProviders = {
     provider: 'OpenAI',
     model: 'gpt-3.5-turbo',
     category: JobCategory.GENERAL,
-    capabilities: ['文本生成', '简单编程', '翻译', '摘要'],
+    capabilities: ['text-generation', 'simple-coding', 'translation', 'summarization'],
     costPerToken: 0.002,
     priceLabel: '$0.002/1K tokens',
     priceLevel: 1,
     rating: 72,
-    description: '性价比高的通用模型，适合简单任务',
+    description: 'Cost-effective general model for simple tasks',
     apiKey: '',
     enabled: false,
   },
@@ -59,12 +59,12 @@ export const ModelProviders = {
     provider: 'Anthropic',
     model: 'claude-3.5-sonnet',
     category: JobCategory.GENERAL,
-    capabilities: ['文本生成', '代码编写', '数据分析', '长文本处理', '逻辑推理'],
+    capabilities: ['text-generation', 'coding', 'data-analysis', 'long-context', 'reasoning'],
     costPerToken: 0.015,
     priceLabel: '$0.015/1K tokens',
     priceLevel: 2,
     rating: 93,
-    description: '擅长长文本理解和精确分析',
+    description: 'Excels at long-context understanding and precise analysis',
     apiKey: '',
     enabled: false,
   },
@@ -74,44 +74,44 @@ export const ModelProviders = {
     provider: 'DeepSeek',
     model: 'deepseek-chat',
     category: JobCategory.GENERAL,
-    capabilities: ['文本生成', '代码编写', '数学推理', '数据分析'],
+    capabilities: ['text-generation', 'coding', 'math-reasoning', 'data-analysis'],
     costPerToken: 0.001,
     priceLabel: '$0.001/1K tokens',
     priceLevel: 1,
     rating: 88,
-    description: '国产高性价比模型，编程能力突出',
+    description: 'High cost-performance model with outstanding coding capability',
     apiKey: '',
     enabled: false,
   },
   QWEN: {
     id: 'qwen-max',
-    name: '通义千问 Max',
-    provider: '阿里云',
+    name: 'Qwen Max',
+    provider: 'Alibaba Cloud',
     model: 'qwen-max',
     category: JobCategory.GENERAL,
-    capabilities: ['文本生成', '代码编写', '数据分析', '逻辑推理', '翻译'],
+    capabilities: ['text-generation', 'coding', 'data-analysis', 'reasoning', 'translation'],
     costPerToken: 0.004,
     priceLabel: '$0.004/1K tokens',
     priceLevel: 1,
     rating: 86,
-    description: '阿里云通义千问旗舰模型，中文能力出色',
+    description: 'Alibaba Cloud flagship model with excellent multilingual support',
     apiKey: '',
     enabled: false,
   },
 
-  // === 画图岗位供应商 ===
+  // === Drawing Position Providers ===
   DALLE3: {
     id: 'openai-dalle3',
     name: 'DALL·E 3',
     provider: 'OpenAI',
     model: 'dall-e-3',
     category: JobCategory.DRAWING,
-    capabilities: ['文生图', '插画', 'UI设计', '概念设计'],
+    capabilities: ['text-to-image', 'illustration', 'ui-design', 'concept-art'],
     costPerImage: 0.04,
-    priceLabel: '$0.04/张',
+    priceLabel: '$0.04/image',
     priceLevel: 2,
     rating: 90,
-    description: '高质量文生图模型',
+    description: 'High-quality text-to-image model',
     apiKey: '',
     enabled: false,
   },
@@ -121,12 +121,12 @@ export const ModelProviders = {
     provider: 'Midjourney',
     model: 'midjourney-v6',
     category: JobCategory.DRAWING,
-    capabilities: ['艺术创作', '概念设计', '风格化插画', '摄影风格'],
+    capabilities: ['art-creation', 'concept-art', 'stylized-illustration', 'photography-style'],
     costPerImage: 0.05,
-    priceLabel: '$0.05/张',
+    priceLabel: '$0.05/image',
     priceLevel: 3,
     rating: 96,
-    description: '艺术创作首选，风格化能力极强',
+    description: 'Top choice for art creation with powerful stylization',
     apiKey: '',
     enabled: false,
   },
@@ -136,29 +136,29 @@ export const ModelProviders = {
     provider: 'Stability AI',
     model: 'sdxl-1.0',
     category: JobCategory.DRAWING,
-    capabilities: ['文生图', '图生图', '风格迁移', '精细控制'],
+    capabilities: ['text-to-image', 'image-to-image', 'style-transfer', 'fine-control'],
     costPerImage: 0.02,
-    priceLabel: '$0.02/张',
+    priceLabel: '$0.02/image',
     priceLevel: 1,
     rating: 82,
-    description: '开源可控的图像生成模型',
+    description: 'Open-source controllable image generation model',
     apiKey: '',
     enabled: false,
   },
 
-  // === 音乐岗位供应商 ===
+  // === Music Position Providers ===
   SUNO: {
     id: 'suno-v3',
     name: 'Suno V3.5',
     provider: 'Suno',
     model: 'suno-v3.5',
     category: JobCategory.MUSIC,
-    capabilities: ['歌曲创作', '配乐', '歌词生成', '多风格音乐'],
+    capabilities: ['songwriting', 'scoring', 'lyrics', 'multi-genre'],
     costPerTrack: 0.1,
-    priceLabel: '$0.10/首',
+    priceLabel: '$0.10/track',
     priceLevel: 2,
     rating: 91,
-    description: '全能音乐创作AI',
+    description: 'All-in-one AI music creation',
     apiKey: '',
     enabled: false,
   },
@@ -168,29 +168,29 @@ export const ModelProviders = {
     provider: 'Udio',
     model: 'udio-v1.5',
     category: JobCategory.MUSIC,
-    capabilities: ['音乐生成', '人声合成', '编曲', '混音'],
+    capabilities: ['music-generation', 'vocal-synthesis', 'arrangement', 'mixing'],
     costPerTrack: 0.08,
-    priceLabel: '$0.08/首',
+    priceLabel: '$0.08/track',
     priceLevel: 1,
     rating: 85,
-    description: '高保真音乐生成',
+    description: 'High-fidelity music generation',
     apiKey: '',
     enabled: false,
   },
 
-  // === 视频岗位供应商 ===
+  // === Video Position Providers ===
   RUNWAY: {
     id: 'runway-gen3',
     name: 'Runway Gen-3',
     provider: 'Runway',
     model: 'gen-3-alpha',
     category: JobCategory.VIDEO,
-    capabilities: ['文生视频', '图生视频', '视频编辑', '特效'],
+    capabilities: ['text-to-video', 'image-to-video', 'video-editing', 'vfx'],
     costPerSecond: 0.5,
-    priceLabel: '$0.50/秒',
+    priceLabel: '$0.50/sec',
     priceLevel: 3,
     rating: 92,
-    description: '专业级AI视频生成',
+    description: 'Professional-grade AI video generation',
     apiKey: '',
     enabled: false,
   },
@@ -200,106 +200,106 @@ export const ModelProviders = {
     provider: 'Pika',
     model: 'pika-2.0',
     category: JobCategory.VIDEO,
-    capabilities: ['短视频生成', '动画', '视频特效'],
+    capabilities: ['short-video', 'animation', 'video-effects'],
     costPerSecond: 0.3,
-    priceLabel: '$0.30/秒',
+    priceLabel: '$0.30/sec',
     priceLevel: 2,
     rating: 84,
-    description: '轻量级视频生成',
+    description: 'Lightweight video generation',
     apiKey: '',
     enabled: false,
   },
   KLING: {
     id: 'kling-v1',
-    name: '可灵 AI',
-    provider: '快手',
+    name: 'Kling AI',
+    provider: 'Kuaishou',
     model: 'kling-v1',
     category: JobCategory.VIDEO,
-    capabilities: ['文生视频', '图生视频', '视频续写'],
+    capabilities: ['text-to-video', 'image-to-video', 'video-continuation'],
     costPerSecond: 0.2,
-    priceLabel: '$0.20/秒',
+    priceLabel: '$0.20/sec',
     priceLevel: 1,
     rating: 80,
-    description: '国产视频生成模型',
+    description: 'Cost-effective video generation model',
     apiKey: '',
     enabled: false,
   },
 };
 
 /**
- * 模型提供方注册表 - 管理所有供应商
+ * Provider Registry - Manages all model providers
  */
 export class ProviderRegistry {
   constructor() {
     this.providers = new Map();
-    // 注册所有内置供应商
+    // Register all built-in providers
     Object.values(ModelProviders).forEach(p => this.register({ ...p }));
   }
 
-  /** 注册一个新的模型提供方 */
+  /** Register a new model provider */
   register(providerConfig) {
     this.providers.set(providerConfig.id, providerConfig);
   }
 
-  /** 根据ID获取供应商 */
+  /** Get provider by ID */
   getById(id) {
     return this.providers.get(id);
   }
 
   /**
-   * 配置供应商的API Key
-   * @param {string} id - 供应商ID
+   * Configure a provider's API Key
+   * @param {string} id - Provider ID
    * @param {string} apiKey - API Key
-   * @returns {object} 更新后的供应商配置
+   * @returns {object} Updated provider config
    */
   configure(id, apiKey) {
     const provider = this.providers.get(id);
-    if (!provider) throw new Error(`供应商不存在: ${id}`);
+    if (!provider) throw new Error(`Provider not found: ${id}`);
     provider.apiKey = apiKey;
     provider.enabled = !!apiKey;
     return provider;
   }
 
   /**
-   * 手动启用/禁用供应商
+   * Manually enable/disable a provider
    */
   setEnabled(id, enabled) {
     const provider = this.providers.get(id);
-    if (!provider) throw new Error(`供应商不存在: ${id}`);
+    if (!provider) throw new Error(`Provider not found: ${id}`);
     if (enabled && !provider.apiKey) {
-      throw new Error(`供应商 ${provider.name} 尚未配置API Key，无法启用`);
+      throw new Error(`Provider ${provider.name} has no API Key configured, cannot enable`);
     }
     provider.enabled = enabled;
     return provider;
   }
 
-  /** 根据职位类型获取可用的（已启用的）供应商列表 */
+  /** Get available (enabled) providers by job category */
   getByCategory(category) {
     return [...this.providers.values()].filter(
       p => p.category === category && p.enabled
     );
   }
 
-  /** 根据职位类型获取所有供应商（包括未启用的） */
+  /** Get all providers by job category (including disabled) */
   getAllByCategory(category) {
     return [...this.providers.values()].filter(p => p.category === category);
   }
 
-  /** 检查某个类型是否有已启用的供应商 */
+  /** Check if a category has any enabled provider */
   hasCategoryEnabled(category) {
     return this.getByCategory(category).length > 0;
   }
 
   /** 
-   * 根据职位类型推荐最佳供应商（仅从已启用的中推荐）
-   * 策略: 综合评分 = rating * 0.6 + (100 - priceLevel*20) * 0.4
-   * 即高评分、低价格的优先
+   * Recommend best provider for a job category (from enabled ones)
+   * Strategy: composite score = rating * 0.6 + (100 - priceLevel*20) * 0.4
+   * i.e. high-rating + low-price gets priority
    */
   recommend(category, requirements = []) {
     let candidates = this.getByCategory(category);
     if (candidates.length === 0) return null;
 
-    // 如果有特定能力需求，优先匹配
+    // If specific capability requirements exist, prefer matches
     if (requirements.length > 0) {
       const matched = candidates.filter(p =>
         requirements.every(req => p.capabilities.includes(req))
@@ -307,7 +307,7 @@ export class ProviderRegistry {
       if (matched.length > 0) candidates = matched;
     }
 
-    // 按性价比排序：高评分 + 低价格
+    // Sort by cost-performance: high rating + low price
     candidates.sort((a, b) => {
       const scoreA = (a.rating || 80) * 0.6 + (100 - (a.priceLevel || 2) * 20) * 0.4;
       const scoreB = (b.rating || 80) * 0.6 + (100 - (b.priceLevel || 2) * 20) * 0.4;
@@ -317,17 +317,17 @@ export class ProviderRegistry {
     return candidates[0];
   }
 
-  /** 列出所有供应商 */
+  /** List all providers */
   listAll() {
     return [...this.providers.values()];
   }
 
-  /** 列出所有已启用的供应商 */
+  /** List all enabled providers */
   listEnabled() {
     return [...this.providers.values()].filter(p => p.enabled);
   }
 
-  /** 获取供应商统计（按类别分组，包含启用数） */
+  /** Get provider statistics (grouped by category, with enabled count) */
   getStats() {
     const stats = {};
     for (const cat of Object.values(JobCategory)) {

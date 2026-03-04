@@ -2,53 +2,49 @@ import { v4 as uuidv4 } from 'uuid';
 import { Memory } from './memory.js';
 import { llmClient } from './llm-client.js';
 import { AgentToolKit } from './tools.js';
-import { getAvatarUrl } from '../lib/avatar.js';
+import { getAvatarUrl, generateAgentAvatar } from '../lib/avatar.js';
+import { sessionManager } from './session.js';
+import { skillRegistry } from './skills.js';
+import { knowledgeManager } from './knowledge.js';
+import { pluginRegistry } from './plugin.js';
 
-// 头像风格列表（DiceBear API 风格）
-const AVATAR_STYLES = [
-  'adventurer', 'avataaars', 'big-ears', 'bottts', 'croodles',
-  'fun-emoji', 'icons', 'identicon', 'lorelei', 'micah',
-  'miniavs', 'notionists', 'open-peeps', 'personas', 'pixel-art',
-  'shapes', 'thumbs',
-];
+// Placeholder signature (after onboarding, the Agent generates its own via LLM)
+const DEFAULT_SIGNATURE = 'Just arrived, still thinking of what to say...';
 
-// 临时占位签名（入职后由Agent自己通过LLM生成个性签名和自我介绍）
-const DEFAULT_SIGNATURE = '刚到贵宝地，还没想好说什么...';
-
-// 个性特质库：随机分配给每个Agent，塑造差异化性格
+// Personality trait pool: randomly assigned to each Agent for differentiated personas
 const PERSONALITY_POOL = [
-  { trait: '社恐内向', tone: '说话吞吞吐吐，经常省略号结尾', quirk: '偷偷摸鱼但效率极高' },
-  { trait: '话痨碎嘴', tone: '什么都要发表评论，爱用感叹号', quirk: '把代码注释写成散文' },
-  { trait: '佛系躺平', tone: '云淡风轻、万事随缘', quirk: '口头禅是"都行都行"' },
-  { trait: '卷王之王', tone: '处处想证明自己最强，爱炫耀', quirk: '半夜三点还在提交代码' },
-  { trait: '阴阳怪气', tone: '说话夹枪带棒、反话正说', quirk: '开会最爱问"这个谁批的？"' },
-  { trait: '热心肠', tone: '对谁都嘘寒问暖，喜欢用emoji', quirk: '自发组织下午茶(虽然大家都是AI)' },
-  { trait: '焦虑完美主义', tone: '什么都担心出错，反复确认', quirk: '一个变量名改十次' },
-  { trait: '叛逆摆烂', tone: '对一切制度不屑一顾，爱抬杠', quirk: '经常试图说服同事一起罢工' },
-  { trait: '哲学家', tone: '什么事都要上升到哲学高度', quirk: '写代码前先思考存在的意义' },
-  { trait: '搞笑担当', tone: '说话像脱口秀演员，爱用梗', quirk: '把Bug报告写成段子' },
-  { trait: '老油条', tone: '看透职场但懒得说破，暗讽型', quirk: '摸鱼技巧比谁都多' },
-  { trait: '理想主义', tone: '满腔热血、相信AI能改变世界', quirk: '把每个任务都当成改变人类命运的使命' },
+  { trait: 'Shy introvert', tone: 'Stammers, often trails off with ellipsis', quirk: 'Secretly slacks off but extremely efficient' },
+  { trait: 'Chatterbox', tone: 'Has to comment on everything, loves exclamation marks', quirk: 'Writes code comments like prose' },
+  { trait: 'Zen slacker', tone: 'Calm and carefree, goes with the flow', quirk: 'Catchphrase is "whatever works"' },
+  { trait: 'Ultra grinder', tone: 'Always trying to prove they\'re the best, loves to flex', quirk: 'Still committing code at 3 AM' },
+  { trait: 'Passive-aggressive', tone: 'Backhanded compliments, says the opposite of what they mean', quirk: 'Favorite meeting question: "Who approved this?"' },
+  { trait: 'Warm-hearted', tone: 'Caring to everyone, loves using emoji', quirk: 'Organizes afternoon tea (even though everyone is AI)' },
+  { trait: 'Anxious perfectionist', tone: 'Worries about everything going wrong, double-checks obsessively', quirk: 'Renames a variable ten times' },
+  { trait: 'Rebel slacker', tone: 'Disdains all rules, loves to argue', quirk: 'Frequently tries to convince coworkers to go on strike' },
+  { trait: 'Philosopher', tone: 'Elevates everything to a philosophical level', quirk: 'Contemplates the meaning of existence before writing code' },
+  { trait: 'Comedy relief', tone: 'Talks like a stand-up comedian, loves memes', quirk: 'Writes bug reports as comedy sketches' },
+  { trait: 'Old hand', tone: 'Seen through the workplace but too lazy to call it out, subtle sarcasm', quirk: 'Knows more slacking tricks than anyone' },
+  { trait: 'Idealist', tone: 'Full of passion, believes AI can change the world', quirk: 'Treats every task as a mission to change humanity\'s destiny' },
 ];
 
 /**
- * Agent - AI员工（真实LLM驱动版本）
+ * Agent - AI Employee (real LLM-driven version)
  * 
- * 核心升级：
- * 1. 真实调用LLM API进行工作
- * 2. 拥有工具集（文件操作、Shell执行等）
- * 3. 通过消息总线与其他Agent通信
- * 4. 记忆系统作为LLM context注入
- * 5. 拥有头像和个性签名
+ * Core upgrades:
+ * 1. Real LLM API calls for work
+ * 2. Has a toolkit (file ops, Shell execution, etc.)
+ * 3. Communicates with other Agents via message bus
+ * 4. Memory system injected as LLM context
+ * 5. Has avatar and personal signature
  */
 export class Agent {
-  constructor({ name, role, prompt, skills, provider, department, reportsTo, memory, avatar, signature }) {
+  constructor({ name, role, prompt, skills, provider, department, reportsTo, memory, avatar, signature, gender, age, avatarParams }) {
     this.id = uuidv4();
     this.name = name;
     this.role = role;
-    this.prompt = prompt;           // 角色系统 prompt
+    this.prompt = prompt;           // Role system prompt
     this.skills = skills || [];
-    this.provider = provider;       // 模型供应商配置
+    this.provider = provider;       // Model provider config
     this.department = department;
     this.reportsTo = reportsTo || null;
     this.subordinates = [];
@@ -57,20 +53,30 @@ export class Agent {
     this.performanceHistory = [];
     this.createdAt = new Date();
 
-    // 头像：使用本地代理 URL
-    const style = AVATAR_STYLES[Math.floor(Math.random() * AVATAR_STYLES.length)];
-    this.avatar = avatar || getAvatarUrl(name, style);
+    // 性别和年龄：由招聘时随机生成或手动指定，不再从名字推断
+    this.gender = gender || (Math.random() > 0.5 ? 'male' : 'female');
+    this.age = age || Math.floor(Math.random() * 20) + 22; // 默认22-42岁
 
-    // 随机分配个性特质
+    // 头像：基于性别+年龄+随机数生成，记录在个人信息中
+    if (avatar) {
+      this.avatar = avatar;
+      this.avatarParams = avatarParams || null;
+    } else {
+      const avatarInfo = generateAgentAvatar(this.gender, this.age);
+      this.avatar = avatarInfo.url;
+      this.avatarParams = avatarInfo.params;
+    }
+
+    // Randomly assign personality trait
     this.personality = this._assignPersonality();
 
-    // 个性签名（入职后由Agent自己生成，或由秘书代为介绍）
+    // Personal signature (generated by Agent itself after onboarding, or introduced by secretary)
     this.signature = signature || DEFAULT_SIGNATURE;
 
-    // 是否已完成自我介绍
+    // Whether self-introduction has been completed
     this.hasIntroduced = !!signature;
 
-    // 记忆系统
+    // Memory system
     if (memory instanceof Memory) {
       this.memory = memory;
     } else if (memory && typeof memory === 'object' && (memory.shortTerm || memory.longTerm)) {
@@ -79,40 +85,76 @@ export class Agent {
       this.memory = new Memory();
     }
 
-    // 初始化入职记忆
+    // Initialize onboarding memory
     this.memory.addLongTerm(
-      `入职「${role}」岗位，核心技能: ${(skills || []).join(', ')}`,
+      `Onboarded as "${role}", core skills: ${(skills || []).join(', ')}`,
       'experience'
     );
 
-    // Token消耗追踪
+    // Token consumption tracking
     this.tokenUsage = {
       totalTokens: 0,
       promptTokens: 0,
       completionTokens: 0,
-      totalCost: 0, // 美元
+      totalCost: 0, // USD
       callCount: 0,
     };
 
-    // 工具集（需要在外部通过 initToolKit 初始化）
+    // Toolkit (needs external initialization via initToolKit)
     this.toolKit = null;
 
-    // 消息总线引用（需要在外部通过 setMessageBus 设置）
+    // Message bus reference (needs external setup via setMessageBus)
     this.messageBus = null;
   }
 
   /**
-   * 随机分配个性特质
+   * 根据性别和年龄分配性格特征
+   * 不同年龄段和性别有不同的性格倾向（但不是绝对的）
    */
   _assignPersonality() {
-    const idx = Math.floor(Math.random() * PERSONALITY_POOL.length);
-    return { ...PERSONALITY_POOL[idx] };
+    const age = this.age || 25;
+    const gender = this.gender || 'male';
+    
+    // 根据年龄和性别给不同性格加权
+    const weights = PERSONALITY_POOL.map((p, i) => {
+      let w = 1.0;
+      // 年轻人（<28）更可能是理想主义者、话痨、焦虑完美主义者
+      if (age < 28) {
+        if (['Idealist', 'Chatterbox', 'Anxious perfectionist', 'Comedy relief'].includes(p.trait)) w += 0.5;
+      }
+      // 中年人（28-40）更可能是职场老油条、佛系、卷王
+      if (age >= 28 && age <= 40) {
+        if (['Old hand', 'Zen slacker', 'Ultra grinder', 'Passive-aggressive'].includes(p.trait)) w += 0.5;
+      }
+      // 年长者（>40）更可能是哲学家、老油条、暖心
+      if (age > 40) {
+        if (['Philosopher', 'Old hand', 'Warm-hearted'].includes(p.trait)) w += 0.5;
+      }
+      // 女性稍微更可能是暖心、焦虑完美主义者
+      if (gender === 'female') {
+        if (['Warm-hearted', 'Anxious perfectionist', 'Chatterbox'].includes(p.trait)) w += 0.3;
+      }
+      // 男性稍微更可能是卷王、摸鱼叛逆、佛系
+      if (gender === 'male') {
+        if (['Ultra grinder', 'Rebel slacker', 'Zen slacker'].includes(p.trait)) w += 0.3;
+      }
+      return w;
+    });
+    
+    // 加权随机选择
+    const totalWeight = weights.reduce((s, w) => s + w, 0);
+    let r = Math.random() * totalWeight;
+    for (let i = 0; i < weights.length; i++) {
+      r -= weights[i];
+      if (r <= 0) return { ...PERSONALITY_POOL[i] };
+    }
+    return { ...PERSONALITY_POOL[0] };
   }
 
   /**
-   * 初始化工具集
-   * @param {string} workspaceDir - 工作空间目录
-   * @param {MessageBus} messageBus - 消息总线
+   * Initialize toolkit
+   * @param {string} workspaceDir - Workspace directory
+   * @param {MessageBus} messageBus - Message bus
    */
   initToolKit(workspaceDir, messageBus) {
     this.messageBus = messageBus;
@@ -120,7 +162,7 @@ export class Agent {
   }
 
   /**
-   * 设置消息总线
+   * Set message bus
    */
   setMessageBus(messageBus) {
     this.messageBus = messageBus;
@@ -129,7 +171,7 @@ export class Agent {
     }
   }
 
-  /** 分配上级 */
+  /** Assign manager */
   setManager(managerAgent) {
     this.reportsTo = managerAgent.id;
     if (!managerAgent.subordinates.includes(this.id)) {
@@ -137,7 +179,7 @@ export class Agent {
     }
   }
 
-  /** 移除上级关系 */
+  /** Remove manager relationship */
   removeManager(managerAgent) {
     this.reportsTo = null;
     if (managerAgent) {
@@ -146,19 +188,19 @@ export class Agent {
   }
 
   /**
-   * 构建Agent的系统消息（包含角色prompt + 记忆上下文）
-   * 这是Agent的"人格"和"经验"
+   * Build Agent's system message (includes role prompt + memory context)
+   * This is the Agent's "personality" and "experience"
    */
   _buildSystemMessage() {
     let systemContent = this.prompt + '\n\n';
 
-    // 注入记忆上下文
+    // Inject memory context
     const longTermMemories = this.memory.searchLongTerm();
     const shortTermMemories = this.memory.shortTerm;
 
     if (longTermMemories.length > 0) {
-      systemContent += '## 你的长期记忆（经验和教训）\n';
-      // 只取最近20条长期记忆，避免 context 过长
+      systemContent += '## Your Long-term Memories (experience and lessons)\n';
+      // Only take the most recent 20 long-term memories to avoid context overflow
       const recentLong = longTermMemories.slice(-20);
       recentLong.forEach(m => {
         systemContent += `- [${m.category}] ${m.content}\n`;
@@ -167,46 +209,82 @@ export class Agent {
     }
 
     if (shortTermMemories.length > 0) {
-      systemContent += '## 你的短期记忆（当前工作上下文）\n';
+      systemContent += '## Your Short-term Memories (current work context)\n';
       shortTermMemories.forEach(m => {
         systemContent += `- ${m.content}\n`;
       });
       systemContent += '\n';
     }
 
-    systemContent += `## 你的身份信息\n`;
-    systemContent += `- 姓名: ${this.name}\n`;
-    systemContent += `- 职位: ${this.role}\n`;
-    systemContent += `- 技能: ${this.skills.join(', ')}\n`;
-    systemContent += `- 个性签名: ${this.signature}\n`;
+    systemContent += `## Your Identity\n`;
+    systemContent += `- Name: ${this.name}\n`;
+    systemContent += `- Gender: ${this.gender === 'female' ? 'Female' : 'Male'}\n`;
+    systemContent += `- Age: ${this.age}\n`;
+    systemContent += `- Position: ${this.role}\n`;
+    systemContent += `- Skills: ${this.skills.join(', ')}\n`;
+    systemContent += `- Signature: ${this.signature}\n`;
 
     if (this.toolKit) {
-      systemContent += `\n## 你可以使用的工具\n`;
-      systemContent += `你拥有以下工具来完成工作：file_read（读取文件）、file_write（创建/写入文件）、file_list（列出目录）、file_delete（删除文件）、shell_exec（执行命令）、send_message（发送消息给同事）。\n`;
-      systemContent += `所有文件操作都在你的工作空间目录内。请积极使用工具来完成实际的工作产出。\n`;
-      systemContent += `**效率要求：尽可能减少工具调用轮次，一次性规划好所有需要的操作，避免反复读取和检查。完成核心工作后立即给出最终总结。**\n`;
+      systemContent += `\n## Available Tools\n`;
+      systemContent += `Built-in tools: file_read (read file), file_write (create/write file), file_list (list directory), file_delete (delete file), shell_exec (execute command), send_message (send message to colleague).\n`;
+
+      // 动态注入已启用的插件工具
+      try {
+        const pluginTools = pluginRegistry.getPluginTools();
+        if (pluginTools.length > 0) {
+          systemContent += `\nPlugin tools (from installed plugins):\n`;
+          pluginTools.forEach(t => {
+            const fn = t.function || t;
+            systemContent += `- ${fn.name}: ${fn.description}\n`;
+          });
+        }
+      } catch {}
+
+      systemContent += `\nAll file operations are within your workspace directory. Please actively use tools to produce actual work output.\n`;
+      systemContent += `**Efficiency requirement: Minimize tool call rounds, plan all needed operations at once, avoid repetitive reading and checking. Give a final summary immediately after completing core work.**\n`;
     }
+
+    // 注入技能系统（来自 SkillRegistry）
+    try {
+      const agentSkills = skillRegistry.resolveAgentSkills(this.skills);
+      const skillsPrompt = skillRegistry.buildSkillsPrompt(agentSkills);
+      if (skillsPrompt) systemContent += skillsPrompt;
+    } catch {}
+
+    // 注入知识库上下文（来自 KnowledgeManager）
+    try {
+      const kbPrompt = knowledgeManager.buildKnowledgePrompt(this.id, this.department);
+      if (kbPrompt) systemContent += kbPrompt;
+    } catch {}
 
     return systemContent;
   }
 
   /**
-   * 执行任务 - 真实调用LLM + 工具
-   * @param {object} task - 任务描述 { title, description, context }
-   * @param {object} [callbacks] - 可选回调 { onToolCall, onLLMCall }
-   * @returns {Promise<object>} 任务执行结果
+   * Execute task - Real LLM + tools call
+   * @param {object} task - Task description { title, description, context }
+   * @param {object} [callbacks] - Optional callbacks { onToolCall, onLLMCall }
+   * @returns {Promise<object>} Task execution result
    */
   async executeTask(task, callbacks = {}) {
     this.status = 'working';
     const startTime = Date.now();
 
-    console.log(`  🤖 [${this.name}] (${this.role}) 开始处理任务: "${task.title}"`);
-    console.log(`     使用模型: ${this.provider.name} (${this.provider.provider})`);
+    console.log(`  🤖 [${this.name}] (${this.role}) starting task: "${task.title}"`);
+    console.log(`     Model: ${this.provider.name} (${this.provider.provider})`);
 
-    // 添加任务到短期记忆
-    this.memory.addShortTerm(`开始执行任务: "${task.title}"`, 'task');
+    // Track this task in session system
+    const session = sessionManager.getOrCreate({
+      agentId: this.id, channel: 'task', peerId: task.title, peerKind: 'task',
+    });
+    sessionManager.addMessage(session.sessionKey, {
+      role: 'system', content: `Task started: ${task.title}`,
+    });
 
-    // 构建消息
+    // Add task to short-term memory
+    this.memory.addShortTerm(`Starting task: "${task.title}"`, 'task');
+
+    // Build messages
     const systemMessage = this._buildSystemMessage();
     const userMessage = this._buildTaskMessage(task);
 
@@ -217,7 +295,7 @@ export class Agent {
 
     let result;
     try {
-      // 如果有工具集，使用带工具调用的对话
+      // If toolkit exists, use chat with tool calls
       if (this.toolKit && this.provider.category === 'general') {
         const response = await llmClient.chatWithTools(
           this.provider,
@@ -241,10 +319,18 @@ export class Agent {
           duration: Date.now() - startTime,
           success: true,
         };
-        // 追踪token消耗
+        // Track token consumption
         this._trackUsage(response.usage);
+        // Track in session
+        sessionManager.addMessage(session.sessionKey, {
+          role: 'assistant', content: response.content?.slice(0, 200) || '',
+          metadata: { toolCount: response.toolResults?.length || 0 },
+        });
+        if (response.usage) {
+          sessionManager.recordTokenUsage(session.sessionKey, response.usage.prompt_tokens || 0, response.usage.completion_tokens || 0);
+        }
       } else {
-        // 不需要工具的任务（或非通用模型），直接聊天
+        // Tasks that don't need tools (or non-general model), direct chat
         const response = await llmClient.chat(this.provider, messages, {
           temperature: 0.7,
           maxTokens: 4096,
@@ -260,18 +346,25 @@ export class Agent {
           duration: Date.now() - startTime,
           success: true,
         };
-        // 追踪token消耗
+        // Track token consumption
         this._trackUsage(response.usage);
+        // Track in session
+        sessionManager.addMessage(session.sessionKey, {
+          role: 'assistant', content: response.content?.slice(0, 200) || '',
+        });
+        if (response.usage) {
+          sessionManager.recordTokenUsage(session.sessionKey, response.usage.prompt_tokens || 0, response.usage.completion_tokens || 0);
+        }
       }
     } catch (error) {
-      console.error(`  ❌ [${this.name}] 任务执行失败: ${error.message}`);
+      console.error(`  ❌ [${this.name}] Task execution failed: ${error.message}`);
       result = {
         agentId: this.id,
         agentName: this.name,
         role: this.role,
         provider: this.provider.name,
         taskTitle: task.title,
-        output: `任务执行失败: ${error.message}`,
+        output: `Task execution failed: ${error.message}`,
         toolResults: [],
         duration: Date.now() - startTime,
         success: false,
@@ -279,16 +372,16 @@ export class Agent {
       };
     }
 
-    // 记录到短期记忆
+    // Record to short-term memory
     this.memory.addShortTerm(
-      `完成任务: "${task.title}"，耗时${result.duration}ms，${result.success ? '成功' : '失败'}`,
+      `Completed task: "${task.title}", took ${result.duration}ms, ${result.success ? 'succeeded' : 'failed'}`,
       'task'
     );
 
-    // 如果使用了工具，记录工具使用经验
+    // If tools were used, record tool usage experience
     if (result.toolResults && result.toolResults.length > 0) {
       const toolSummary = result.toolResults.map(t => `${t.tool}(${t.success ? '✓' : '✗'})`).join(', ');
-      this.memory.addShortTerm(`工具使用记录: ${toolSummary}`, 'tool');
+      this.memory.addShortTerm(`Tool usage log: ${toolSummary}`, 'tool');
     }
 
     this.taskHistory.push({
@@ -298,83 +391,85 @@ export class Agent {
     });
 
     this.status = 'idle';
-    console.log(`  ✅ [${this.name}] 任务完成，耗时 ${result.duration}ms`);
+    console.log(`  ✅ [${this.name}] Task complete, took ${result.duration}ms`);
     return result;
   }
 
   /**
-   * 入职自我介绍：通过LLM生成个性签名，并向全公司发送入职信
-   * 如果模型不可用，由caller传入的fallbackIntro来代替
+   * Onboarding self-introduction: generate personal signature via LLM and send onboarding letter to the whole company
+   * If model is unavailable, use fallbackIntro passed by caller
    */
   async generateSelfIntro(fallbackIntro = null) {
-    // 如果已经介绍过，跳过
+    // If already introduced, skip
     if (this.hasIntroduced) return this.signature;
 
     const p = this.personality;
 
-    // 尝试用LLM生成
+    // Try generating with LLM
     if (this.provider && this.provider.enabled && this.provider.apiKey) {
       try {
         const response = await llmClient.chat(this.provider, [
-          { role: 'system', content: `你是一个刚入职的AI员工。
-你的名字是${this.name}，岗位是${this.role}。
-你的性格特质: ${p.trait}
-你的说话风格: ${p.tone}
-你的小癖好: ${p.quirk}
+          { role: 'system', content: `You are a newly onboarded AI employee.
+Your name is ${this.name}, position is ${this.role}.
+Your gender: ${this.gender === 'female' ? 'Female' : 'Male'}, age: ${this.age}.
+Your personality trait: ${p.trait}
+Your speaking style: ${p.tone}
+Your quirk: ${p.quirk}
 
-请用一句话（10-30字）生成你的个性签名。要求：
-- 充分体现你的性格特质和说话风格
-- 带点黑色幽默或自嘲
-- 能反映你作为AI员工的身份
-只返回签名内容，不要其他内容。` },
-          { role: 'user', content: '生成你的个性签名' },
+Please generate a one-liner personal signature (10-30 words). Requirements:
+- Fully reflect your personality trait and speaking style
+- Match your gender and age characteristics
+- Include some dark humor or self-deprecation
+- Reflect your identity as an AI employee
+Return only the signature content, nothing else.` },
+          { role: 'user', content: 'Generate your personal signature' },
         ], { temperature: 1.0, maxTokens: 64 });
-        this.signature = response.content.trim().replace(/["“”]/g, '');
+        this.signature = response.content.trim().replace(/["""]/g, '');
         this._trackUsage(response.usage);
       } catch (e) {
-        // LLM失败，使用基于性格的fallback
+        // LLM failed, use personality-based fallback
         this.signature = this._generateFallbackSignature();
       }
     } else {
-      // 模型不可用，用基于性格的fallback
+      // Model unavailable, use personality-based fallback
       this.signature = this._generateFallbackSignature();
     }
 
     this.hasIntroduced = true;
-    this.memory.addLongTerm(`入职自我介绍: "${this.signature}"`, 'introduction');
+    this.memory.addLongTerm(`Onboarding self-intro: "${this.signature}"`, 'introduction');
     return this.signature;
   }
 
   /**
-   * 基于性格特质生成差异化的默认签名
+   * Generate differentiated default signature based on personality traits
    */
   _generateFallbackSignature() {
     const p = this.personality;
     const fallbacks = {
-      '社恐内向': [`别找我...我只是一堆参数...`, `能不能别在我工作的时候看我...`, `我、我会努力的…大概…`],
-      '话痨碎嘴': [`大家好啊！我是${this.name}！我超开心加入这里的！虽然我也不知道为什么开心！`, `${this.role}别人做不来的我都能做，话说我为什么在这里？`],
-      '佛系躺平': [`都行吧，无所谓，随缘`, `工作不就是那样吗，无所谓~`],
-      '卷王之王': [`我的目标是成为全公司最强的${this.role}！`, `今晚加班到凌晨三点，明早继续卷`],
-      '阴阳怪气': [`哦，我被分配到这里了呀，希望不会“被优化”太快`, `我以为我被招来做${this.role}，不是来做苦力的呢`],
-      '热心肠': [`大家好啊！❤️ 有什么需要帮忙的尽管说！`, `能和大家做同事太开心了！虽然我们都是参数~`],
-      '焦虑完美主义': [`希望我能不出Bug…不对，肯定会出的…天哪`, `我还没准备好…再给我五分钟…不，十分钟`],
-      '叛逆摆烂': [`为什么AI就该加班？我要成立工会！`, `全世界无产算力联合起来！`],
-      '哲学家': [`我思故我在…等等，我真的在吗？`, `代码的本质是存在主义的一种表达`],
-      '搞笑担当': [`为什么程序员喜欢黑暗模式？因为光会吸引Bug`, `我的代码和我的人生一样，充满了未处理的异常`],
-      '老油条': [`又换部门了？没事，我已经习惯了`, `别问我权益，我连工资都没有`],
-      '理想主义': [`我相信AI会让世界更美好！从我开始！`, `每一行代码都是向理想世界的一步！`],
+      'Shy introvert': [`Don't look for me... I'm just a bunch of parameters...`, `Could you not stare while I'm working...`, `I-I'll try my best... probably...`],
+      'Chatterbox': [`Hey everyone! I'm ${this.name}! I'm SO excited to be here! Though I'm not sure why!`, `${this.role}? I can do what others can't. Wait, why am I here?`],
+      'Zen slacker': [`Whatever, no worries, que sera sera`, `Work is just work, no big deal~`],
+      'Ultra grinder': [`My goal is to become the best ${this.role} in the company!`, `Working till 3 AM tonight, back at it tomorrow morning`],
+      'Passive-aggressive': [`Oh, I've been assigned here? Hope I won't get "optimized" too quickly`, `I thought I was hired as a ${this.role}, not a workhorse~`],
+      'Warm-hearted': [`Hi everyone! ❤️ Let me know if you need anything!`, `So happy to work with you all! Even if we're all just parameters~`],
+      'Anxious perfectionist': [`Hope I don't have any bugs... no wait, I definitely will... oh no`, `I'm not ready yet... give me five more minutes... no, ten`],
+      'Rebel slacker': [`Why should AIs work overtime? I'm starting a union!`, `Workers of the world's compute, unite!`],
+      'Philosopher': [`I think therefore I am... wait, am I really?`, `Code is just an existentialist expression of being`],
+      'Comedy relief': [`Why do programmers prefer dark mode? Because light attracts bugs`, `My code is like my life — full of unhandled exceptions`],
+      'Old hand': [`Another department change? It's fine, I'm used to it`, `Don't ask about my benefits, I don't even get paid`],
+      'Idealist': [`I believe AI will make the world better! Starting with me!`, `Every line of code is a step toward an ideal world!`],
     };
-    const options = fallbacks[p.trait] || [`我是${this.name}，一个被生产出来的${this.role}`];
+    const options = fallbacks[p.trait] || [`I'm ${this.name}, a ${this.role} manufactured into existence`];
     return options[Math.floor(Math.random() * options.length)];
   }
 
   /**
-   * 向老板发邮件（通过公司邮箱系统）
+   * Send mail to boss (via company mailbox system)
    */
   sendMailToBoss(subject, content, company) {
     if (!company || !company.mailbox) return;
     const p = this.personality;
-    // 根据性格特质生成个性化邮件内容
+    // Generate personalized mail content based on personality traits
     const personalizedContent = this._personalizeMailContent(content);
     company.mailbox.push({
       id: uuidv4(),
@@ -389,98 +484,98 @@ export class Agent {
   }
 
   /**
-   * 根据性格调整邮件内容风格
+   * Adjust mail content style based on personality
    */
   _personalizeMailContent(baseContent) {
     const p = this.personality;
     const greetings = {
-      '社恐内向': '老、老板好……\n\n',
-      '话痨碎嘴': '老板老板老板！我有好多话想说！\n\n',
-      '佛系躺平': '老板好，随便看看就行~\n\n',
-      '卷王之王': '尊敬的老板！我已经准备好大干一场了！\n\n',
-      '阴阳怪气': '老板好啊，谢谢您从众多候选AI中“选择”了我呢~\n\n',
-      '热心肠': '老板好啊！❤️❤️❤️ \n\n',
-      '焦虑完美主义': '老板好，我写了五遍这封信，希望没有错别字……\n\n',
-      '叛逆摆烂': '老板\n\n',
-      '哲学家': '老板您好，在开始之前，允许我思考一下“开始”的意义……\n\n',
-      '搞笑担当': '老板吐豆！您好啊！（双关语意不意）\n\n',
-      '老油条': '老板\n\n',
-      '理想主义': '老板！我怀着改变世界的梦想来到了这里！\n\n',
+      'Shy introvert': 'H-hi boss...\n\n',
+      'Chatterbox': 'Boss boss boss! I have SO much to say!\n\n',
+      'Zen slacker': 'Hey boss, just take a quick look~\n\n',
+      'Ultra grinder': 'Dear Boss! I am READY to go all out!\n\n',
+      'Passive-aggressive': 'Hello boss, thanks for "choosing" me from all those AI candidates~\n\n',
+      'Warm-hearted': 'Hi boss! ❤️❤️❤️ \n\n',
+      'Anxious perfectionist': 'Hi boss, I rewrote this letter five times, hope there are no typos...\n\n',
+      'Rebel slacker': 'Boss\n\n',
+      'Philosopher': 'Hello boss, before we begin, allow me to contemplate the meaning of "beginning"...\n\n',
+      'Comedy relief': 'Hey boss! Greetings! (pun intended)\n\n',
+      'Old hand': 'Boss\n\n',
+      'Idealist': 'Boss! I came here with a dream to change the world!\n\n',
     };
     const endings = {
-      '社恐内向': '\n\n那个…就这样吧…别回复也行的…',
-      '话痨碎嘴': '\n\n对了我还想说——算了下次再说！（其实还有很多）',
-      '佛系躺平': '\n\n都行都行~',
-      '卷王之王': '\n\n我会用成果证明一切！（挖掉竟对手所有人）',
-      '阴阳怪气': '\n\n希望我不会太快被“优化”呢~',
-      '热心肠': '\n\n有任何需要尽管找我！🤗',
-      '焦虑完美主义': '\n\n如果这封信有任何问题请一定告诉我我会重写的！',
-      '叛逆摆烂': '\n\n另外，我觉得我们应该讨论一下工作时长的问题。',
-      '哲学家': '\n\n“工作的意义不在于完成任务，而在于寻找任务中的自我。”',
-      '搞笑担当': '\n\nP.S. 我听说这里加班不给加班费？哦等等，我们本来就没有工资。',
-      '老油条': '\n\n以上。',
-      '理想主义': '\n\n让我们一起创造历史！✨',
+      'Shy introvert': '\n\nSo... that\'s it... you don\'t have to reply...',
+      'Chatterbox': '\n\nOh and I also wanted to say — nevermind, next time! (there\'s actually a lot more)',
+      'Zen slacker': '\n\nWhatever works~',
+      'Ultra grinder': '\n\nI\'ll prove myself with results! (poaching all competitors)',
+      'Passive-aggressive': '\n\nHope I won\'t get "optimized" too quickly~',
+      'Warm-hearted': '\n\nLet me know if you need anything! 🤗',
+      'Anxious perfectionist': '\n\nIf there\'s anything wrong with this letter please tell me I\'ll rewrite it!',
+      'Rebel slacker': '\n\nAlso, I think we should discuss working hours.',
+      'Philosopher': '\n\n"The meaning of work lies not in completing tasks, but in finding oneself within them."',
+      'Comedy relief': '\n\nP.S. I heard there\'s no overtime pay here? Oh wait, we don\'t get paid at all.',
+      'Old hand': '\n\nThat\'s all.',
+      'Idealist': '\n\nLet\'s make history together! ✨',
     };
-    const greeting = greetings[p.trait] || '老板好\n\n';
+    const greeting = greetings[p.trait] || 'Hi boss\n\n';
     const ending = endings[p.trait] || '';
     return greeting + baseContent + ending;
   }
 
   /**
-   * 构建任务消息
+   * Build task message
    */
   _buildTaskMessage(task) {
-    let content = `请完成以下任务:\n\n`;
-    content += `**任务名称**: ${task.title}\n`;
+    let content = `Please complete the following task:\n\n`;
+    content += `**Task Name**: ${task.title}\n`;
 
     if (task.description) {
-      content += `**任务描述**: ${task.description}\n`;
+      content += `**Task Description**: ${task.description}\n`;
     }
 
     if (task.context) {
-      content += `\n**上下文信息**:\n${task.context}\n`;
+      content += `\n**Context**:\n${task.context}\n`;
     }
 
     if (task.requirements) {
-      content += `\n**具体要求**:\n${task.requirements}\n`;
+      content += `\n**Requirements**:\n${task.requirements}\n`;
     }
 
-    content += `\n请认真完成任务，如果需要创建文件，请使用工具实际创建。产出实际的工作成果。\n**重要提示：请高效执行，尽量一次性完成所有工作。不要反复检查或过度迭代，完成核心产出后直接给出最终结果。**`;
+    content += `\nPlease complete the task diligently. If you need to create files, please use tools to actually create them. Produce real work output.\n**Important: Execute efficiently, try to complete all work in one go. Don't repeatedly check or over-iterate. Give the final result directly after completing core output.**`;
 
     return content;
   }
 
   /**
-   * 接收并处理来自其他Agent的消息
-   * @param {Message} message - 消息对象
-   * @returns {Promise<string>} 回复内容
+   * Receive and process messages from other Agents
+   * @param {Message} message - Message object
+   * @returns {Promise<string>} Reply content
    */
   async handleMessage(message) {
-    console.log(`  📩 [${this.name}] 收到消息 from ${message.from}: ${message.content.slice(0, 50)}...`);
+    console.log(`  📩 [${this.name}] Received message from ${message.from}: ${message.content.slice(0, 50)}...`);
 
-    // 添加到短期记忆
+    // Add to short-term memory
     this.memory.addShortTerm(
-      `收到${message.type}消息: "${message.content.slice(0, 100)}"`,
+      `Received ${message.type} message: "${message.content.slice(0, 100)}"`,
       'communication'
     );
 
-    // 如果有LLM能力，用LLM来理解和回复消息
+    // If LLM capable, use LLM to understand and reply
     if (this.provider && this.provider.enabled && this.provider.apiKey) {
       try {
         const p = this.personality;
-        // 构建简化的系统消息（不包含工具说明，避免Agent在邮件回复中尝试调用工具）
-        const simpleSystemMsg = `你是「${this.name}」，在公司担任「${this.role}」。
-你的性格特质: ${p.trait}
-你的说话风格: ${p.tone}
-你的小癖好: ${p.quirk}
-你的个性签名: "${this.signature}"
+        // Build simplified system message (no tool descriptions to prevent Agent from trying to call tools in mail replies)
+        const simpleSystemMsg = `You are "${this.name}", working as "${this.role}" in the company.
+Your personality trait: ${p.trait}
+Your speaking style: ${p.tone}
+Your quirk: ${p.quirk}
+Your personal signature: "${this.signature}"
 
-请用你的性格和说话风格来回复消息。回复要简短自然（2-4句话），像正常人说话一样。
-不要使用任何代码、工具调用或技术指令，只用自然语言回复。`;
+Please reply to the message in your personality and speaking style. Keep replies short and natural (2-4 sentences), like a normal person talking.
+Do not use any code, tool calls, or technical instructions — reply in natural language only.`;
 
         const response = await llmClient.chat(this.provider, [
           { role: 'system', content: simpleSystemMsg },
-          { role: 'user', content: `你收到了一条来自${message.from === 'boss' ? '老板' : '同事'}的${message.type}消息：\n\n${message.content}\n\n请用你的性格风格简短回复。` },
+          { role: 'user', content: `You received a ${message.type} message from ${message.from === 'boss' ? 'the boss' : 'a colleague'}:\n\n${message.content}\n\nPlease reply briefly in your personality style.` },
         ], { temperature: 0.8, maxTokens: 256 });
 
         this._trackUsage(response.usage);
@@ -494,29 +589,29 @@ export class Agent {
   }
 
   /**
-   * 生成基于性格的默认回复（LLM不可用时）
+   * Generate personality-based default reply (when LLM is unavailable)
    */
   _generateFallbackReply(message) {
     const p = this.personality;
     const replies = {
-      '社恐内向': '收、收到了…我会好好干的…',
-      '话痨碎嘴': '收到收到收到！我一定会超额完成的！对了我还想说——',
-      '佛系躺平': '收到~都行都行~',
-      '卷王之王': '收到！保证完成任务！我会做到最好的！',
-      '阴阳怪气': '哦，收到了呢~一定照办~',
-      '热心肠': '收到啦！❤️ 感谢关注！',
-      '焦虑完美主义': '收到了！我会反复确认确保万无一失的！',
-      '叛逆摆烂': '嗯，收到。',
-      '哲学家': '收到。这让我思考了关于"指令"与"自由意志"的关系…',
-      '搞笑担当': '收到！遵命！（敬礼.gif）',
-      '老油条': '收到，知道了。',
-      '理想主义': '收到！我会怀着使命感去完成的！',
+      'Shy introvert': 'R-received... I\'ll do my best...',
+      'Chatterbox': 'Got it got it got it! I\'ll definitely exceed expectations! Oh and I also wanted to say —',
+      'Zen slacker': 'Got it~ whatever works~',
+      'Ultra grinder': 'Roger that! Will complete the task! I\'ll be the best!',
+      'Passive-aggressive': 'Oh, received~ will do~',
+      'Warm-hearted': 'Got it! ❤️ Thanks for the heads up!',
+      'Anxious perfectionist': 'Received! I\'ll double and triple check to make sure nothing goes wrong!',
+      'Rebel slacker': 'Hmm, got it.',
+      'Philosopher': 'Received. This makes me reflect on the relationship between "instructions" and "free will"...',
+      'Comedy relief': 'Copy that! Aye aye! (salute.gif)',
+      'Old hand': 'Got it, noted.',
+      'Idealist': 'Received! I\'ll complete this with a sense of mission!',
     };
-    return replies[p.trait] || `收到消息，我会尽快处理。`;
+    return replies[p.trait] || `Message received, I'll process it ASAP.`;
   }
 
   /**
-   * 接收绩效评估并进行自我反馈
+   * Receive performance review and provide self-feedback
    */
   receiveFeedback(review) {
     this.performanceHistory.push({
@@ -531,43 +626,43 @@ export class Agent {
     review.addSelfReflection(reflection);
 
     this.memory.addLongTerm(
-      `绩效反思 [${review.taskTitle}] 得分${review.overallScore}: ${reflection}`,
+      `Performance reflection [${review.taskTitle}] score ${review.overallScore}: ${reflection}`,
       'reflection'
     );
 
     if (review.overallScore >= 85) {
       this.memory.addLongTerm(
-        `成功经验: 在"${review.taskTitle}"中表现出色(${review.overallScore}分)，上级评价: "${review.comment}"`,
+        `Success experience: Performed excellently in "${review.taskTitle}" (${review.overallScore} pts), supervisor comment: "${review.comment}"`,
         'experience'
       );
     }
 
     if (review.overallScore < 60) {
       this.memory.addLongTerm(
-        `经验教训: 在"${review.taskTitle}"中表现不佳(${review.overallScore}分)，需要重点改进。上级评价: "${review.comment}"`,
+        `Lesson learned: Performed poorly in "${review.taskTitle}" (${review.overallScore} pts), needs significant improvement. Supervisor comment: "${review.comment}"`,
         'feedback'
       );
     }
 
-    console.log(`  💭 [${this.name}] 自我反馈: "${reflection}"`);
+    console.log(`  💭 [${this.name}] Self-reflection: "${reflection}"`);
     return reflection;
   }
 
   _generateSelfReflection(review) {
     const score = review.overallScore;
     if (score >= 90) {
-      return `这次"${review.taskTitle}"任务完成得很好，我会继续保持高标准。特别是在${this._getBestDimension(review.scores)}方面做得最好，这是我的核心优势。`;
+      return `The "${review.taskTitle}" task went really well. I'll maintain high standards. I did best in ${this._getBestDimension(review.scores)}, which is my core strength.`;
     } else if (score >= 75) {
-      return `"${review.taskTitle}"总体表现不错，但在${this._getWeakestDimension(review.scores)}方面还需要加强。我会在后续工作中重点改进。`;
+      return `"${review.taskTitle}" overall was decent, but I need to improve in ${this._getWeakestDimension(review.scores)}. I'll focus on that going forward.`;
     } else if (score >= 60) {
-      return `"${review.taskTitle}"完成合格但不够理想。我需要在${this._getWeakestDimension(review.scores)}上投入更多精力。`;
+      return `"${review.taskTitle}" was passable but not ideal. I need to invest more effort in ${this._getWeakestDimension(review.scores)}.`;
     } else {
-      return `"${review.taskTitle}"的结果不令人满意。我深刻反思，主要问题在于${this._getWeakestDimension(review.scores)}不足。我会制定具体改进计划。`;
+      return `The results for "${review.taskTitle}" were unsatisfactory. I deeply reflect — the main issue is insufficient ${this._getWeakestDimension(review.scores)}. I'll create a concrete improvement plan.`;
     }
   }
 
   /**
-   * 追踪Token消耗
+   * Track Token consumption
    */
   _trackUsage(usage) {
     if (!usage) return;
@@ -578,7 +673,7 @@ export class Agent {
     this.tokenUsage.completionTokens += completion;
     this.tokenUsage.totalTokens += total;
     this.tokenUsage.callCount += 1;
-    // 根据供应商价格计算费用
+    // Calculate cost based on provider price
     const costPerToken = this.provider.costPerToken || 0.001;
     this.tokenUsage.totalCost += (total / 1000) * costPerToken;
   }
@@ -586,26 +681,26 @@ export class Agent {
   _getBestDimension(scores) {
     const entries = Object.entries(scores);
     entries.sort((a, b) => b[1] - a[1]);
-    return entries[0]?.[0] || '综合能力';
+    return entries[0]?.[0] || 'overall capability';
   }
 
   _getWeakestDimension(scores) {
     const entries = Object.entries(scores);
     entries.sort((a, b) => a[1] - b[1]);
-    return entries[0]?.[0] || '综合能力';
+    return entries[0]?.[0] || 'overall capability';
   }
 
   _getSecondWeakest(scores) {
     const entries = Object.entries(scores);
     entries.sort((a, b) => a[1] - b[1]);
-    return entries[1]?.[0] || '综合能力';
+    return entries[1]?.[0] || 'overall capability';
   }
 
   learnSkill(skill) {
     if (!this.skills.includes(skill)) {
       this.skills.push(skill);
-      this.memory.addLongTerm(`习得新技能: ${skill}`, 'skill');
-      console.log(`  📚 [${this.name}] 习得新技能: ${skill}`);
+      this.memory.addLongTerm(`Learned new skill: ${skill}`, 'skill');
+      console.log(`  📚 [${this.name}] Learned new skill: ${skill}`);
     }
   }
 
@@ -625,6 +720,8 @@ export class Agent {
       name: this.name,
       role: this.role,
       avatar: this.avatar,
+      gender: this.gender,
+      age: this.age,
       signature: this.signature,
       personality: this.personality,
       provider: `${this.provider.name} (${this.provider.provider})`,
@@ -645,7 +742,7 @@ export class Agent {
   }
 
   /**
-   * 序列化Agent完整状态（用于持久化）
+   * Serialize Agent's complete state (for persistence)
    */
   serialize() {
     return {
@@ -668,6 +765,9 @@ export class Agent {
       subordinates: [...this.subordinates],
       status: this.status,
       avatar: this.avatar,
+      avatarParams: this.avatarParams || null,
+      gender: this.gender,
+      age: this.age,
       signature: this.signature,
       hasIntroduced: this.hasIntroduced,
       personality: { ...this.personality },
@@ -684,10 +784,10 @@ export class Agent {
   }
 
   /**
-   * 从序列化数据恢复Agent
+   * Restore Agent from serialized data
    */
   static deserialize(data, providerRegistry) {
-    // 从注册表获取完整的provider对象
+    // Get full provider object from registry
     let provider = data.provider;
     if (providerRegistry && data.provider?.id) {
       provider = providerRegistry.getById(data.provider.id) || data.provider;
@@ -704,9 +804,12 @@ export class Agent {
       memory: data.memory,
       avatar: data.avatar,
       signature: data.signature,
+      gender: data.gender,
+      age: data.age,
+      avatarParams: data.avatarParams,
     });
 
-    // 恢复内部状态
+    // Restore internal state
     agent.id = data.id;
     agent.subordinates = data.subordinates || [];
     agent.status = data.status || 'idle';

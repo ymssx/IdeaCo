@@ -3,11 +3,13 @@
 import { useState, useRef, useEffect } from 'react';
 import { useStore } from '@/lib/client-store';
 import { getAvatarUrl } from '@/lib/avatar';
+import { useI18n } from '@/lib/i18n';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 export default function ChatPanel() {
   const { company, chatWithSecretary, chatOpen, setChatOpen } = useStore();
+  const { t } = useI18n();
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [localHistory, setLocalHistory] = useState([]);
@@ -19,10 +21,10 @@ export default function ChatPanel() {
     }
   }, [company?.chatHistory]);
 
-  // 自动滚到底部：消息更新 或 面板打开时
+  // Auto scroll to bottom: on message update or panel open
   useEffect(() => {
     if (chatOpen) {
-      // 用 setTimeout 确保 DOM 渲染完成后再滚动
+      // Use setTimeout to ensure DOM is rendered before scrolling
       setTimeout(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
       }, 50);
@@ -39,16 +41,16 @@ export default function ChatPanel() {
     setMessage('');
     setSending(true);
 
-    // 乐观更新
+    // Optimistic update
     setLocalHistory(prev => [...prev, { role: 'boss', content: msg, time: new Date().toISOString() }]);
 
     try {
       await chatWithSecretary(msg);
-      // 秘书回复会通过 chatHistory -> useEffect 自动同步到 localHistory
+      // Secretary replies auto-sync to localHistory via chatHistory -> useEffect
     } catch (e) {
       setLocalHistory(prev => [...prev, {
         role: 'secretary',
-        content: `抱歉，处理消息时出错：${e.message}`,
+        content: `${t('chat.errorPrefix')}${e.message}`,
         time: new Date().toISOString(),
       }]);
     }
@@ -64,16 +66,16 @@ export default function ChatPanel() {
 
   return (
     <div className="fixed bottom-4 right-4 w-96 h-[520px] bg-[var(--card)] border border-[var(--border)] rounded-2xl shadow-2xl flex flex-col z-50 animate-fade-in overflow-hidden">
-      {/* 头部 */}
+      {/* Header */}
       <div className="flex items-center gap-3 p-3 border-b border-[var(--border)] bg-gradient-to-r from-blue-900/30 to-purple-900/30">
         <img
-          src={secretary?.avatar || getAvatarUrl('secretary', 'bottts')}
-          alt="秘书"
+          src={secretary?.avatar || getAvatarUrl('secretary')}
+          alt={t('chat.secretary')}
           className="w-9 h-9 rounded-full bg-[var(--border)]"
         />
         <div className="flex-1">
-          <div className="text-sm font-semibold">{secretary?.name || '小秘'}</div>
-          <div className="text-[10px] text-[var(--muted)]">专属秘书 · 在线</div>
+          <div className="text-sm font-semibold">{secretary?.name || t('setup.defaultSecretary')}</div>
+          <div className="text-[10px] text-[var(--muted)]">{t('chat.online')}</div>
         </div>
         <button
           onClick={() => setChatOpen(false)}
@@ -83,17 +85,17 @@ export default function ChatPanel() {
         </button>
       </div>
 
-      {/* 消息区域 */}
+      {/* Messages area */}
       <div className="flex-1 overflow-auto p-3 space-y-3">
-        {/* 欢迎消息 */}
+        {/* Welcome message */}
         {localHistory.length === 0 && (
           <div className="text-center py-8">
             <div className="text-4xl mb-2">💬</div>
             <p className="text-sm text-[var(--muted)]">
-              和{secretary?.name || '秘书'}说点什么吧
+              {t('chat.welcome', { name: secretary?.name || t('setup.defaultSecretary') })}
             </p>
             <div className="mt-3 space-y-1">
-              {['查看各部门进度', '帮我开发一个计算器', '公司现在什么情况？'].map((q, i) => (
+              {t('chat.suggestions').map((q, i) => (
                 <button
                   key={i}
                   className="block w-full text-xs text-left px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-[var(--muted)] hover:text-white transition-all"
@@ -110,8 +112,8 @@ export default function ChatPanel() {
           <div key={i} className={`flex gap-2 ${msg.role === 'boss' ? 'flex-row-reverse' : ''}`}>
             {msg.role === 'secretary' && (
               <img
-                src={secretary?.avatar || getAvatarUrl('secretary', 'bottts')}
-                alt="秘书"
+                src={secretary?.avatar || getAvatarUrl('secretary')}
+                alt={t('chat.secretary')}
                 className="w-7 h-7 rounded-full bg-[var(--border)] shrink-0 mt-0.5"
               />
             )}
@@ -124,7 +126,7 @@ export default function ChatPanel() {
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
                   components={{
-                    // 自定义渲染组件，适配聊天气泡样式
+                    // Custom render components for chat bubble styling
                     p: ({ children }) => <p className="mb-1 last:mb-0">{children}</p>,
                     ul: ({ children }) => <ul className="list-disc list-inside mb-1 space-y-0.5">{children}</ul>,
                     ol: ({ children }) => <ol className="list-decimal list-inside mb-1 space-y-0.5">{children}</ol>,
@@ -168,10 +170,10 @@ export default function ChatPanel() {
               {msg.action && (
                 <div className="mt-2 pt-2 border-t border-white/10 text-[10px] text-blue-300">
                   {msg.action.type === 'task_assigned' && (
-                    <>📋 已分配至: {msg.action.departmentName}{msg.action.taskStatus === 'running' && <span className="ml-1 animate-pulse">⚙️ 执行中...</span>}</>
+                    <>{t('chat.taskAssigned', { dept: msg.action.departmentName })}{msg.action.taskStatus === 'running' && <span className="ml-1 animate-pulse">{t('chat.running')}</span>}</>
                   )}
-                  {msg.action.type === 'need_new_department' && `💡 建议开设新部门`}
-                  {msg.action.type === 'progress_report' && `📊 进度汇报完成`}
+                  {msg.action.type === 'need_new_department' && t('chat.needNewDept')}
+                  {msg.action.type === 'progress_report' && t('chat.progressReport')}
                 </div>
               )}
             </div>
@@ -186,12 +188,12 @@ export default function ChatPanel() {
         {sending && (
           <div className="flex gap-2">
             <img
-              src={secretary?.avatar || getAvatarUrl('secretary', 'bottts')}
-              alt="秘书"
+              src={secretary?.avatar || getAvatarUrl('secretary')}
+              alt={t('chat.secretary')}
               className="w-7 h-7 rounded-full bg-[var(--border)] shrink-0"
             />
             <div className="bg-[var(--background)] border border-[var(--border)] rounded-xl rounded-bl-sm px-3 py-2 text-sm">
-<span className="animate-pulse text-[var(--muted)]">正在敲键盘中...</span>
+<span className="animate-pulse text-[var(--muted)]">{t('chat.typing')}</span>
             </div>
           </div>
         )}
@@ -199,12 +201,12 @@ export default function ChatPanel() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* 输入区域 */}
+      {/* Input area */}
       <div className="p-3 border-t border-[var(--border)]">
         <div className="flex gap-2">
           <input
             className="input flex-1 text-sm"
-            placeholder="跟秘书说点什么..."
+            placeholder={t('chat.inputPlaceholder', { name: secretary?.name || t('setup.defaultSecretary') })}
             value={message}
             onChange={e => setMessage(e.target.value)}
             onKeyDown={handleKeyDown}

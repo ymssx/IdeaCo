@@ -1,7 +1,8 @@
 {
-  "name": "goldspark-unlimited",
+  "name": "idea-unlimited",
   "version": "2.0.0",
-  "description": "GoldSpark Unlimited - An LLM-powered AI enterprise simulator where you boss around AI employees",
+  "description": "Idea Unlimited - An LLM-powered AI enterprise simulator where you boss around AI employees",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "next dev -p 9999",

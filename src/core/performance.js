@@ -1,30 +1,30 @@
 import { v4 as uuidv4 } from 'uuid';
 
 /**
- * 绩效评估系统
- * 由员工的上级进行工作结果评估打分，员工根据分数进行自我反馈
+ * Performance Evaluation System
+ * Supervisors evaluate employees' work results; employees provide self-feedback based on scores
  */
 
-/** 绩效评分维度 */
+/** Performance scoring dimensions */
 export const PerformanceDimensions = {
-  QUALITY: 'quality',           // 工作质量
-  EFFICIENCY: 'efficiency',     // 工作效率
-  COLLABORATION: 'collaboration', // 协作能力
-  INNOVATION: 'innovation',     // 创新能力
-  COMMUNICATION: 'communication', // 沟通表达
+  QUALITY: 'quality',           // Work quality
+  EFFICIENCY: 'efficiency',     // Work efficiency
+  COLLABORATION: 'collaboration', // Collaboration ability
+  INNOVATION: 'innovation',     // Innovation ability
+  COMMUNICATION: 'communication', // Communication skills
 };
 
-/** 绩效等级 */
+/** Performance levels */
 export const PerformanceLevel = {
-  EXCELLENT: { label: '卓越', minScore: 90, emoji: '🌟' },
-  GOOD: { label: '优秀', minScore: 75, emoji: '⭐' },
-  AVERAGE: { label: '合格', minScore: 60, emoji: '👍' },
-  BELOW_AVERAGE: { label: '待改进', minScore: 40, emoji: '⚠️' },
-  POOR: { label: '不合格', minScore: 0, emoji: '❌' },
+  EXCELLENT: { label: 'Excellent', minScore: 90, emoji: '🌟' },
+  GOOD: { label: 'Good', minScore: 75, emoji: '⭐' },
+  AVERAGE: { label: 'Average', minScore: 60, emoji: '👍' },
+  BELOW_AVERAGE: { label: 'Needs Improvement', minScore: 40, emoji: '⚠️' },
+  POOR: { label: 'Poor', minScore: 0, emoji: '❌' },
 };
 
 /**
- * 获取绩效等级
+ * Get performance level
  */
 export function getPerformanceLevel(score) {
   if (score >= 90) return PerformanceLevel.EXCELLENT;
@@ -35,25 +35,25 @@ export function getPerformanceLevel(score) {
 }
 
 /**
- * 单次绩效评估记录
+ * Single performance review record
  */
 export class PerformanceReview {
   constructor({ agentId, agentName, reviewerId, reviewerName, taskTitle, scores, comment }) {
     this.id = uuidv4();
-    this.agentId = agentId;           // 被评估人
+    this.agentId = agentId;           // Reviewee
     this.agentName = agentName;
-    this.reviewerId = reviewerId;     // 评估人（上级）
+    this.reviewerId = reviewerId;     // Reviewer (supervisor)
     this.reviewerName = reviewerName;
-    this.taskTitle = taskTitle;       // 对应的任务
-    this.scores = scores;             // 各维度分数 { quality: 85, efficiency: 90, ... }
-    this.overallScore = this._calcOverall(scores); // 综合分数
-    this.level = getPerformanceLevel(this.overallScore); // 绩效等级
-    this.comment = comment || '';     // 上级评语
-    this.selfReflection = null;       // 员工自我反馈（稍后由员工填写）
+    this.taskTitle = taskTitle;       // Associated task
+    this.scores = scores;             // Dimension scores { quality: 85, efficiency: 90, ... }
+    this.overallScore = this._calcOverall(scores); // Overall score
+    this.level = getPerformanceLevel(this.overallScore); // Performance level
+    this.comment = comment || '';     // Supervisor's comment
+    this.selfReflection = null;       // Employee's self-feedback (filled later)
     this.createdAt = new Date();
   }
 
-  /** 计算综合分数（加权平均） */
+  /** Calculate overall score (weighted average) */
   _calcOverall(scores) {
     const weights = {
       [PerformanceDimensions.QUALITY]: 0.3,
@@ -74,12 +74,12 @@ export class PerformanceReview {
     return Math.round(total / (weightSum || 1));
   }
 
-  /** 员工填写自我反馈 */
+  /** Employee fills in self-feedback */
   addSelfReflection(reflection) {
     this.selfReflection = reflection;
   }
 
-  /** 获取摘要 */
+  /** Get summary */
   getSummary() {
     return {
       id: this.id,
@@ -96,7 +96,7 @@ export class PerformanceReview {
 }
 
 /**
- * 绩效管理系统 - 管理所有Agent的绩效记录
+ * Performance Management System - Manages all Agent performance records
  */
 export class PerformanceSystem {
   constructor() {
@@ -104,13 +104,13 @@ export class PerformanceSystem {
   }
 
   /**
-   * 上级对员工进行绩效评估
+   * Supervisor evaluates an employee
    * @param {object} params
-   * @param {Agent} params.agent - 被评估的员工
-   * @param {Agent} params.reviewer - 评估人（上级）
-   * @param {string} params.taskTitle - 任务名称
-   * @param {object} params.scores - 各维度分数
-   * @param {string} [params.comment] - 评语
+   * @param {Agent} params.agent - Employee being evaluated
+   * @param {Agent} params.reviewer - Evaluator (supervisor)
+   * @param {string} params.taskTitle - Task name
+   * @param {object} params.scores - Dimension scores
+   * @param {string} [params.comment] - Comment
    * @returns {PerformanceReview}
    */
   evaluate({ agent, reviewer, taskTitle, scores, comment }) {
@@ -129,24 +129,24 @@ export class PerformanceSystem {
     }
     this.reviews.get(agent.id).push(review);
 
-    console.log(`  📊 绩效评估: [${reviewer.name}] 评价 [${agent.name}]`);
-    console.log(`     任务: "${taskTitle}"`);
-    console.log(`     综合分数: ${review.overallScore} ${review.level.emoji} ${review.level.label}`);
+    console.log(`  📊 Performance review: [${reviewer.name}] evaluated [${agent.name}]`);
+    console.log(`     Task: "${taskTitle}"`);
+    console.log(`     Overall score: ${review.overallScore} ${review.level.emoji} ${review.level.label}`);
     Object.entries(scores).forEach(([dim, score]) => {
       console.log(`     - ${dim}: ${score}`);
     });
     if (comment) {
-      console.log(`     评语: "${comment}"`);
+      console.log(`     Comment: "${comment}"`);
     }
 
     return review;
   }
 
   /**
-   * 模拟上级自动评估（根据任务结果生成分数）
+   * Simulated auto-evaluation by supervisor (generate scores based on task results)
    */
   autoEvaluate({ agent, reviewer, taskTitle }) {
-    // 模拟评分：基础分60-95随机 + 一些波动
+    // Simulated scoring: base score 60-95 random + some variance
     const baseScore = 60 + Math.floor(Math.random() * 35);
     const scores = {
       [PerformanceDimensions.QUALITY]: Math.min(100, baseScore + Math.floor(Math.random() * 10 - 5)),
@@ -157,11 +157,11 @@ export class PerformanceSystem {
     };
 
     const comments = {
-      90: '表现卓越，超出期望，是团队的标杆！',
-      75: '工作表现优秀，完成质量高，继续保持。',
-      60: '任务完成合格，但还有提升空间。',
-      40: '表现不够理想，需要加强改进。',
-      0: '工作成果未达标，需要严肃对待。',
+      90: 'Outstanding performance, exceeded expectations, a benchmark for the team!',
+      75: 'Excellent work quality, keep it up.',
+      60: 'Task completed adequately, but there is room for improvement.',
+      40: 'Performance was not ideal, improvement needed.',
+      0: 'Work output fell below standards, needs serious attention.',
     };
 
     const overallScore = Object.values(scores).reduce((a, b) => a + b, 0) / Object.values(scores).length;
@@ -177,14 +177,14 @@ export class PerformanceSystem {
   }
 
   /**
-   * 获取员工的所有绩效记录
+   * Get all performance records for an employee
    */
   getReviews(agentId) {
     return this.reviews.get(agentId) || [];
   }
 
   /**
-   * 获取员工的平均绩效分数
+   * Get an employee's average performance score
    */
   getAverageScore(agentId) {
     const reviews = this.getReviews(agentId);
@@ -194,7 +194,7 @@ export class PerformanceSystem {
   }
 
   /**
-   * 获取员工最新一次绩效
+   * Get an employee's latest review
    */
   getLatestReview(agentId) {
     const reviews = this.getReviews(agentId);
@@ -202,22 +202,22 @@ export class PerformanceSystem {
   }
 
   /**
-   * 打印员工绩效报告
+   * Print employee performance report
    */
   printReport(agentId, agentName = '') {
     const reviews = this.getReviews(agentId);
     const avg = this.getAverageScore(agentId);
     const level = avg !== null ? getPerformanceLevel(avg) : null;
 
-    console.log(`\n📋 ${agentName ? `[${agentName}]` : ''} 绩效报告:`);
-    console.log(`   评估次数: ${reviews.length}`);
+    console.log(`\n📋 ${agentName ? `[${agentName}]` : ''} Performance Report:`);
+    console.log(`   Review count: ${reviews.length}`);
     if (avg !== null) {
-      console.log(`   平均分数: ${avg} ${level.emoji} ${level.label}`);
+      console.log(`   Average score: ${avg} ${level.emoji} ${level.label}`);
     }
     reviews.forEach((r, i) => {
-      console.log(`   第${i + 1}次: "${r.taskTitle}" - ${r.overallScore}分 ${r.level.emoji}`);
+      console.log(`   #${i + 1}: "${r.taskTitle}" - ${r.overallScore} pts ${r.level.emoji}`);
       if (r.selfReflection) {
-        console.log(`     自我反馈: "${r.selfReflection}"`);
+        console.log(`     Self-reflection: "${r.selfReflection}"`);
       }
     });
   }

@@ -2,68 +2,68 @@ import { NextResponse } from 'next/server';
 import { getCompany } from '@/lib/store';
 
 /**
- * POST /api/departments - 部门操作
- * action=undefined: 生成招聘方案
- * action=confirm: 确认招聘方案
- * action=adjust: 生成调整方案
- * action=confirmAdjust: 确认调整方案
- * action=disband: 解散部门
+ * POST /api/departments - Department operations
+ * action=undefined: Generate recruitment plan
+ * action=confirm: Confirm recruitment plan
+ * action=adjust: Generate adjustment plan
+ * action=confirmAdjust: Confirm adjustment plan
+ * action=disband: Disband department
  */
 export async function POST(request) {
   const company = getCompany();
-  if (!company) return NextResponse.json({ error: '公司还没开张呢，先去注册吧韭菜' }, { status: 400 });
+  if (!company) return NextResponse.json({ error: 'Company not created yet, please register first' }, { status: 400 });
 
   try {
     const url = new URL(request.url);
     const action = url.searchParams.get('action');
 
     if (action === 'confirm') {
-      // 确认招聘方案
+      // Confirm recruitment plan
       const { planId } = await request.json();
       if (!planId) {
-        return NextResponse.json({ error: '方案ID呢？HR已经气得摔文件了' }, { status: 400 });
+        return NextResponse.json({ error: 'Plan ID is required' }, { status: 400 });
       }
       const dept = await company.confirmPlan(planId);
       return NextResponse.json({ success: true, data: company.getFullState() });
 
     } else if (action === 'adjust') {
-      // 生成调整方案
+      // Generate adjustment plan
       const { departmentId, adjustGoal } = await request.json();
       if (!departmentId || !adjustGoal) {
-        return NextResponse.json({ error: '部门ID和调整目标不能为空' }, { status: 400 });
+        return NextResponse.json({ error: 'Department ID and adjustment goal are required' }, { status: 400 });
       }
       const plan = await company.planAdjustment(departmentId, adjustGoal);
       return NextResponse.json({ success: true, data: plan });
 
     } else if (action === 'confirmAdjust') {
-      // 确认调整方案
+      // Confirm adjustment plan
       const { planId } = await request.json();
       if (!planId) {
-        return NextResponse.json({ error: '调整方案ID不能为空' }, { status: 400 });
+        return NextResponse.json({ error: 'Adjustment plan ID is required' }, { status: 400 });
       }
       await company.confirmAdjustment(planId);
       return NextResponse.json({ success: true, data: company.getFullState() });
 
     } else if (action === 'disband') {
-      // 解散部门
+      // Disband department
       const { departmentId, reason } = await request.json();
       if (!departmentId) {
-        return NextResponse.json({ error: '部门ID不能为空' }, { status: 400 });
+        return NextResponse.json({ error: 'Department ID is required' }, { status: 400 });
       }
-      const result = company.disbandDepartment(departmentId, reason || '老板决定');
+      const result = company.disbandDepartment(departmentId, reason || 'Boss decision');
       return NextResponse.json({ success: true, data: company.getFullState(), result });
 
     } else {
-      // 生成招聘方案
+      // Generate recruitment plan
       const { name, mission } = await request.json();
       if (!name || !mission) {
-        return NextResponse.json({ error: '部门名和使命不能空着，资本家也得有目标' }, { status: 400 });
+        return NextResponse.json({ error: 'Department name and mission are required' }, { status: 400 });
       }
       const plan = await company.planDepartment(name, mission);
       return NextResponse.json({ success: true, data: plan });
     }
   } catch (e) {
-    console.error('部门操作失败:', e);
+    console.error('Department operation failed:', e);
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
 }

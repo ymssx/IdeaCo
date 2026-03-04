@@ -1,13 +1,13 @@
 /**
- * 记忆独立文件管理模块
+ * Independent Memory File Management Module
  * 
- * 每个 Agent 的记忆存储在独立的 JSON 文件中（data/memories/{agentId}.json），
- * 避免所有记忆都塞进 company-state.json 导致文件过大。
+ * Each Agent's memory is stored in a separate JSON file (data/memories/{agentId}.json),
+ * preventing all memories from being stuffed into company-state.json causing file bloat.
  * 
- * 工作流程：
- * 1. 保存公司状态时，memory 只序列化摘要（条数），完整记忆写入独立文件
- * 2. 恢复公司状态时，从独立文件加载每个 Agent 的完整记忆
- * 3. 记忆变化时，单独保存该 Agent 的记忆文件（无需重写整个公司状态）
+ * Workflow:
+ * 1. When saving company state, memory only serializes a summary (counts); full memory goes to separate files
+ * 2. When restoring company state, load each Agent's full memory from separate files
+ * 3. When memory changes, save only that Agent's memory file (no need to rewrite entire company state)
  */
 import fs from 'fs';
 import path from 'path';
@@ -15,16 +15,16 @@ import path from 'path';
 const DATA_DIR = path.resolve(process.cwd(), 'data');
 const MEMORY_DIR = path.join(DATA_DIR, 'memories');
 
-// 确保目录存在
+// Ensure directory exists
 if (!fs.existsSync(MEMORY_DIR)) {
   fs.mkdirSync(MEMORY_DIR, { recursive: true });
 }
 
 /**
- * 保存单个 Agent 的记忆到独立文件
+ * Save a single Agent's memory to a separate file
  * @param {string} agentId - Agent ID
- * @param {object} memoryData - 记忆序列化数据 { shortTerm, longTerm }
- * @param {object} meta - 元信息 { name, role, department }
+ * @param {object} memoryData - Serialized memory data { shortTerm, longTerm }
+ * @param {object} meta - Metadata { name, role, department }
  */
 export function saveAgentMemory(agentId, memoryData, meta = {}) {
   if (!agentId || !memoryData) return;
@@ -41,14 +41,14 @@ export function saveAgentMemory(agentId, memoryData, meta = {}) {
     };
     fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
   } catch (e) {
-    console.error(`❌ 保存记忆失败 [${agentId}]:`, e.message);
+    console.error(`❌ Failed to save memory [${agentId}]:`, e.message);
   }
 }
 
 /**
- * 加载单个 Agent 的记忆
+ * Load a single Agent's memory
  * @param {string} agentId - Agent ID
- * @returns {object|null} { shortTerm, longTerm } 或 null
+ * @returns {object|null} { shortTerm, longTerm } or null
  */
 export function loadAgentMemory(agentId) {
   if (!agentId) return null;
@@ -62,14 +62,14 @@ export function loadAgentMemory(agentId) {
       longTerm: data.longTerm || [],
     };
   } catch (e) {
-    console.error(`❌ 加载记忆失败 [${agentId}]:`, e.message);
+    console.error(`❌ Failed to load memory [${agentId}]:`, e.message);
     return null;
   }
 }
 
 /**
- * 批量保存多个 Agent 的记忆
- * @param {Array<{agentId, memoryData, meta}>} agents - Agent 记忆数组
+ * Batch save multiple Agents' memories
+ * @param {Array<{agentId, memoryData, meta}>} agents - Agent memory array
  */
 export function saveAllAgentMemories(agents) {
   let saved = 0;
@@ -78,12 +78,12 @@ export function saveAllAgentMemories(agents) {
     saved++;
   }
   if (saved > 0) {
-    console.log(`🧠 已保存 ${saved} 个 Agent 的独立记忆文件`);
+    console.log(`🧠 Saved ${saved} Agent memory files`);
   }
 }
 
 /**
- * 删除 Agent 记忆文件（解聘进入人才市场时不删除，保留历史记忆）
+ * Delete an Agent's memory file (not deleted when entering talent market, historical memory preserved)
  * @param {string} agentId - Agent ID
  */
 export function deleteAgentMemory(agentId) {
@@ -91,15 +91,15 @@ export function deleteAgentMemory(agentId) {
     const filePath = path.join(MEMORY_DIR, `${agentId}.json`);
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
-      console.log(`🗑️ 已删除 Agent [${agentId}] 的记忆文件`);
+      console.log(`🗑️ Deleted Agent [${agentId}] memory file`);
     }
   } catch (e) {
-    console.error(`❌ 删除记忆文件失败 [${agentId}]:`, e.message);
+    console.error(`❌ Failed to delete memory file [${agentId}]:`, e.message);
   }
 }
 
 /**
- * 列出所有已保存的记忆文件
+ * List all saved memory files
  * @returns {Array<{agentId, name, role, shortTermCount, longTermCount, savedAt}>}
  */
 export function listMemoryFiles() {
@@ -128,14 +128,14 @@ export function listMemoryFiles() {
 }
 
 /**
- * 清除所有记忆文件
+ * Clear all memory files
  */
 export function clearAllMemories() {
   try {
     const files = fs.readdirSync(MEMORY_DIR).filter(f => f.endsWith('.json'));
     files.forEach(f => fs.unlinkSync(path.join(MEMORY_DIR, f)));
-    console.log(`🗑️ 已清除 ${files.length} 个记忆文件`);
+    console.log(`🗑️ Cleared ${files.length} memory files`);
   } catch (e) {
-    console.error('❌ 清除记忆文件失败:', e.message);
+    console.error('❌ Failed to clear memory files:', e.message);
   }
 }

@@ -3,16 +3,16 @@ import { getCompany } from '@/lib/store';
 
 export async function POST(request, { params }) {
   const company = getCompany();
-  if (!company) return NextResponse.json({ error: '请先创建公司' }, { status: 400 });
+  if (!company) return NextResponse.json({ error: 'Please create a company first' }, { status: 400 });
 
   try {
     const { profileId } = await params;
     const { departmentId, newSkills } = await request.json();
     if (!departmentId) {
-      return NextResponse.json({ error: '请选择目标部门' }, { status: 400 });
+      return NextResponse.json({ error: 'Please select a target department' }, { status: 400 });
     }
     company.recallAgent(departmentId, profileId, newSkills || []);
-    company._log('召回人才', `从人才市场召回员工`);
+    company._log('Recall talent', `Recalled employee from talent market`);
     return NextResponse.json({ success: true, data: company.getFullState() });
   } catch (e) {
     return NextResponse.json({ error: e.message }, { status: 400 });

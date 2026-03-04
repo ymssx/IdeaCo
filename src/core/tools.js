@@ -1,56 +1,59 @@
 /**
- * Agent工具系统 - Agent可调用的工具集
+ * Agent Tool System - Callable tool set for Agents
  * 
- * 参考 Codex/OpenAI Agents 的 tool_use 模式：
- * - file_read: 读取文件
- * - file_write: 写入/创建文件
- * - file_list: 列出目录内容
- * - file_delete: 删除文件
- * - shell_exec: 执行Shell命令（受限）
- * - send_message: 向其他Agent发送消息
+ * Follows the Codex/OpenAI Agents tool_use pattern:
+ * - file_read: Read file contents
+ * - file_write: Write/create files
+ * - file_list: List directory contents
+ * - file_delete: Delete files
+ * - shell_exec: Execute shell commands (restricted)
+ * - send_message: Send messages to other Agents
  */
 import fs from 'fs/promises';
 import { existsSync, mkdirSync } from 'fs';
 import path from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { securityGuard } from './audit.js';
+import { pluginRegistry, HookPoint } from './plugin.js';
 
 const execAsync = promisify(exec);
 
 /**
- * Agent工具集 - 每个Agent实例持有一个ToolKit
- * 工具操作限制在指定的工作空间目录内
+ * Agent Tool Kit - Each Agent instance holds one ToolKit
+ * Tool operations are restricted to the specified workspace directory
  */
 export class AgentToolKit {
   /**
-   * @param {string} workspaceDir - Agent的工作空间根目录
-   * @param {object} messageBus - 消息总线引用
-   * @param {string} agentId - 当前Agent的ID
+   * @param {string} workspaceDir - Agent's workspace root directory
+   * @param {object} messageBus - Message bus reference
+   * @param {string} agentId - Current Agent's ID
    */
-  constructor(workspaceDir, messageBus = null, agentId = null) {
+  constructor(workspaceDir, messageBus = null, agentId = null, agentName = '') {
     this.workspaceDir = workspaceDir;
     this.messageBus = messageBus;
     this.agentId = agentId;
+    this.agentName = agentName;
 
-    // 确保工作空间目录存在
+    // Ensure workspace directory exists
     if (!existsSync(workspaceDir)) {
       mkdirSync(workspaceDir, { recursive: true });
     }
   }
 
   /**
-   * 安全路径解析：确保所有文件操作都在工作空间目录内
+   * Safe path resolution: ensure all file ops stay within workspace
    */
   _safePath(filePath) {
     const resolved = path.resolve(this.workspaceDir, filePath);
     if (!resolved.startsWith(path.resolve(this.workspaceDir))) {
-      throw new Error(`安全限制: 路径 "${filePath}" 超出工作空间范围`);
+      throw new Error(`Security restriction: path "${filePath}" is outside workspace`);
     }
     return resolved;
   }
 
   /**
-   * 获取OpenAI函数定义格式的工具列表
+   * Get tool definitions in OpenAI function calling format
    */
   get definitions() {
     return [
@@ -58,11 +61,11 @@ export class AgentToolKit {
         type: 'function',
         function: {
           name: 'file_read',
-          description: '读取指定路径的文件内容。路径相对于工作空间目录。',
+          description: 'Read the contents of a file at the given path. Path is relative to workspace directory.',
           parameters: {
             type: 'object',
             properties: {
-              path: { type: 'string', description: '文件路径（相对于工作空间）' },
+              path: { type: 'string', description: 'File path (relative to workspace)' },
             },
             required: ['path'],
           },
@@ -72,12 +75,12 @@ export class AgentToolKit {
         type: 'function',
         function: {
           name: 'file_write',
-          description: '创建或覆盖写入文件。如果目录不存在会自动创建。路径相对于工作空间。',
+          description: 'Create or overwrite a file. Directories are auto-created if needed. Path is relative to workspace.',
           parameters: {
             type: 'object',
             properties: {
-              path: { type: 'string', description: '文件路径（相对于工作空间）' },
-              content: { type: 'string', description: '文件内容' },
+              path: { type: 'string', description: 'File path (relative to workspace)' },
+              content: { type: 'string', description: 'File content' },
             },
             required: ['path', 'content'],
           },
@@ -87,11 +90,11 @@ export class AgentToolKit {
         type: 'function',
         function: {
           name: 'file_list',
-          description: '列出指定目录下的文件和子目录。路径相对于工作空间。',
+          description: 'List files and subdirectories under the given path. Path is relative to workspace.',
           parameters: {
             type: 'object',
             properties: {
-              path: { type: 'string', description: '目录路径（相对于工作空间），默认为根目录' },
+              path: { type: 'string', description: 'Directory path (relative to workspace), defaults to root' },
             },
             required: [],
           },
@@ -101,11 +104,11 @@ export class AgentToolKit {
         type: 'function',
         function: {
           name: 'file_delete',
-          description: '删除指定文件。路径相对于工作空间。',
+          description: 'Delete the specified file. Path is relative to workspace.',
           parameters: {
             type: 'object',
             properties: {
-              path: { type: 'string', description: '要删除的文件路径' },
+              path: { type: 'string', description: 'Path of the file to delete' },
             },
             required: ['path'],
           },
@@ -115,11 +118,11 @@ export class AgentToolKit {
         type: 'function',
         function: {
           name: 'shell_exec',
-          description: '在工作空间目录中执行Shell命令。仅允许安全命令（如 ls, cat, grep, node, npm 等）。',
+          description: 'Execute a shell command in the workspace directory. Only safe commands are allowed (e.g. ls, cat, grep, node, npm).',
           parameters: {
             type: 'object',
             properties: {
-              command: { type: 'string', description: '要执行的Shell命令' },
+              command: { type: 'string', description: 'Shell command to execute' },
             },
             required: ['command'],
           },
@@ -129,57 +132,111 @@ export class AgentToolKit {
         type: 'function',
         function: {
           name: 'send_message',
-          description: '向团队中的其他Agent发送消息，用于协作和任务委派。',
+          description: 'Send a message to another Agent in the team for collaboration and task delegation.',
           parameters: {
             type: 'object',
             properties: {
-              targetAgentId: { type: 'string', description: '目标Agent的ID' },
-              content: { type: 'string', description: '消息内容' },
-              type: { type: 'string', enum: ['task', 'question', 'report', 'review'], description: '消息类型' },
+              targetAgentId: { type: 'string', description: 'Target Agent ID' },
+              content: { type: 'string', description: 'Message content' },
+              type: { type: 'string', enum: ['task', 'question', 'report', 'review'], description: 'Message type' },
             },
             required: ['targetAgentId', 'content'],
           },
         },
       },
+      // Include tools from enabled plugins
+      ...pluginRegistry.getPluginTools(),
     ];
   }
 
   /**
-   * 执行工具调用
-   * @param {string} name - 工具名称
-   * @param {object} args - 工具参数
-   * @returns {Promise<string>} 工具执行结果
+   * Execute a tool call
+   * @param {string} name - Tool name
+   * @param {object} args - Tool arguments
+   * @returns {Promise<string>} Tool execution result
    */
   async execute(name, args) {
-    // 参数安全校验：防止LLM返回的参数缺失导致崩溃
+    // Parameter safety check
     if (!args || typeof args !== 'object') {
       args = {};
     }
+
+    // Security audit: log all tool calls
+    securityGuard.logToolCall(name, args, this.agentId, this.agentName);
+
+    // Fire plugin hooks: before tool call
+    await pluginRegistry.fireHook(HookPoint.BEFORE_TOOL_CALL, {
+      toolName: name, args, agentId: this.agentId, agentName: this.agentName,
+    });
+
+    // 参数名兼容处理：LLM 有时会使用 filePath、file_path 等替代 path
+    const resolvePath = (a) => a.path || a.filePath || a.file_path || a.filename || a.fileName || null;
+
+    let result;
     switch (name) {
-      case 'file_read':
-        if (!args.path) throw new Error('缺少必需参数: path');
-        return this._fileRead(args.path);
-      case 'file_write':
-        if (!args.path) throw new Error('缺少必需参数: path');
-        if (args.content === undefined || args.content === null) throw new Error('缺少必需参数: content');
-        return this._fileWrite(args.path, args.content);
+      case 'file_read': {
+        const filePath = resolvePath(args);
+        if (!filePath) throw new Error(`Missing required parameter: path (received args: ${JSON.stringify(args)})`);
+        result = await this._fileRead(filePath);
+        break;
+      }
+      case 'file_write': {
+        const filePath = resolvePath(args);
+        const content = args.content ?? args.text ?? args.data ?? null;
+        if (!filePath) throw new Error(`Missing required parameter: path (received args: ${JSON.stringify(Object.keys(args))})`);
+        if (content === undefined || content === null) throw new Error(`Missing required parameter: content (received args: ${JSON.stringify(Object.keys(args))})`);
+        // Security: validate file write permission and scan for secrets
+        const writeCheck = securityGuard.validateFileWrite(filePath, content, this.agentId, this.agentName);
+        if (!writeCheck.allowed) return `Security blocked: ${writeCheck.reason}`;
+        securityGuard.scanForSecrets(content, `file_write:${filePath}`, this.agentId);
+        result = await this._fileWrite(filePath, content);
+        break;
+      }
       case 'file_list':
-        return this._fileList(args.path || '.');
-      case 'file_delete':
-        if (!args.path) throw new Error('缺少必需参数: path');
-        return this._fileDelete(args.path);
-      case 'shell_exec':
-        if (!args.command) throw new Error('缺少必需参数: command');
-        return this._shellExec(args.command);
+        result = await this._fileList(resolvePath(args) || args.dir || args.directory || '.');
+        break;
+      case 'file_delete': {
+        const filePath = resolvePath(args);
+        if (!filePath) throw new Error(`Missing required parameter: path (received args: ${JSON.stringify(args)})`);
+        result = await this._fileDelete(filePath);
+        break;
+      }
+      case 'shell_exec': {
+        const command = args.command || args.cmd || null;
+        if (!command) throw new Error(`Missing required parameter: command (received args: ${JSON.stringify(Object.keys(args))})`);
+        // Security: validate shell command before execution
+        const shellCheck = securityGuard.validateShellCommand(command, this.agentId, this.agentName);
+        if (!shellCheck.allowed) return `Security blocked: ${shellCheck.reason}`;
+        result = await this._shellExec(command);
+        // Security: scan command output for leaked secrets
+        securityGuard.scanForSecrets(result, `shell_output:${command}`, this.agentId);
+        break;
+      }
       case 'send_message':
-        return this._sendMessage(args.targetAgentId, args.content, args.type);
-      default:
-        throw new Error(`未知工具: ${name}`);
+        result = await this._sendMessage(args.targetAgentId, args.content, args.type);
+        break;
+      default: {
+        // Try plugin tools before giving up
+        const pluginTools = pluginRegistry.getPluginTools();
+        const hasPluginTool = pluginTools.some(t => t.function?.name === name);
+        if (hasPluginTool) {
+          result = await pluginRegistry.executePluginTool(name, args);
+          break;
+        }
+        throw new Error(`Unknown tool: ${name}`);
+      }
     }
+
+    // Fire plugin hooks: after tool call
+    await pluginRegistry.fireHook(HookPoint.AFTER_TOOL_CALL, {
+      toolName: name, args, result, agentId: this.agentId, agentName: this.agentName,
+    });
+
+    return result;
   }
 
   /**
-   * 读取文件
+   * Read a file
    */
   async _fileRead(filePath) {
     const fullPath = this._safePath(filePath);
@@ -188,30 +245,30 @@ export class AgentToolKit {
       return content;
     } catch (error) {
       if (error.code === 'ENOENT') {
-        return `错误: 文件不存在 "${filePath}"`;
+        return `Error: file not found "${filePath}"`;
       }
       throw error;
     }
   }
 
   /**
-   * 写入文件（自动创建目录）
+   * Write a file (auto-creates directories)
    */
   async _fileWrite(filePath, content) {
     const fullPath = this._safePath(filePath);
     const dir = path.dirname(fullPath);
 
-    // 自动创建目录
+    // Auto-create directory
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
     }
 
     await fs.writeFile(fullPath, content, 'utf-8');
-    return `文件已写入: ${filePath} (${content.length} 字符)`;
+    return `File written: ${filePath} (${content.length} chars)`;
   }
 
   /**
-   * 列出目录内容
+   * List directory contents
    */
   async _fileList(dirPath) {
     const fullPath = this._safePath(dirPath);
@@ -224,33 +281,33 @@ export class AgentToolKit {
       return JSON.stringify(items, null, 2);
     } catch (error) {
       if (error.code === 'ENOENT') {
-        return `错误: 目录不存在 "${dirPath}"`;
+        return `Error: directory not found "${dirPath}"`;
       }
       throw error;
     }
   }
 
   /**
-   * 删除文件
+   * Delete a file
    */
   async _fileDelete(filePath) {
     const fullPath = this._safePath(filePath);
     try {
       await fs.unlink(fullPath);
-      return `文件已删除: ${filePath}`;
+      return `File deleted: ${filePath}`;
     } catch (error) {
       if (error.code === 'ENOENT') {
-        return `错误: 文件不存在 "${filePath}"`;
+        return `Error: file not found "${filePath}"`;
       }
       throw error;
     }
   }
 
   /**
-   * 执行Shell命令（安全限制）
+   * Execute shell command (security restricted)
    */
   async _shellExec(command) {
-    // 安全白名单：只允许特定命令前缀
+    // Safety whitelist: only allow specific command prefixes
     const allowedPrefixes = [
       'ls', 'cat', 'head', 'tail', 'grep', 'find', 'wc',
       'node', 'npm', 'npx', 'echo', 'mkdir', 'cp', 'mv',
@@ -259,27 +316,27 @@ export class AgentToolKit {
 
     const cmdName = command.trim().split(/\s+/)[0];
     if (!allowedPrefixes.includes(cmdName)) {
-      return `安全限制: 不允许执行命令 "${cmdName}"。允许的命令: ${allowedPrefixes.join(', ')}`;
+      return `Security restriction: command "${cmdName}" not allowed. Allowed commands: ${allowedPrefixes.join(', ')}`;
     }
 
     try {
       const { stdout, stderr } = await execAsync(command, {
         cwd: this.workspaceDir,
-        timeout: 30000, // 30秒超时
-        maxBuffer: 1024 * 1024, // 1MB输出限制
+        timeout: 30000, // 30s timeout
+        maxBuffer: 1024 * 1024, // 1MB output limit
       });
       return stdout + (stderr ? `\n[stderr]: ${stderr}` : '');
     } catch (error) {
-      return `命令执行失败: ${error.message}`;
+      return `Command execution failed: ${error.message}`;
     }
   }
 
   /**
-   * 发送消息给其他Agent
+   * Send message to another Agent
    */
   async _sendMessage(targetAgentId, content, type = 'task') {
     if (!this.messageBus) {
-      return '错误: 消息总线未初始化';
+      return 'Error: message bus not initialized';
     }
     this.messageBus.send({
       from: this.agentId,
@@ -287,6 +344,6 @@ export class AgentToolKit {
       content,
       type: type || 'task',
     });
-    return `消息已发送给 ${targetAgentId}`;
+    return `Message sent to ${targetAgentId}`;
   }
 }

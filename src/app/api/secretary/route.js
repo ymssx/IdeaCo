@@ -4,12 +4,12 @@ import { getCompany } from '@/lib/store';
 export const dynamic = 'force-dynamic';
 
 /**
- * GET /api/secretary - 获取秘书当前设置
+ * GET /api/secretary - Get current secretary settings
  */
 export async function GET() {
   const company = getCompany();
   if (!company) {
-    return NextResponse.json({ error: '请先创建公司' }, { status: 400 });
+    return NextResponse.json({ error: 'Please create a company first' }, { status: 400 });
   }
 
   const agent = company.secretary.agent;
@@ -17,6 +17,8 @@ export async function GET() {
     data: {
       name: agent.name,
       avatar: agent.avatar,
+      gender: agent.gender,
+      age: agent.age,
       prompt: agent.prompt,
       signature: agent.signature,
       provider: agent.provider.name,
@@ -26,13 +28,13 @@ export async function GET() {
 }
 
 /**
- * PUT /api/secretary - 更新秘书设置
+ * PUT /api/secretary - Update secretary settings
  * Body: { name?, avatar?, prompt?, signature? }
  */
 export async function PUT(request) {
   const company = getCompany();
   if (!company) {
-    return NextResponse.json({ error: '请先创建公司' }, { status: 400 });
+    return NextResponse.json({ error: 'Please create a company first' }, { status: 400 });
   }
 
   try {
@@ -45,7 +47,7 @@ export async function PUT(request) {
     if (body.providerId) settings.providerId = body.providerId;
 
     if (Object.keys(settings).length === 0) {
-      return NextResponse.json({ error: '请提供至少一项要修改的设置' }, { status: 400 });
+      return NextResponse.json({ error: 'Please provide at least one setting to modify' }, { status: 400 });
     }
 
     const result = company.updateSecretarySettings(settings);

@@ -11,9 +11,9 @@ export async function POST(request) {
   try {
     const { companyName, bossName, secretaryConfig } = await request.json();
     if (!companyName) {
-      return NextResponse.json({ error: '请输入公司名称' }, { status: 400 });
+      return NextResponse.json({ error: 'Please enter company name' }, { status: 400 });
     }
-    const company = new Company(companyName, bossName || '老板', {
+    const company = new Company(companyName, bossName || 'Boss', {
       ...secretaryConfig,
       secretaryName: secretaryConfig?.secretaryName,
       secretaryAvatar: secretaryConfig?.secretaryAvatar,
@@ -26,9 +26,9 @@ export async function POST(request) {
 }
 
 /**
- * DELETE /api/company - 重置公司（清除持久化数据）
+ * DELETE /api/company - Reset company (clear persisted data)
  */
 export async function DELETE() {
   resetCompany();
-  return NextResponse.json({ success: true, message: '公司已解散，所有数据已清除' });
+  return NextResponse.json({ success: true, message: 'Company dissolved, all data cleared' });
 }

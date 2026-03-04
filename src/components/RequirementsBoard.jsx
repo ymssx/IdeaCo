@@ -2,12 +2,14 @@
 
 import { useState, useEffect } from 'react';
 import { useStore } from '@/lib/client-store';
+import { useI18n } from '@/lib/i18n';
 
 /**
- * 需求看板页面
- * 管理所有需求，按状态分类展示
+ * Requirements board page
+ * Manage all requirements, displayed by status category
  */
 export default function RequirementsBoard() {
+  const { t } = useI18n();
   const { company, fetchRequirements, navigateToRequirement } = useStore();
   const [requirements, setRequirements] = useState([]);
   const [filter, setFilter] = useState('all'); // all | in_progress | completed | failed
@@ -16,7 +18,7 @@ export default function RequirementsBoard() {
     fetchRequirements().then(setRequirements);
   }, [company]);
 
-  // 自动刷新执行中的需求
+  // Auto refresh executing requirements
   useEffect(() => {
     const hasRunning = requirements.some(r => r.status === 'in_progress' || r.status === 'planning');
     if (!hasRunning) return;
@@ -36,27 +38,27 @@ export default function RequirementsBoard() {
   };
 
   const statusConfig = {
-    pending: { label: '待处理', color: 'text-gray-400', bg: 'bg-gray-900/30', icon: '⏳' },
-    planning: { label: '规划中', color: 'text-blue-400', bg: 'bg-blue-900/30', icon: '📝' },
-    in_progress: { label: '执行中', color: 'text-yellow-400', bg: 'bg-yellow-900/30', icon: '⚙️' },
-    completed: { label: '已完成', color: 'text-green-400', bg: 'bg-green-900/30', icon: '✅' },
-    failed: { label: '失败', color: 'text-red-400', bg: 'bg-red-900/30', icon: '❌' },
+    pending: { label: t('requirements.status.pending'), color: 'text-gray-400', bg: 'bg-gray-900/30', icon: '⏳' },
+    planning: { label: t('requirements.status.planning'), color: 'text-blue-400', bg: 'bg-blue-900/30', icon: '📝' },
+    in_progress: { label: t('requirements.status.in_progress'), color: 'text-yellow-400', bg: 'bg-yellow-900/30', icon: '⚙️' },
+    completed: { label: t('requirements.stats.completed'), color: 'text-green-400', bg: 'bg-green-900/30', icon: '✅' },
+    failed: { label: t('requirements.status.failed'), color: 'text-red-400', bg: 'bg-red-900/30', icon: '❌' },
   };
 
   return (
     <div className="p-6 space-y-6 animate-fade-in">
       <div>
-        <h1 className="text-2xl font-bold">📋 需求看板</h1>
-        <p className="text-sm text-[var(--muted)] mt-1">管理所有需求——跟踪进度、查看产出、围观群聊</p>
+        <h1 className="text-2xl font-bold">{t('requirements.title')}</h1>
+        <p className="text-sm text-[var(--muted)] mt-1">{t('requirements.subtitle')}</p>
       </div>
 
-      {/* 统计卡片 */}
+      {/* Stats cards */}
       <div className="grid grid-cols-4 gap-4">
         {[
-          { key: 'all', label: '全部需求', icon: '📋', color: 'blue' },
-          { key: 'in_progress', label: '进行中', icon: '⚙️', color: 'yellow' },
-          { key: 'completed', label: '已完成', icon: '✅', color: 'green' },
-          { key: 'failed', label: '失败', icon: '❌', color: 'red' },
+          { key: 'all', label: t('requirements.stats.all'), icon: '📋', color: 'blue' },
+          { key: 'in_progress', label: t('requirements.stats.inProgress'), icon: '⚙️', color: 'yellow' },
+          { key: 'completed', label: t('requirements.stats.completed'), icon: '✅', color: 'green' },
+          { key: 'failed', label: t('requirements.stats.failed'), icon: '❌', color: 'red' },
         ].map(stat => (
           <div
             key={stat.key}
@@ -74,12 +76,12 @@ export default function RequirementsBoard() {
         ))}
       </div>
 
-      {/* 需求列表 */}
+      {/* Requirements list */}
       {filtered.length === 0 ? (
         <div className="card text-center py-12 text-[var(--muted)] col-span-3">
           <div className="text-5xl mb-4">📋</div>
-          <p className="text-lg">还没有需求</p>
-          <p className="text-sm mt-1">去跟秘书聊天，分配一些任务吧！</p>
+          <p className="text-lg">{t('requirements.empty')}</p>
+          <p className="text-sm mt-1">{t('requirements.emptyHint')}</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -88,7 +90,7 @@ export default function RequirementsBoard() {
             const progress = req.workflow && req.workflow.nodeCount > 0
               ? Math.round((req.workflow.completedCount / req.workflow.nodeCount) * 100)
               : (req.status === 'completed' ? 100 : 0);
-            // SVG 环形进度参数
+            // SVG ring progress parameters
             const radius = 18;
             const stroke = 3;
             const circumference = 2 * Math.PI * radius;
@@ -104,7 +106,7 @@ export default function RequirementsBoard() {
                 className="card cursor-pointer hover:border-[var(--accent)]/30 transition-all flex flex-col"
                 onClick={() => navigateToRequirement(req.id)}
               >
-                {/* 顶部：进度环 + 标题 + 状态 */}
+                {/* Top: progress ring + title + status */}
                 <div className="flex items-center gap-3">
                   <div className="shrink-0 relative flex items-center justify-center" style={{ width: 40, height: 40 }}>
                     {progress === 100 ? (
@@ -146,18 +148,18 @@ export default function RequirementsBoard() {
                   </div>
                 </div>
 
-                {/* 描述（支持多行） */}
+                {/* Description (multi-line support) */}
                 <p className="text-xs text-[var(--muted)] line-clamp-3 mt-2 leading-relaxed">{req.description}</p>
 
-                {/* 完成摘要 */}
+                {/* Completion summary */}
                 {req.summary && (
                   <div className="flex items-center gap-3 text-[10px] text-[var(--muted)] mt-2">
-                    <span>✅ {req.summary.successTasks}/{req.summary.totalTasks} 成功</span>
-                    <span>⏱️ {Math.round((req.summary.totalDuration || 0) / 1000)}秒</span>
+                    <span>{t('requirements.summary.success', { n: req.summary.successTasks, total: req.summary.totalTasks })}</span>
+                    <span>{t('requirements.summary.duration', { n: Math.round((req.summary.totalDuration || 0) / 1000) })}</span>
                   </div>
                 )}
 
-                {/* 底部信息 */}
+                {/* Bottom info */}
                 <div className="flex items-center justify-between mt-auto pt-3 border-t border-[var(--border)] text-[10px] text-[var(--muted)]">
                   <div className="flex items-center gap-2">
                     <span>🏢 {req.departmentName}</span>
@@ -168,7 +170,7 @@ export default function RequirementsBoard() {
                   <div className="flex items-center gap-2">
                     {req.chatCount > 0 && <span>💬 {req.chatCount}</span>}
                     {req.outputCount > 0 && <span>📦 {req.outputCount}</span>}
-                    <span>{new Date(req.createdAt).toLocaleDateString('zh')}</span>
+                    <span>{new Date(req.createdAt).toLocaleDateString()}</span>
                   </div>
                 </div>
               </div>
@@ -177,7 +179,7 @@ export default function RequirementsBoard() {
         </div>
       )}
 
-      {/* 需求详情已改为独立页面 */}
+      {/* Requirement detail is now a standalone page */}
     </div>
   );
 }

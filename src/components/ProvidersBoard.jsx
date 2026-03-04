@@ -2,9 +2,11 @@
 
 import { useState } from 'react';
 import { useStore } from '@/lib/client-store';
+import { useI18n } from '@/lib/i18n';
+import TalentMarket from './TalentMarket';
 
 const CATEGORY_ICONS = { general: '💬', drawing: '🎨', music: '🎵', video: '🎬' };
-const CATEGORY_LABELS = { general: '通用岗位', drawing: '画图岗位', music: '音乐岗位', video: '视频岗位' };
+const CATEGORY_LABELS = { general: 'General', drawing: 'Drawing', music: 'Music', video: 'Video' };
 const PRICE_COLORS = ['text-green-400', 'text-yellow-400', 'text-red-400'];
 const PRICE_DOTS = ['bg-green-500', 'bg-yellow-500', 'bg-red-500'];
 const RATING_COLORS = { high: 'text-green-400', mid: 'text-yellow-400', low: 'text-orange-400' };
@@ -15,9 +17,18 @@ function RatingBadge({ rating }) {
 }
 
 export default function ProvidersBoard() {
+  const { t } = useI18n();
   const { company, configureProvider } = useStore();
+
+  const categoryLabels = {
+    general: t('providers.categories.general'),
+    drawing: t('providers.categories.drawing'),
+    music: t('providers.categories.music'),
+    video: t('providers.categories.video'),
+  };
   const [configTarget, setConfigTarget] = useState(null);
   const [apiKey, setApiKey] = useState('');
+  const [showTalentMarket, setShowTalentMarket] = useState(false);
 
   if (!company) return null;
 
@@ -35,21 +46,31 @@ export default function ProvidersBoard() {
   return (
     <div className="p-6 space-y-6 animate-fade-in">
       <div>
-        <h1 className="text-2xl font-bold">⚡ 人力供应商</h1>
+        <h1 className="text-2xl font-bold">{t('providers.title')}</h1>
         <p className="text-sm text-[var(--muted)] mt-1">
-          配置API Key后，HR才能招聘对应类型的员工。评分和价格供HR招聘参考。
+          {t('providers.subtitle')}
         </p>
       </div>
 
-      {/* 说明卡片 */}
+      {/* Description card */}
       <div className="card bg-gradient-to-r from-blue-900/10 to-purple-900/10 border-blue-500/20">
         <div className="flex items-start gap-3">
           <span className="text-2xl">💡</span>
-          <div className="text-sm text-[var(--muted)]">
-            <p className="font-medium text-[var(--foreground)] mb-1">HR 招聘策略</p>
-            <p>HR 会优先选择<strong className="text-green-400">高评分 + 低价格</strong>的供应商（性价比最优），
-            确保招到合适的人且成本最低。评分基于模型综合能力，价格为供应商公开定价。</p>
+          <div className="text-sm text-[var(--muted)] flex-1">
+            <p className="font-medium text-[var(--foreground)] mb-1">{t('providers.hint.title')}</p>
+            <p dangerouslySetInnerHTML={{ __html: t('providers.hint.desc') }} />
           </div>
+          {/* Talent Market entrance */}
+          <button
+            onClick={() => setShowTalentMarket(true)}
+            className="shrink-0 flex items-center gap-2 px-3 py-2 rounded-lg bg-yellow-900/20 border border-yellow-500/20 text-yellow-400 hover:bg-yellow-900/30 transition-all text-sm"
+          >
+            <span>🏪</span>
+            <span>{t('providers.talentMarket.btn')}</span>
+            {(company.talentMarket?.length || 0) > 0 && (
+              <span className="text-xs bg-yellow-500/20 px-1.5 py-0.5 rounded-full">{company.talentMarket.length}</span>
+            )}
+          </button>
         </div>
       </div>
 
@@ -59,9 +80,9 @@ export default function ProvidersBoard() {
             <div className="flex items-center gap-2">
               <span className="text-2xl">{CATEGORY_ICONS[category]}</span>
               <div>
-                <h3 className="font-semibold">{CATEGORY_LABELS[category] || category}</h3>
+                <h3 className="font-semibold">{categoryLabels[category] || category}</h3>
                 <div className="text-xs text-[var(--muted)]">
-                  {info.enabled}/{info.total} 已启用
+                  {info.enabled}/{info.total} {t('providers.enabled', { n: info.enabled, total: info.total })}
                 </div>
               </div>
             </div>
@@ -91,21 +112,21 @@ export default function ProvidersBoard() {
                     }`}
                     onClick={() => { setConfigTarget(p); setApiKey(''); }}
                   >
-                    {p.enabled ? '⚙️ 管理' : '🔑 配置'}
+                    {p.enabled ? t('common.manage') : t('common.configure')}
                   </button>
                 </div>
                 <div className="text-xs text-[var(--muted)] mb-2">{p.provider}</div>
-                {/* 评分 + 价格 */}
+                {/* Rating + price */}
                 <div className="flex items-center gap-3 mb-2">
                   <RatingBadge rating={p.rating} />
                   <div className="flex items-center gap-1">
                     <span className={`w-1.5 h-1.5 rounded-full ${PRICE_DOTS[(p.priceLevel || 1) - 1]}`} />
                     <span className={`text-xs ${PRICE_COLORS[(p.priceLevel || 1) - 1]}`}>
-                      {p.priceLabel || '未知'}
+                      {p.priceLabel || t('providers.unknown')}
                     </span>
                   </div>
                 </div>
-                {/* 能力标签 */}
+                {/* Capability tags */}
                 {p.capabilities && (
                   <div className="flex gap-1 flex-wrap">
                     {p.capabilities.slice(0, 4).map((c, i) => (
@@ -119,13 +140,13 @@ export default function ProvidersBoard() {
         </div>
       ))}
 
-      {/* 配置弹窗 */}
+      {/* Config modal */}
       {configTarget && (
 <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 !m-0" onClick={() => setConfigTarget(null)}>
           <div className="card max-w-sm w-full mx-4 space-y-4" onClick={e => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold">🔑 配置 {configTarget.name}</h3>
+            <h3 className="text-lg font-semibold">{t('providers.configure.title', { name: configTarget.name })}</h3>
             <div className="flex items-center justify-between text-sm">
-              <span className="text-[var(--muted)]">供应商: {configTarget.provider}</span>
+              <span className="text-[var(--muted)]">{t('providers.configure.provider', { name: configTarget.provider })}</span>
               <div className="flex items-center gap-2">
                 <span className="text-yellow-400">⭐ {configTarget.rating}</span>
                 <span className={`${PRICE_COLORS[(configTarget.priceLevel || 1) - 1]}`}>
@@ -141,27 +162,32 @@ export default function ProvidersBoard() {
               <input
                 type="password"
                 className="input w-full"
-                placeholder="输入API Key"
+                placeholder={t('providers.configure.apiKeyPlaceholder')}
                 value={apiKey}
                 onChange={e => setApiKey(e.target.value)}
               />
             </div>
             <div className="flex gap-2">
-              <button className="btn-secondary flex-1" onClick={() => setConfigTarget(null)}>取消</button>
+              <button className="btn-secondary flex-1" onClick={() => setConfigTarget(null)}>{t('common.cancel')}</button>
               {configTarget.enabled && (
                 <button
                   className="btn-danger flex-1"
                   onClick={async () => { await configureProvider(configTarget.id, ''); setConfigTarget(null); }}
                 >
-                  禁用
+                  {t('common.disable')}
                 </button>
               )}
               <button className="btn-primary flex-1" disabled={!apiKey} onClick={handleConfigure}>
-                {configTarget.enabled ? '更新' : '启用'}
+                {configTarget.enabled ? t('common.update') : t('common.enable')}
               </button>
             </div>
           </div>
         </div>
+      )}
+
+      {/* Talent Market modal */}
+      {showTalentMarket && (
+        <TalentMarket asModal onClose={() => setShowTalentMarket(false)} />
       )}
     </div>
   );

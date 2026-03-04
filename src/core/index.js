@@ -1,6 +1,6 @@
 /**
- * AI企业管理系统 - 核心引擎入口
- * 导出所有核心模块
+ * AI Enterprise Management System - Core Engine Entry
+ * Exports all core modules
  */
 
 export { Company } from './company.js';
@@ -18,3 +18,14 @@ export { MessageBus, Message, MessageType } from './message-bus.js';
 export { WorkspaceManager } from './workspace.js';
 export { saveState, loadState, clearState, debouncedSave } from './persistence.js';
 export { saveAgentMemory, loadAgentMemory, saveAllAgentMemories, deleteAgentMemory, listMemoryFiles, clearAllMemories } from './memory-store.js';
+
+// Distilled modules (inspired by OpenClaw - see THIRD-PARTY-NOTICES.md)
+export { ProviderRouter, providerRouter, RoutingStrategy } from './provider-router.js';
+export { AuditLogger, SecurityGuard, auditLogger, securityGuard, AuditLevel, AuditCategory } from './audit.js';
+export { PluginRegistry, pluginRegistry, PluginManifest, HookPoint, PluginState, initPluginRuntime } from './plugin.js';
+export { CronScheduler, cronScheduler, JobStatus, parseCronExpression } from './cron.js';
+export { HookRegistry, hookRegistry, HookEvent, HookEventType, createHookEvent } from './hooks.js';
+export { SessionManager, sessionManager, SessionState, SendPolicy, buildSessionKey } from './session.js';
+export { ConfigValidator, configValidator, ConfigType, enterpriseConfigSchema } from './config-validator.js';
+export { SkillRegistry, skillRegistry, SkillDefinition, SkillCategory, SkillState } from './skills.js';
+export { KnowledgeManager, knowledgeManager, KnowledgeType, EntryType } from './knowledge.js';

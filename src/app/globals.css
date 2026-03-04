@@ -22,7 +22,7 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
-/* 全局隐藏滚动条 */
+/* Global scrollbar hiding */
 ::-webkit-scrollbar {
   width: 0;
   height: 0;
@@ -33,7 +33,7 @@ body {
   scrollbar-width: none;
 }
 
-/* 动画 */
+/* Animations */
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
@@ -61,7 +61,7 @@ body {
   animation: pulse-glow 2s ease-in-out infinite;
 }
 
-/* 卡片样式 */
+/* Card styles */
 .card {
   @apply bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 transition-all duration-200;
 }
@@ -70,7 +70,7 @@ body {
   border-color: rgba(59, 130, 246, 0.3);
 }
 
-/* 按钮样式 */
+/* Button styles */
 .btn-primary {
   @apply bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white px-4 py-2 rounded-lg font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed;
 }
@@ -83,12 +83,20 @@ body {
   @apply bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-medium transition-all duration-200;
 }
 
-/* 输入框 */
+/*
+ * === Design Spec: Button Width ===
+ * Form submit buttons inside card/form areas should NOT stretch to full width (w-full) on desktop.
+ * Use `max-w-xs` (max-width: 20rem / 320px) to keep buttons compact and visually balanced.
+ * Example: <button className="btn-primary max-w-xs">Submit</button>
+ * Full-width buttons are only acceptable in narrow contexts (modals ≤ 400px, mobile viewports).
+ */
+
+/* Input */
 .input {
   @apply bg-[var(--card)] border border-[var(--border)] rounded-lg px-3 py-2 text-[var(--foreground)] focus:border-[var(--accent)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] transition-all duration-200;
 }
 
-/* 状态指示器 */
+/* Status indicators */
 .status-dot {
   @apply w-2 h-2 rounded-full inline-block;
 }

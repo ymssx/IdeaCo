@@ -1,0 +1,33 @@
+# Docker-related
+.dockerignore
+*.log
+Dockerfile
+docker-compose.yml
+
+# Dependencies (will be installed in build)
+node_modules/
+
+# Build output (will be rebuilt)
+.next/
+
+# Environment secrets
+.env
+.env.local
+.env.*.local
+
+# Development data
+data/
+workspace/
+
+# Git
+.git/
+.gitmodules
+
+# Reference submodule (not needed in production)
+vendor/
+
+# Documentation
+*.md
+LICENSE
+DISTILLATION-MANIFESTO.md
+THIRD-PARTY-NOTICES.md

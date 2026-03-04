@@ -3,7 +3,7 @@ import { getCompany } from '@/lib/store';
 
 export async function POST(request, { params }) {
   const company = getCompany();
-  if (!company) return NextResponse.json({ error: '请先创建公司' }, { status: 400 });
+  if (!company) return NextResponse.json({ error: 'Please create a company first' }, { status: 400 });
 
   try {
     const { id } = await params;

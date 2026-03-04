@@ -1,16 +1,16 @@
 import { NextResponse } from 'next/server';
-import { getCompany, setCompany } from '@/lib/store';
+import { getCompany } from '@/lib/store';
 
 /**
- * 需求管理 API
- * GET  /api/requirements - 获取需求列表
- * GET  /api/requirements?id=xxx - 获取单个需求详情
- * GET  /api/requirements?departmentId=xxx - 获取部门的需求列表
+ * Requirements Management API
+ * GET  /api/requirements - Get requirements list
+ * GET  /api/requirements?id=xxx - Get single requirement detail
+ * GET  /api/requirements?departmentId=xxx - Get department's requirements list
  */
 export async function GET(request) {
   const company = getCompany();
   if (!company) {
-    return NextResponse.json({ error: '请先创建公司' }, { status: 400 });
+    return NextResponse.json({ error: 'Please create a company first' }, { status: 400 });
   }
 
   const url = new URL(request.url);
@@ -20,7 +20,7 @@ export async function GET(request) {
   if (id) {
     const req = company.requirementManager.get(id);
     if (!req) {
-      return NextResponse.json({ error: '需求不存在' }, { status: 404 });
+      return NextResponse.json({ error: 'Requirement not found' }, { status: 404 });
     }
     return NextResponse.json({ data: req.serialize() });
   }
@@ -30,7 +30,7 @@ export async function GET(request) {
     return NextResponse.json({ data: reqs.map(r => r.serialize()) });
   }
 
-  // 返回所有需求（概览信息，不含完整群聊）
+  // Return all requirements (overview info, without full group chat)
   const all = company.requirementManager.listAll().map(r => ({
     id: r.id,
     title: r.title,
@@ -58,26 +58,26 @@ export async function GET(request) {
 }
 
 /**
- * DELETE /api/requirements?id=xxx - 删除需求
+ * DELETE /api/requirements?id=xxx - Delete requirement
  */
 export async function DELETE(request) {
   const company = getCompany();
   if (!company) {
-    return NextResponse.json({ error: '请先创建公司' }, { status: 400 });
+    return NextResponse.json({ error: 'Please create a company first' }, { status: 400 });
   }
 
   const url = new URL(request.url);
   const id = url.searchParams.get('id');
   if (!id) {
-    return NextResponse.json({ error: '缺少需求ID' }, { status: 400 });
+    return NextResponse.json({ error: 'Requirement ID is required' }, { status: 400 });
   }
 
   const req = company.requirementManager.get(id);
   if (!req) {
-    return NextResponse.json({ error: '需求不存在' }, { status: 404 });
+    return NextResponse.json({ error: 'Requirement not found' }, { status: 404 });
   }
 
-  // 从需求管理器中删除
+  // Delete from requirement manager
   company.requirementManager.requirements.delete(id);
   company.save();
 
@@ -85,13 +85,13 @@ export async function DELETE(request) {
 }
 
 /**
- * POST /api/requirements - 需求操作
+ * POST /api/requirements - Requirement operations
  * body: { action: 'restart', id: 'xxx' }
  */
 export async function POST(request) {
   const company = getCompany();
   if (!company) {
-    return NextResponse.json({ error: '请先创建公司' }, { status: 400 });
+    return NextResponse.json({ error: 'Please create a company first' }, { status: 400 });
   }
 
   const body = await request.json();
@@ -99,35 +99,35 @@ export async function POST(request) {
 
   if (action === 'restart') {
     if (!id) {
-      return NextResponse.json({ error: '缺少需求ID' }, { status: 400 });
+      return NextResponse.json({ error: 'Requirement ID is required' }, { status: 400 });
     }
 
     const req = company.requirementManager.get(id);
     if (!req) {
-      return NextResponse.json({ error: '需求不存在' }, { status: 404 });
+      return NextResponse.json({ error: 'Requirement not found' }, { status: 404 });
     }
 
-    // 保留原始信息，重置执行状态
+    // Preserve original info, reset execution state
     const { title, description, departmentId, departmentName, bossMessage } = req;
 
-    // 删除旧需求
+    // Delete old requirement
     company.requirementManager.requirements.delete(id);
 
-    // 重新分配任务给部门（异步执行，不等待完成）
+    // Re-assign task to department (async execution, don't wait for completion)
     const dept = company.findDepartment(departmentId);
     if (!dept) {
-      return NextResponse.json({ error: '部门不存在，无法重启' }, { status: 400 });
+      return NextResponse.json({ error: 'Department not found, cannot restart' }, { status: 400 });
     }
 
-    // 异步执行任务，立即返回
+    // Async task execution, return immediately
     company.assignTaskToDepartment(departmentId, description, title).catch(e => {
-      console.error('重启需求执行失败:', e.message);
+      console.error('Restart requirement execution failed:', e.message);
     });
 
-    // 等一下让需求创建完成
+    // Brief wait for requirement creation to complete
     await new Promise(resolve => setTimeout(resolve, 500));
 
-    // 找到新创建的需求
+    // Find newly created requirement
     const allReqs = company.requirementManager.listAll();
     const newReq = allReqs.find(r => r.title === title && r.id !== id);
 
@@ -136,10 +136,10 @@ export async function POST(request) {
         success: true, 
         oldId: id, 
         newId: newReq?.id || null,
-        message: '需求已重新开始执行' 
+        message: 'Requirement has been restarted' 
       } 
     });
   }
 
-  return NextResponse.json({ error: '未知操作' }, { status: 400 });
+  return NextResponse.json({ error: 'Unknown operation' }, { status: 400 });
 }

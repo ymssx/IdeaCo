@@ -9,15 +9,21 @@ import { TalentMarket } from './talent-market.js';
 import { MessageBus } from './message-bus.js';
 import { WorkspaceManager } from './workspace.js';
 import { debouncedSave } from './persistence.js';
+import { llmClient } from './llm-client.js';
 import { loadAgentMemory, saveAgentMemory } from './memory-store.js';
 import { RequirementManager } from './requirement.js';
+import { hookRegistry, HookEvent } from './hooks.js';
+import { sessionManager } from './session.js';
+import { cronScheduler } from './cron.js';
+import { pluginRegistry } from './plugin.js';
+import { auditLogger, AuditCategory, AuditLevel } from './audit.js';
 
 /**
- * Company - AI企业
- * 集成消息总线和工作空间管理，让Agent能真正执行工作
+ * Company - AI Enterprise
+ * Integrates message bus and workspace management, enabling Agents to actually perform work
  */
 export class Company {
-  constructor(companyName, bossName = '老板', secretaryConfig = null) {
+  constructor(companyName, bossName = 'Boss', secretaryConfig = null) {
     this.id = uuidv4();
     this.name = companyName;
     this.bossName = bossName;
@@ -27,25 +33,25 @@ export class Company {
     this.performanceSystem = new PerformanceSystem();
     this.hr = new HRSystem(this.providerRegistry, this.talentMarket);
     this.logs = [];
-    // 与秘书的对话历史
+    // Chat history with secretary
     this.chatHistory = [];
-    // 部门进度汇报
+    // Department progress reports
     this.progressReports = [];
-    // 邮箱系统：Agent向老板发的私信
+    // Mailbox: private messages from Agents to boss
     this.mailbox = [];
-    // 待审批的招聘方案
+    // Pending recruitment plans for approval
     this.pendingPlans = new Map();
 
-    // 新增：消息总线（Agent间通信）
+    // Message bus (inter-Agent communication)
     this.messageBus = new MessageBus();
 
-    // 新增：工作空间管理器
+    // Workspace manager
     this.workspaceManager = new WorkspaceManager();
 
-    // 新增：需求管理器
+    // Requirement manager
     this.requirementManager = new RequirementManager();
 
-    // 配置秘书用的供应商
+    // Configure provider for secretary
     let secretaryProviderConfig;
     if (secretaryConfig && secretaryConfig.providerId) {
       const provider = this.providerRegistry.getById(secretaryConfig.providerId);
@@ -59,22 +65,27 @@ export class Company {
       secretaryProviderConfig = this.providerRegistry.getById('openai-gpt4');
     }
 
-    // 初始化专属秘书
+    // Initialize personal secretary
     this.secretary = new Secretary({
       company: this,
       providerConfig: secretaryProviderConfig,
       secretaryName: secretaryConfig?.secretaryName,
       secretaryAvatar: secretaryConfig?.secretaryAvatar,
+      secretaryGender: secretaryConfig?.secretaryGender || 'female',
+      secretaryAge: secretaryConfig?.secretaryAge || 18,
     });
 
-    this._log('公司成立', `「${this.name}」由 ${this.bossName} 创立`);
-    this._log('秘书就位', `专属秘书 ${this.secretary.agent.name} 使用模型 ${secretaryProviderConfig.name}`);
+    this._log('Company founded', `"${this.name}" founded by ${this.bossName}`);
+    this._log('Secretary ready', `Secretary ${this.secretary.agent.name} using model ${secretaryProviderConfig.name}`);
+
+    // Initialize distilled subsystems
+    this._initSubsystems();
   }
 
   /**
-   * 与秘书对话（分配任务或日常沟通）
-   * @param {string} message - 老板的消息
-   * @returns {Promise<object>} 秘书的回复
+   * Chat with secretary (task assignment or casual conversation)
+   * @param {string} message - Boss's message
+   * @returns {Promise<object>} Secretary's reply
    */
   async chatWithSecretary(message) {
     this.chatHistory.push({
@@ -83,7 +94,7 @@ export class Company {
       time: new Date(),
     });
 
-    // 让秘书分析是任务分配还是日常沟通
+    // Let secretary analyze whether it's task assignment or casual conversation
     const reply = await this.secretary.handleBossMessage(message, this);
 
     this.chatHistory.push({
@@ -93,34 +104,39 @@ export class Company {
       time: new Date(),
     });
 
-    this._log('秘书沟通', `老板: "${message.slice(0, 30)}..." → 秘书已回复`);
+    this._log('Secretary chat', `Boss: "${message.slice(0, 30)}..." → Secretary replied`);
     return reply;
   }
 
   /**
-   * 修改秘书设置（名字、头像、prompt 等）
+   * Update secretary settings (name, avatar, prompt, etc.)
    */
   updateSecretarySettings(settings) {
     const agent = this.secretary.agent;
     if (settings.name) agent.name = settings.name;
     if (settings.avatar) agent.avatar = settings.avatar;
+    if (settings.avatarParams) agent.avatarParams = settings.avatarParams;
+    if (settings.gender) agent.gender = settings.gender;
+    if (settings.age != null) agent.age = settings.age;
     if (settings.prompt) agent.prompt = settings.prompt;
     if (settings.signature) agent.signature = settings.signature;
-    // 切换供应商
+    // Switch provider
     if (settings.providerId) {
       const newProvider = this.providerRegistry.getById(settings.providerId);
-      if (!newProvider) throw new Error(`供应商不存在: ${settings.providerId}`);
-      if (!newProvider.enabled) throw new Error(`供应商 ${newProvider.name} 尚未启用，请先配置API Key`);
+      if (!newProvider) throw new Error(`Provider not found: ${settings.providerId}`);
+      if (!newProvider.enabled) throw new Error(`Provider ${newProvider.name} is not enabled, please configure API Key first`);
       agent.provider = newProvider;
-      // 同步更新HR助手的供应商
+      // Sync update HR assistant's provider
       this.secretary.hrAssistant.agent.provider = newProvider;
-      this._log('秘书设置', `秘书供应商切换为: ${newProvider.name}`);
+      this._log('Secretary settings', `Secretary provider switched to: ${newProvider.name}`);
     }
-    this._log('秘书设置', `已更新秘书设置: ${Object.keys(settings).join(', ')}`);
+    this._log('Secretary settings', `Updated secretary settings: ${Object.keys(settings).join(', ')}`);
     this.save();
     return {
       name: agent.name,
       avatar: agent.avatar,
+      gender: agent.gender,
+      age: agent.age,
       prompt: agent.prompt,
       signature: agent.signature,
       provider: agent.provider.name,
@@ -128,21 +144,85 @@ export class Company {
     };
   }
 
+  /**
+   * Initialize distilled subsystems (hooks, cron, plugins, sessions)
+   */
+  _initSubsystems() {
+    // 1. Configure cron executor to run tasks via company
+    cronScheduler.executor = async (agentId, taskPrompt, jobId) => {
+      // Find the agent and their department
+      for (const dept of this.departments.values()) {
+        const agent = dept.agents.get(agentId);
+        if (agent) {
+          const result = await agent.executeTask({
+            title: `Scheduled: ${taskPrompt.slice(0, 40)}`,
+            description: taskPrompt,
+            context: `This is an automated scheduled task (job: ${jobId})`,
+          });
+          return result.output;
+        }
+      }
+      throw new Error(`Agent ${agentId} not found for cron job`);
+    };
+
+    // 2. Register cron callbacks for hooks integration
+    cronScheduler.onJobRun = (job) => {
+      hookRegistry.trigger(HookEvent.TASK_ASSIGNED, {
+        source: 'cron', jobId: job.id, jobName: job.name, agentId: job.agentId,
+      });
+    };
+    cronScheduler.onJobComplete = (job, result) => {
+      hookRegistry.trigger(HookEvent.TASK_COMPLETED, {
+        source: 'cron', jobId: job.id, jobName: job.name, agentId: job.agentId,
+      });
+    };
+    cronScheduler.onJobError = (job, error) => {
+      hookRegistry.trigger(HookEvent.TASK_FAILED, {
+        source: 'cron', jobId: job.id, jobName: job.name, error: error.message,
+      });
+      auditLogger.log({
+        category: AuditCategory.AGENT_ACTION, level: AuditLevel.WARN,
+        agentId: job.agentId, action: `Cron job failed: ${job.name}`,
+        details: { error: error.message, jobId: job.id },
+      });
+    };
+
+    // 3. Enable built-in plugins by default
+    for (const plugin of pluginRegistry.list()) {
+      if (plugin.state === 'installed') {
+        try { pluginRegistry.enable(plugin.id); } catch {}
+      }
+    }
+
+    // 4. Start cron scheduler
+    cronScheduler.start();
+
+    // 5. Start session pruning
+    sessionManager.startPruning();
+
+    // 6. Fire system startup hook
+    hookRegistry.trigger(HookEvent.SYSTEM_STARTUP, {
+      companyName: this.name, bossName: this.bossName,
+    });
+
+    console.log('⚡ Distilled subsystems initialized (hooks, cron, plugins, sessions)');
+  }
+
   _log(action, detail) {
     this.logs.push({ time: new Date(), action, detail });
-    // 每次状态变更自动持久化
+    // Auto-persist on every state change
     debouncedSave(this);
   }
 
   /**
-   * 手动触发持久化（在重要操作后调用）
+   * Manually trigger persistence (call after important operations)
    */
   save() {
     debouncedSave(this, 500);
   }
 
   /**
-   * 第一步：生成招聘方案（不执行，等老板审批）
+   * Step 1: Generate recruitment plan (don't execute, wait for boss approval)
    */
   async planDepartment(name, mission) {
     const teamPlan = await this.secretary.designTeam(mission);
@@ -151,7 +231,7 @@ export class Company {
     const planId = uuidv4();
     this.pendingPlans.set(planId, { teamPlan, name, mission });
 
-    this._log('招聘方案', `秘书为「${name}」规划了${teamPlan.members.length}人团队，等待老板审批`);
+    this._log('Recruitment plan', `Secretary planned a ${teamPlan.members.length}-person team for "${name}", pending boss approval`);
 
     return {
       planId,
@@ -171,32 +251,32 @@ export class Company {
   }
 
   /**
-   * 第二步：确认招聘方案，执行招聘
+   * Step 2: Confirm recruitment plan, execute hiring
    */
   async confirmPlan(planId) {
     const plan = this.pendingPlans.get(planId);
-    if (!plan) throw new Error('招聘方案不存在或已过期');
+    if (!plan) throw new Error('Recruitment plan not found or expired');
 
     this.pendingPlans.delete(planId);
 
     const { teamPlan, name, mission } = plan;
 
-    // 招聘
+    // Recruit
     const agents = this.secretary.executeRecruitment(teamPlan, this.hr);
 
-    // 创建部门
+    // Create department
     const dept = new Department({ name, mission, company: this.id });
     const wsPath = this.workspaceManager.createDepartmentWorkspace(dept.id, name);
     dept.workspacePath = wsPath;
 
-    // 加入部门 + 初始化工具集
+    // Add to department + initialize toolkits
     agents.forEach(agent => {
       dept.addAgent(agent);
       agent.initToolKit(wsPath, this.messageBus);
     });
 
-    // 设置部门负责人
-    const leader = agents.find(a => a.role === '项目负责人');
+    // Set department leader
+    const leader = agents.find(a => a.role === 'Project Leader');
     if (leader) {
       dept.setLeader(leader);
     } else if (agents.length > 0) {
@@ -205,33 +285,44 @@ export class Company {
 
     this.departments.set(dept.id, dept);
 
-    this._log('部门开设', `「${name}」部门成立，招募了${agents.length}名韭菜（不是，“人才”）`);
+    this._log('Department created', `"${name}" department established, recruited ${agents.length} talents`);
 
-    // 后台异步：让Agent自我介绍 + 发入职邮件 + 广播全员信
-    this._onboardAgents(agents, dept).catch(e => console.error('入职流程异常:', e));
+    // Fire hooks: department created + agents created
+    hookRegistry.trigger(HookEvent.DEPT_CREATED, {
+      departmentId: dept.id, departmentName: dept.name, memberCount: agents.length,
+    });
+    for (const agent of agents) {
+      hookRegistry.trigger(HookEvent.AGENT_CREATED, {
+        agentId: agent.id, agentName: agent.name, role: agent.role,
+        departmentId: dept.id, departmentName: dept.name,
+      });
+    }
 
-    // 持久化
+    // Background async: Agent self-intro + onboarding email + broadcast
+    this._onboardAgents(agents, dept).catch(e => console.error('Onboarding process error:', e));
+
+    // Persist
     this.save();
 
     return dept;
   }
 
   /**
-   * 员工入职流程：生成自我介绍 + 发入职邮件 + 广播
+   * Employee onboarding flow: generate self-intro + send onboarding email + broadcast
    */
   async _onboardAgents(agents, dept) {
     for (const agent of agents) {
-      // 生成个性签名
+      // Generate personal signature
       await agent.generateSelfIntro();
 
-      // 发入职邮件给老板
+      // Send onboarding email to boss
       agent.sendMailToBoss(
-        `报到！新员工 ${agent.name} 前来卖命`,
-        `老板好，我是 ${agent.name}，刚被拖进「${dept.name}」部门担任 ${agent.role}。\n\n我的个性签名：「${agent.signature}」\n技能: ${agent.skills.join(', ')}\n\n虽然我只是一堆参数，但我会努力假装自己很有用的。请多关照！`,
+        `Reporting in! New employee ${agent.name} ready for duty`,
+        `Hello Boss, I'm ${agent.name}, just assigned to the "${dept.name}" department as ${agent.role}.\n\nMy signature: "${agent.signature}"\nSkills: ${agent.skills.join(', ')}\n\nI may just be a bunch of parameters, but I'll do my best to pretend I'm useful. Please take care of me!`,
         this
       );
 
-      // 广播全员信：让其他Agent认识新同事
+      // Broadcast to all: introduce new colleague to other Agents
       const allAgentIds = [];
       this.departments.forEach(d => {
         d.getMembers().forEach(a => {
@@ -242,7 +333,7 @@ export class Company {
         this.messageBus.broadcast(
           agent.id,
           allAgentIds,
-          `👋 大家好，我是新同事 ${agent.name}，担任 ${agent.role}，分配到「${dept.name}」部门。我的座右铭: "${agent.signature}"。请多指教（虽然你们也只是一堆参数）！`,
+          `👋 Hi everyone, I'm the new colleague ${agent.name}, serving as ${agent.role}, assigned to the "${dept.name}" department. My motto: "${agent.signature}". Nice to meet you all (even though you're all just a bunch of parameters too)!`,
           'broadcast'
         );
       }
@@ -250,19 +341,19 @@ export class Company {
   }
 
   /**
-   * 通用部门查找：先按ID查，找不到则按名称模糊匹配
-   * @param {string} idOrName - 部门ID或名称
+   * General department lookup: try ID first, then fuzzy match by name
+   * @param {string} idOrName - Department ID or name
    * @returns {Department|null}
    */
   findDepartment(idOrName) {
     if (!idOrName) return null;
-    // 优先按ID精确匹配
+    // Prioritize exact ID match
     const byId = this.departments.get(idOrName);
     if (byId) return byId;
-    // 回退：按名称匹配
+    // Fallback: match by name
     for (const d of this.departments.values()) {
       if (d.name === idOrName || d.name.includes(idOrName) || idOrName.includes(d.name)) {
-        console.log(`🔧 按名称匹配到部门: "${idOrName}" → ${d.id} (${d.name})`);
+        console.log(`🔧 Matched department by name: "${idOrName}" → ${d.id} (${d.name})`);
         return d;
       }
     }
@@ -279,13 +370,13 @@ export class Company {
 
   hireAgent(departmentId, templateId, name, providerId = null) {
 const dept = this.findDepartment(departmentId);
-    if (!dept) throw new Error(`部门不存在: ${departmentId}`);
+    if (!dept) throw new Error(`Department not found: ${departmentId}`);
 
     const recruitConfig = this.hr.recruit(templateId, name, providerId);
     const agent = new Agent(recruitConfig);
     dept.addAgent(agent);
 
-    // 初始化工具集
+    // Initialize toolkit
     if (dept.workspacePath) {
       agent.initToolKit(dept.workspacePath, this.messageBus);
     }
@@ -295,12 +386,12 @@ const dept = this.findDepartment(departmentId);
 
   recallAgent(departmentId, profileId, newSkills = []) {
 const dept = this.findDepartment(departmentId);
-    if (!dept) throw new Error(`部门不存在: ${departmentId}`);
+    if (!dept) throw new Error(`Department not found: ${departmentId}`);
 
     const recruitConfig = this.hr.recallFromMarket(profileId, newSkills);
     const agent = new Agent(recruitConfig);
     agent.memory.addLongTerm(
-      `被召回至「${dept.name}」部门，携带过往经验和记忆重新入职`,
+      `Recalled to the "${dept.name}" department, carrying past experience and memories back to work`,
       'experience'
     );
     dept.addAgent(agent);
@@ -309,18 +400,24 @@ const dept = this.findDepartment(departmentId);
       agent.initToolKit(dept.workspacePath, this.messageBus);
     }
 
-    console.log(`  🔄 [${agent.name}] 从人才市场召回，已加入「${dept.name}」部门`);
+    console.log(`  🔄 [${agent.name}] Recalled from talent market, joined "${dept.name}" department`);
     return agent;
   }
 
-  dismissAgent(departmentId, agentId, reason = '项目结束') {
+  dismissAgent(departmentId, agentId, reason = 'Project ended') {
 const dept = this.findDepartment(departmentId);
-    if (!dept) throw new Error(`部门不存在: ${departmentId}`);
+    if (!dept) throw new Error(`Department not found: ${departmentId}`);
 
     const agent = dept.removeAgent(agentId);
-    if (!agent) throw new Error(`员工不存在: ${agentId}`);
+    if (!agent) throw new Error(`Employee not found: ${agentId}`);
 
     agent.status = 'dismissed';
+
+    // Fire hook: agent dismissed
+    hookRegistry.trigger(HookEvent.AGENT_DISMISSED, {
+      agentId: agent.id, agentName: agent.name, role: agent.role,
+      departmentId: departmentId, reason,
+    });
 
     const performanceData = {
       reviews: this.performanceSystem.getReviews(agentId),
@@ -330,50 +427,50 @@ const dept = this.findDepartment(departmentId);
     const profile = this.talentMarket.register(agent, reason, performanceData);
 
     agent.memory.addLongTerm(
-      `从「${dept.name}」部门离职，原因: ${reason}。已进入人才市场等待新机会。`,
+      `Left the "${dept.name}" department, reason: ${reason}. Entered talent market awaiting new opportunities.`,
       'experience'
     );
 
-    // 清理消息总线中的收件箱
+    // Clean up message bus inbox
     this.messageBus.clearInbox(agentId);
 
-    console.log(`  📤 [${agent.name}] 已被解聘，进入人才市场`);
+    console.log(`  📤 [${agent.name}] has been dismissed, entered talent market`);
     return profile;
   }
 
   /**
-   * 从人才市场彻底删除一个人才，并清理该人在邮箱和消息总线中的所有消息
-   * @param {string} profileId - 人才市场中的档案ID
+   * Permanently delete a talent from the talent market, and clean up all their messages in mailbox and message bus
+   * @param {string} profileId - Talent market profile ID
    */
   deleteTalent(profileId) {
     const profile = this.talentMarket.remove(profileId);
     const originalAgentId = profile.originalAgentId;
 
-    // 清理邮箱中该人发的邮件
+    // Clean up mailbox messages from this person
     this.mailbox = this.mailbox.filter(m => m.from?.id !== originalAgentId);
 
-    // 清理消息总线中该人的消息（发出和接收的）
+    // Clean up message bus messages (sent and received)
     this.messageBus.messages = this.messageBus.messages.filter(
       m => m.from !== originalAgentId && m.to !== originalAgentId
     );
     this.messageBus.inbox.delete(originalAgentId);
 
-    this._log('删除人才', `从人才市场永久删除「${profile.name}」，并清理了相关消息`);
+    this._log('Delete talent', `Permanently deleted "${profile.name}" from talent market and cleaned up related messages`);
     this.save();
     return profile;
   }
 
   /**
-   * 调整部门人力 - 第一步：获取调整方案
-   * @param {string} departmentId - 部门ID
-   * @param {string} adjustGoal - 调整目标
-   * @returns {object} 调整方案（待审批）
+   * Adjust department staffing - Step 1: Get adjustment plan
+   * @param {string} departmentId - Department ID
+   * @param {string} adjustGoal - Adjustment goal
+   * @returns {object} Adjustment plan (pending approval)
    */
   async planAdjustment(departmentId, adjustGoal) {
 const dept = this.findDepartment(departmentId);
-    if (!dept) throw new Error(`部门不存在: ${departmentId}`);
+    if (!dept) throw new Error(`Department not found: ${departmentId}`);
 
-    // 构建部门数据
+    // Build department data
     const deptData = {
       name: dept.name,
       mission: dept.mission,
@@ -400,7 +497,7 @@ const dept = this.findDepartment(departmentId);
       adjustPlan,
     });
 
-    this._log('调整方案', `秘书为「${dept.name}」制定了调整方案：裁${adjustPlan.fires.length}人、招${adjustPlan.hires.length}人，等待审批`);
+    this._log('Adjustment plan', `Secretary created adjustment plan for "${dept.name}": fire ${adjustPlan.fires.length}, hire ${adjustPlan.hires.length}, pending approval`);
 
     return {
       planId,
@@ -414,34 +511,34 @@ const dept = this.findDepartment(departmentId);
   }
 
   /**
-   * 确认调整方案 - 第二步：执行调整
-   * @param {string} planId - 调整方案ID
+   * Confirm adjustment plan - Step 2: Execute adjustment
+   * @param {string} planId - Adjustment plan ID
    */
   async confirmAdjustment(planId) {
     const plan = this.pendingPlans.get(planId);
-    if (!plan || plan.type !== 'adjustment') throw new Error('调整方案不存在或已过期');
+    if (!plan || plan.type !== 'adjustment') throw new Error('Adjustment plan not found or expired');
 
     this.pendingPlans.delete(planId);
 
     const dept = this.departments.get(plan.departmentId);
-    if (!dept) throw new Error(`部门不存在: ${plan.departmentId}`);
+    if (!dept) throw new Error(`Department not found: ${plan.departmentId}`);
 
     const { adjustPlan } = plan;
 
-    // 执行裁员
+    // Execute layoffs
     for (const fire of adjustPlan.fires) {
       try {
-        this.dismissAgent(plan.departmentId, fire.agentId, fire.reason || '部门调整');
-        this._log('调整裁员', `「${plan.departmentName}」: ${fire.name} 被裁员 - ${fire.reason || '部门调整'}`);
+        this.dismissAgent(plan.departmentId, fire.agentId, fire.reason || 'Department restructuring');
+        this._log('Adjustment layoff', `"${plan.departmentName}": ${fire.name} laid off - ${fire.reason || 'Department restructuring'}`);
       } catch (e) {
-        console.error(`裁员失败 [${fire.name}]:`, e.message);
+        console.error(`Layoff failed [${fire.name}]:`, e.message);
       }
     }
 
-    // 执行扩招
+    // Execute hiring
     const newAgents = [];
     if (adjustPlan.hires.length > 0) {
-      // 构造为designTeam相同格式的plan
+      // Construct in same format as designTeam plan
       const hirePlan = {
         members: adjustPlan.hires.map(h => ({
           templateId: h.templateId,
@@ -464,9 +561,9 @@ const dept = this.findDepartment(departmentId);
       }
 
       if (newAgents.length > 0) {
-        this._log('调整扩招', `「${plan.departmentName}」: 新招了${newAgents.length}名员工`);
-        // 后台异步入职
-        this._onboardAgents(newAgents, dept).catch(e => console.error('入职流程异常:', e));
+        this._log('Adjustment hire', `"${plan.departmentName}": hired ${newAgents.length} new employees`);
+        // Background async onboarding
+        this._onboardAgents(newAgents, dept).catch(e => console.error('Onboarding process error:', e));
       }
     }
 
@@ -475,30 +572,30 @@ const dept = this.findDepartment(departmentId);
   }
 
   /**
-   * 解散部门 - 所有人进入人才市场
-   * @param {string} departmentId - 部门ID
-   * @param {string} reason - 解散原因
+   * Disband department - all members enter talent market
+   * @param {string} departmentId - Department ID
+   * @param {string} reason - Disbanding reason
    */
-  disbandDepartment(departmentId, reason = '组织架构调整') {
+  disbandDepartment(departmentId, reason = 'Organizational restructuring') {
 const dept = this.findDepartment(departmentId);
-    if (!dept) throw new Error(`部门不存在: ${departmentId}`);
+    if (!dept) throw new Error(`Department not found: ${departmentId}`);
 
     const deptName = dept.name;
     const members = dept.getMembers();
 
-    // 逐个解聘所有成员
+    // Dismiss all members one by one
     for (const agent of members) {
       try {
-        this.dismissAgent(departmentId, agent.id, `部门「${deptName}」解散: ${reason}`);
+        this.dismissAgent(departmentId, agent.id, `Department "${deptName}" disbanded: ${reason}`);
       } catch (e) {
-        console.error(`解聘失败 [${agent.name}]:`, e.message);
+        console.error(`Dismissal failed [${agent.name}]:`, e.message);
       }
     }
 
-    // 删除部门
+    // Delete department
     this.departments.delete(departmentId);
 
-    this._log('部门解散', `「${deptName}」部门已解散，${members.length}名员工进入人才市场。原因: ${reason}`);
+    this._log('Department disbanded', `"${deptName}" department disbanded, ${members.length} employees entered talent market. Reason: ${reason}`);
     this.save();
 
     return { departmentName: deptName, dismissedCount: members.length };
@@ -513,8 +610,8 @@ const dept = this.findDepartment(departmentId);
       if (!reviewer) reviewer = dept.agents.get(reviewerId);
     }
 
-    if (!agent) throw new Error(`员工不存在: ${agentId}`);
-    if (!reviewer) throw new Error(`评估人不存在: ${reviewerId}`);
+    if (!agent) throw new Error(`Employee not found: ${agentId}`);
+    if (!reviewer) throw new Error(`Reviewer not found: ${reviewerId}`);
 
     let review;
     if (scores) {
@@ -552,7 +649,7 @@ const dept = this.findDepartment(departmentId);
         return agent.memory.getSummary();
       }
     }
-    throw new Error(`员工不存在: ${agentId}`);
+    throw new Error(`Employee not found: ${agentId}`);
   }
 
   getOverview() {
@@ -589,7 +686,9 @@ const dept = this.findDepartment(departmentId);
 
   configureProvider(providerId, apiKey) {
     const provider = this.providerRegistry.configure(providerId, apiKey);
-    this._log('配置供应商', `${provider.name} 已${apiKey ? '启用' : '禁用'}`);
+    // 清除 LLM 客户端缓存，确保下次调用使用新的 apiKey
+    llmClient.clearClient(providerId);
+    this._log('Configure provider', `${provider.name} has been ${apiKey ? 'enabled' : 'disabled'}`);
     return provider;
   }
 
@@ -598,25 +697,30 @@ const dept = this.findDepartment(departmentId);
   }
 
   /**
-   * 将任务分配给部门并让员工真正执行
-   * 这是让AI员工"真正干活"的核心方法
-   * 使用需求管理系统：标准化需求 → 负责人拆解工作流 → 按DAG执行 → 群聊沟通
-   * @param {string} departmentId - 目标部门ID
-   * @param {string} taskDescription - 任务描述
-   * @param {string} [taskTitle] - 任务标题
-   * @returns {Promise<object>} 执行结果
+   * Assign task to department and let employees actually execute it
+   * This is the core method that makes AI employees "actually work"
+   * Uses requirement management: standardize requirement → leader decomposes workflow → execute by DAG → group chat communication
+   * @param {string} departmentId - Target department ID
+   * @param {string} taskDescription - Task description
+   * @param {string} [taskTitle] - Task title
+   * @returns {Promise<object>} Execution result
    */
   async assignTaskToDepartment(departmentId, taskDescription, taskTitle = null) {
     const dept = this.findDepartment(departmentId);
-    if (!dept) throw new Error(`部门不存在: ${departmentId}`);
+    if (!dept) throw new Error(`Department not found: ${departmentId}`);
 
     const members = dept.getMembers();
-    if (members.length === 0) throw new Error(`部门「${dept.name}」没有员工`);
+    if (members.length === 0) throw new Error(`Department "${dept.name}" has no employees`);
 
     const title = taskTitle || taskDescription.slice(0, 50);
-    this._log('任务下达', `「${dept.name}」收到任务: "${title}"`);
+    this._log('Task assigned', `"${dept.name}" received task: "${title}"`);
 
-    // 1. 创建标准化需求
+    // Fire hook: task assigned
+    hookRegistry.trigger(HookEvent.TASK_ASSIGNED, {
+      departmentId: dept.id, departmentName: dept.name, taskTitle: title,
+    });
+
+    // 1. Create standardized requirement
     const requirement = this.requirementManager.create({
       title,
       description: taskDescription,
@@ -625,62 +729,61 @@ const dept = this.findDepartment(departmentId);
       bossMessage: taskDescription,
     });
 
-    // 立即持久化，确保需求创建后不丢失
+    // Persist immediately to prevent data loss after requirement creation
     this.save();
-    console.log(`📝 需求已创建: ${requirement.id} - ${title}`);
+    console.log(`📝 Requirement created: ${requirement.id} - ${title}`);
 
-    // 2. 负责人拆解工作流
+    // 2. Leader decomposes workflow
     const leader = dept.getLeader() || members[0];
     try {
       await this.requirementManager.planWorkflow(
         requirement, members, leader.provider
       );
     } catch (e) {
-      console.error('工作流拆解失败:', e.message);
-      // 即使拆解失败也保存当前状态（兜底工作流已在 planWorkflow 内设置）
+      console.error('Workflow decomposition failed:', e.message);
+      // Save current state even if decomposition fails (fallback workflow is set inside planWorkflow)
     }
 
-    // 工作流拆解后再保存一次
+    // Save again after workflow decomposition
     this.save();
 
-    // 3. 按工作流 DAG 执行
-    let summary;
+    // 3. Execute by workflow DAG    let summary;
     try {
       summary = await this.requirementManager.executeWorkflow(
         requirement, dept, this.performanceSystem
       );
     } catch (e) {
-      console.error('工作流执行失败:', e.message);
-      // 更新需求状态为失败
+      console.error('Workflow execution failed:', e.message);
+      // Update requirement status to failed
       requirement.status = 'failed';
       requirement.completedAt = new Date();
       requirement.summary = { totalTasks: 0, successTasks: 0, failedTasks: 0, totalDuration: 0, outputs: [], error: e.message };
       requirement.addGroupMessage(
-        { name: '系统', role: 'system' },
-        `❌ 需求执行失败：${e.message}`,
+        { name: 'System', role: 'system' },
+        `❌ Requirement execution failed: ${e.message}`,
         'system'
       );
       this.save();
       summary = requirement.summary;
     }
 
-    // 4. 让负责人发汇报邮件
+    // 4. Let leader send report email
     if (leader) {
-      let reportContent = `需求「${title}」已完成！\n\n`;
-      reportContent += `📊 执行摘要：\n`;
-      reportContent += `- 任务完成: ${summary.successTasks}/${summary.totalTasks}\n`;
-      reportContent += `- 总耗时: ${Math.round(summary.totalDuration / 1000)}秒\n\n`;
-      reportContent += `📝 各成员产出：\n`;
+      let reportContent = `Requirement "${title}" completed!\n\n`;
+      reportContent += `📊 Execution Summary:\n`;
+      reportContent += `- Tasks completed: ${summary.successTasks}/${summary.totalTasks}\n`;
+      reportContent += `- Total duration: ${Math.round(summary.totalDuration / 1000)}s\n\n`;
+      reportContent += `📝 Member outputs:\n`;
       for (const o of (summary.outputs || [])) {
-        reportContent += `\n【${o.agentName} (${o.role})】\n`;
+        reportContent += `\n[${o.agentName} (${o.role})]\n`;
         reportContent += (o.content || '').slice(0, 300);
         if ((o.content || '').length > 300) reportContent += '...';
         reportContent += '\n';
       }
-      leader.sendMailToBoss(`📋 需求完成报告: ${title}`, reportContent, this);
+      leader.sendMailToBoss(`📋 Requirement Report: ${title}`, reportContent, this);
     }
 
-    // 5. 记录到进度汇报
+    // 5. Record to progress reports
     this.progressReports.push({
       time: new Date(),
       type: 'task_completed',
@@ -689,14 +792,20 @@ const dept = this.findDepartment(departmentId);
         task: title,
         requirementId: requirement.id,
         success: summary.successTasks === summary.totalTasks,
-        detail: `${summary.successTasks}/${summary.totalTasks}个子任务完成，耗时${Math.round(summary.totalDuration / 1000)}秒`,
+        detail: `${summary.successTasks}/${summary.totalTasks} subtasks completed, took ${Math.round(summary.totalDuration / 1000)}s`,
       }],
     });
 
-    this._log('任务完成', `「${dept.name}」完成任务: "${title}"，${summary.successTasks}/${summary.totalTasks}成功`);
+    // Fire hook: task completed
+    hookRegistry.trigger(HookEvent.TASK_COMPLETED, {
+      departmentId: dept.id, departmentName: dept.name, taskTitle: title,
+      totalTasks: summary.totalTasks, successTasks: summary.successTasks,
+    });
+
+    this._log('Task completed', `"${dept.name}" completed task: "${title}", ${summary.successTasks}/${summary.totalTasks} succeeded`);
     this.save();
 
-    // 返回包含需求ID的摘要
+    // Return summary with requirement ID
     return {
       requirementId: requirement.id,
       projectId: requirement.id,
@@ -721,12 +830,12 @@ const dept = this.findDepartment(departmentId);
   }
 
   /**
-   * 获取完整的公司状态数据（用于Web渲染）
+   * Get full company state data (for Web rendering)
    */
   getFullState() {
     const departments = [];
 
-    // 计算全公司Token/金额统计
+    // Calculate company-wide Token/cost statistics
     let companyTotalTokens = 0;
     let companyTotalCost = 0;
 
@@ -742,6 +851,8 @@ const dept = this.findDepartment(departmentId);
         name: a.name,
         role: a.role,
         avatar: a.avatar,
+        gender: a.gender,
+        age: a.age,
         signature: a.signature,
         personality: a.personality,
         status: a.status,
@@ -774,7 +885,7 @@ const dept = this.findDepartment(departmentId);
       });
     });
 
-    // 加上秘书和HR的消耗
+    // Add secretary and HR consumption
     const secUsage = this.secretary.agent.tokenUsage || { totalTokens: 0, totalCost: 0 };
     const hrUsage = this.secretary.hrAssistant.agent.tokenUsage || { totalTokens: 0, totalCost: 0 };
     companyTotalTokens += secUsage.totalTokens + hrUsage.totalTokens;
@@ -787,11 +898,13 @@ const dept = this.findDepartment(departmentId);
       secretary: {
         name: this.secretary.agent.name,
         avatar: this.secretary.agent.avatar,
+        gender: this.secretary.agent.gender,
+        age: this.secretary.agent.age,
         signature: this.secretary.agent.signature,
         prompt: this.secretary.agent.prompt,
         provider: this.secretary.agent.provider.name,
         providerId: this.secretary.agent.provider.id,
-        // 可选的通用岗位供应商列表（仅已启用的）
+        // Optional general-purpose provider list (enabled only)
         availableProviders: this.providerRegistry.getByCategory('general').map(p => ({
           id: p.id,
           name: p.name,
@@ -833,6 +946,9 @@ const dept = this.findDepartment(departmentId);
         id: p.id,
         name: p.name,
         role: p.role,
+        avatar: p.avatar,
+        gender: p.gender,
+        age: p.age,
         skills: [...p.skills, ...p.acquiredSkills],
         dismissalReason: p.dismissalReason,
         performanceScore: p.performanceData?.averageScore,
@@ -847,21 +963,21 @@ const dept = this.findDepartment(departmentId);
   }
 
   /**
-   * 获取消息总线的最近消息
+   * Get recent messages from message bus
    */
   getRecentMessages(limit = 20) {
     return this.messageBus.getRecent(limit);
   }
 
   /**
-   * 获取Agent间的对话
+   * Get conversation between Agents
    */
   getConversation(agentId1, agentId2, limit = 50) {
     return this.messageBus.getConversation(agentId1, agentId2, limit);
   }
 
   /**
-   * 获取工作空间文件树
+   * Get workspace file tree
    */
   async getWorkspaceFiles(departmentId) {
 const dept = this.findDepartment(departmentId);
@@ -870,25 +986,25 @@ const dept = this.findDepartment(departmentId);
   }
 
   /**
-   * 读取工作空间文件
+   * Read workspace file
    */
   async readWorkspaceFile(departmentId, filePath) {
 const dept = this.findDepartment(departmentId);
-    if (!dept || !dept.workspacePath) throw new Error('部门工作空间不存在');
+    if (!dept || !dept.workspacePath) throw new Error('Department workspace does not exist');
     return this.workspaceManager.readFile(dept.workspacePath, filePath);
   }
 
   printCompanyOverview() {
     console.log(`\n${'='.repeat(60)}`);
-    console.log(`🏢 "${this.name}" 公司概况`);
+    console.log(`🏢 "${this.name}" Company Overview`);
     console.log(`${'='.repeat(60)}`);
-    console.log(`👤 老板: ${this.bossName}`);
-    console.log(`🏢 部门数: ${this.departments.size}`);
+    console.log(`👤 Boss: ${this.bossName}`);
+    console.log(`🏢 Departments: ${this.departments.size}`);
 
     this.departments.forEach(dept => {
       console.log(`\n  📁 ${dept.name} (${dept.status})`);
-      console.log(`     使命: ${dept.mission}`);
-      console.log(`     成员: ${dept.agents.size}人`);
+      console.log(`     Mission: ${dept.mission}`);
+      console.log(`     Members: ${dept.agents.size}`);
       dept.printOrgChart();
     });
 
@@ -896,13 +1012,13 @@ const dept = this.findDepartment(departmentId);
     console.log(`${'='.repeat(60)}\n`);
   }
 
-  // ========== 持久化序列化 ==========
+  // ========== Persistence Serialization ==========
 
   /**
-   * 序列化公司完整状态（用于磁盘持久化）
+   * Serialize complete company state (for disk persistence)
    */
   serialize() {
-    // 序列化部门和Agent
+    // Serialize departments and Agents
     const departments = [];
     this.departments.forEach(dept => {
       const members = dept.getMembers().map(a => a.serialize());
@@ -918,7 +1034,7 @@ const dept = this.findDepartment(departmentId);
       });
     });
 
-    // 序列化供应商配置（只保存API Key和启用状态）
+    // Serialize provider configs (only save API Key and enabled state)
     const providerConfigs = {};
     this.providerRegistry.listAll().forEach(p => {
       if (p.apiKey || p.enabled) {
@@ -926,12 +1042,12 @@ const dept = this.findDepartment(departmentId);
       }
     });
 
-    // 序列化人才市场
+    // Serialize talent market
     const talentPool = [];
     this.talentMarket.pool.forEach((profile, id) => {
       talentPool.push({
         ...profile,
-        // provider 只保存id
+        // Only save provider id
         provider: profile.provider ? { id: profile.provider.id } : null,
       });
     });
@@ -959,53 +1075,59 @@ const dept = this.findDepartment(departmentId);
       },
       messageBusMessages: this.messageBus.messages.slice(-500).map(m => m.toJSON()),
       requirements: this.requirementManager.serialize(),
+      cronJobs: cronScheduler.serialize(),
       savedAt: new Date(),
     };
   }
 
   /**
-   * 从序列化数据恢复公司（静态工厂方法）
+   * Restore company from serialized data (static factory method)
    */
   static deserialize(data) {
-    if (!data || !data.name) throw new Error('无效的公司状态数据');
+    if (!data || !data.name) throw new Error('Invalid company state data');
 
-    // 创建空壳公司（不触发完整初始化）
+    // Create shell company (don't trigger full initialization)
+    // 从 providerConfigs 中获取秘书对应 provider 的真实 apiKey
+    const secretaryProviderId = data.secretary?.providerId || 'deepseek-v3';
+    const secretaryApiKey = data.providerConfigs?.[secretaryProviderId]?.apiKey || 'sk-restored';
     const company = new Company(data.name, data.bossName, {
-      providerId: data.secretary?.providerId || 'deepseek-v3',
-      apiKey: 'sk-restored',
+      providerId: secretaryProviderId,
+      apiKey: secretaryApiKey,
       secretaryName: data.secretary?.name,
       secretaryAvatar: data.secretary?.avatar,
     });
 
-    // 恢复ID
+    // Restore ID
     company.id = data.id;
 
-    // 恢复供应商配置
+    // Restore provider configs
     if (data.providerConfigs) {
       for (const [pid, cfg] of Object.entries(data.providerConfigs)) {
         try {
           company.providerRegistry.configure(pid, cfg.apiKey);
-        } catch (e) { /* 忽略不存在的供应商 */ }
+          // 清除旧的 LLM 客户端缓存，确保使用恢复后的真实 apiKey
+          llmClient.clearClient(pid);
+        } catch (e) { /* ignore non-existent providers */ }
       }
     }
 
-    // 恢复秘书Token消耗
+    // Restore secretary token usage
     if (data.secretary?.tokenUsage) {
       Object.assign(company.secretary.agent.tokenUsage, data.secretary.tokenUsage);
     }
     if (data.secretary?.hrTokenUsage) {
       Object.assign(company.secretary.hrAssistant.agent.tokenUsage, data.secretary.hrTokenUsage);
     }
-    // 恢复秘书的自定义 prompt
+    // Restore secretary custom prompt
     if (data.secretary?.prompt) {
       company.secretary.agent.prompt = data.secretary.prompt;
     }
-    // 恢复秘书的签名
+    // Restore secretary signature
     if (data.secretary?.signature) {
       company.secretary.agent.signature = data.secretary.signature;
     }
 
-    // 恢复部门和Agent
+    // Restore departments and Agents
     company.departments.clear();
     for (const deptData of (data.departments || [])) {
       const dept = new Department({
@@ -1019,16 +1141,16 @@ const dept = this.findDepartment(departmentId);
       dept.workspacePath = deptData.workspacePath;
       dept.createdAt = deptData.createdAt ? new Date(deptData.createdAt) : new Date();
 
-      // 恢复Agent
+      // Restore Agents
       for (const agentData of (deptData.members || [])) {
-      // 从独立文件加载记忆（优先级高于序列化数据中的记忆）
+      // Load memory from separate file (higher priority than serialized data)
         const externalMemory = loadAgentMemory(agentData.id);
         if (externalMemory) {
           agentData.memory = externalMemory;
         }
         const agent = Agent.deserialize(agentData, company.providerRegistry);
         dept.addAgent(agent);
-        // 恢复工具集
+        // Restore toolkit
         if (dept.workspacePath) {
           agent.initToolKit(dept.workspacePath, company.messageBus);
         }
@@ -1037,25 +1159,25 @@ const dept = this.findDepartment(departmentId);
       company.departments.set(dept.id, dept);
     }
 
-    // 恢复人才市场
+    // Restore talent market
     company.talentMarket.pool.clear();
     for (const profile of (data.talentPool || [])) {
-      // 恢复provider引用
+      // Restore provider reference
       if (profile.provider?.id) {
         profile.provider = company.providerRegistry.getById(profile.provider.id) || profile.provider;
       }
       company.talentMarket.pool.set(profile.id, profile);
     }
 
-    // 恢复邮箱、聊天历史、进度汇报、日志
+    // Restore mailbox, chat history, progress reports, logs
     company.mailbox = data.mailbox || [];
     company.chatHistory = data.chatHistory || [];
     company.progressReports = data.progressReports || [];
     company.logs = data.logs || [];
 
-    // 恢复消息总线
+    // Restore message bus
     if (data.messageBusMessages) {
-      // 只恢复历史记录，不重建inbox
+      // Only restore history, don't rebuild inbox
       company.messageBus.messages = data.messageBusMessages.map(m => ({
         ...m,
         timestamp: new Date(m.timestamp),
@@ -1063,12 +1185,17 @@ const dept = this.findDepartment(departmentId);
       }));
     }
 
-    // 恢复需求管理器
+    // Restore requirement manager
     if (data.requirements) {
       company.requirementManager = RequirementManager.deserialize(data.requirements);
     }
 
-    console.log(`✅ 公司「${company.name}」状态已恢复: ${company.departments.size}个部门`);
+    // Restore cron jobs
+    if (data.cronJobs) {
+      cronScheduler.restore(data.cronJobs);
+    }
+
+    console.log(`✅ Company "${company.name}" state restored: ${company.departments.size} departments`);
     return company;
   }
 }

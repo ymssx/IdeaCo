@@ -2,9 +2,10 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useStore } from '@/lib/client-store';
+import { useI18n } from '@/lib/i18n';
 
 /**
- * 清理消息内容：过滤掉LLM泄漏的内部标签（如DeepSeek的DSML工具调用格式）
+ * Clean message content: filter out leaked LLM internal tags (e.g. DeepSeek DSML tool call format)
  */
 function cleanMessageContent(content) {
   if (!content || typeof content !== 'string') return content;
@@ -15,11 +16,11 @@ function cleanMessageContent(content) {
 }import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 
-// 动态导入 Monaco Editor，避免 SSR 问题
+// Dynamic import Monaco Editor to avoid SSR issues
 const MonacoEditor = dynamic(() => import('@monaco-editor/react'), { ssr: false });
 
-// 自定义 Monaco 主题 - 与页面配色保持一致
-// VSCode Dark+ 主题配色
+// Custom Monaco theme - consistent with page color scheme
+// VSCode Dark+ theme colors
 const CUSTOM_THEME_NAME = 'vscode-dark-plus';
 const defineCustomTheme = (monaco) => {
   monaco.editor.defineTheme(CUSTOM_THEME_NAME, {
@@ -89,26 +90,27 @@ const defineCustomTheme = (monaco) => {
 };
 
 /**
- * 需求详情页
- * 展示：需求信息、工作流DAG、群聊消息、产出结果
+ * Requirement detail page
+ * Displays: requirement info, workflow DAG, group chat messages, output results
  */
 export default function RequirementDetail({ requirementId, onClose }) {
+  const { t } = useI18n();
   const { fetchRequirementDetail, requirementDetail, clearRequirementDetail, fetchWorkspaceFile, navigateBack, activeRequirementId, deleteRequirement, restartRequirement } = useStore();
   const reqId = requirementId || activeRequirementId;
-  const isPage = !onClose; // 如果没有传 onClose，则为独立页面模式
+  const isPage = !onClose; // If no onClose is passed, it is standalone page mode
   const [activeTab, setActiveTab] = useState('workflow'); // workflow | chat | outputs | files
   const chatEndRef = useRef(null);
   const pollRef = useRef(null);
   const [previewFile, setPreviewFile] = useState(null); // { path, content, loading }
 
-  // 保存 reqId 到 ref，避免 closure 中读到 stale 值
+  // Save reqId to ref to avoid reading stale value in closure
   const reqIdRef = useRef(reqId);
   reqIdRef.current = reqId;
 
   useEffect(() => {
     if (!reqId) return;
     fetchRequirementDetail(reqId);
-    // 执行中的需求加快轮询（2秒）
+    // Speed up polling for executing requirements (2s)
     pollRef.current = setInterval(() => {
       fetchRequirementDetail(reqIdRef.current);
     }, 2000);
@@ -121,7 +123,7 @@ export default function RequirementDetail({ requirementId, onClose }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reqId]);
 
-  // 组件卸载时清除所有状态
+  // Clear all states on component unmount
   useEffect(() => {
     return () => {
       clearRequirementDetail();
@@ -132,12 +134,12 @@ export default function RequirementDetail({ requirementId, onClose }) {
     };
   }, []);
 
-  // 停止轮询已完成的需求，或减慢轮询频率
+  // Stop polling completed requirements or reduce polling frequency
   useEffect(() => {
     if (requirementDetail && (requirementDetail.status === 'completed' || requirementDetail.status === 'failed')) {
       if (pollRef.current) {
         clearInterval(pollRef.current);
-        // 完成后降为10秒轮询（保持更新但不占太多资源）
+        // Reduce to 10s polling after completion (keep updated without too many resources)
         pollRef.current = setInterval(() => {
           fetchRequirementDetail(reqId);
         }, 10000);
@@ -151,15 +153,15 @@ export default function RequirementDetail({ requirementId, onClose }) {
     }
   }, [activeTab, requirementDetail?.groupChat?.length]);
 
-  // 文件预览加载
+  // File preview loading
   const loadFilePreview = useCallback(async (filePath) => {
     if (!requirementDetail?.departmentId) return;
     setPreviewFile({ path: filePath, content: null, loading: true });
     try {
       const content = await fetchWorkspaceFile(requirementDetail.departmentId, filePath);
-      setPreviewFile({ path: filePath, content: content?.content || content || '(无内容)', loading: false });
+      setPreviewFile({ path: filePath, content: content?.content || content || t('reqDetail.files.noContent'), loading: false });
     } catch {
-      setPreviewFile({ path: filePath, content: '(读取失败)', loading: false });
+      setPreviewFile({ path: filePath, content: t('reqDetail.files.readFailed'), loading: false });
     }
   }, [requirementDetail?.departmentId]);
 
@@ -169,13 +171,13 @@ export default function RequirementDetail({ requirementId, onClose }) {
     return isPage ? (
       <div className="flex items-center justify-center h-full">
         <div className="card p-8">
-          <span className="animate-pulse text-[var(--muted)]">加载中...</span>
+          <span className="animate-pulse text-[var(--muted)]">{t('common.loading')}</span>
         </div>
       </div>
     ) : (
       <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center !m-0">
         <div className="card p-8">
-          <span className="animate-pulse text-[var(--muted)]">加载中...</span>
+          <span className="animate-pulse text-[var(--muted)]">{t('common.loading')}</span>
         </div>
       </div>
     );
@@ -183,26 +185,26 @@ export default function RequirementDetail({ requirementId, onClose }) {
 
   const req = requirementDetail;
   const statusConfig = {
-    pending: { label: '待处理', color: 'text-gray-400', bg: 'bg-gray-900/30' },
-    planning: { label: '规划中', color: 'text-blue-400', bg: 'bg-blue-900/30' },
-    in_progress: { label: '执行中', color: 'text-yellow-400', bg: 'bg-yellow-900/30' },
-    completed: { label: '已完成', color: 'text-green-400', bg: 'bg-green-900/30' },
-    failed: { label: '失败', color: 'text-red-400', bg: 'bg-red-900/30' },
+    pending: { label: t('reqDetail.status.pending'), color: 'text-gray-400', bg: 'bg-gray-900/30' },
+    planning: { label: t('reqDetail.status.planning'), color: 'text-blue-400', bg: 'bg-blue-900/30' },
+    in_progress: { label: t('reqDetail.status.in_progress'), color: 'text-yellow-400', bg: 'bg-yellow-900/30' },
+    completed: { label: t('reqDetail.status.completed'), color: 'text-green-400', bg: 'bg-green-900/30' },
+    failed: { label: t('reqDetail.status.failed'), color: 'text-red-400', bg: 'bg-red-900/30' },
   };
   const st = statusConfig[req.status] || statusConfig.pending;
 
-  // 页面模式：全屏独立页面
+  // Page mode: full-screen standalone page
   if (isPage) {
     return (
       <div className="h-full flex flex-col animate-fade-in">
-        {/* 头部导航栏 */}
+        {/* Header navigation bar */}
         <div className="px-6 py-4 border-b border-white/[0.06] bg-[var(--card)] flex items-start justify-between shrink-0">
           <div className="flex items-center gap-4 flex-1 min-w-0">
             <button
               onClick={handleClose}
               className="text-[var(--muted)] hover:text-white text-sm flex items-center gap-1 shrink-0 transition-colors hover:bg-white/5 px-2 py-1 rounded-lg"
             >
-              ← 返回
+              ← {t('reqDetail.backShort')}
             </button>
             <div className="w-px h-8 bg-white/[0.08]" />
             <div className="flex-1 min-w-0">
@@ -212,17 +214,17 @@ export default function RequirementDetail({ requirementId, onClose }) {
                   {st.label}
                 </span>
                 {req.status === 'in_progress' && (
-                  <span className="animate-pulse text-yellow-400 text-xs">⚙️ 执行中</span>
+                  <span className="animate-pulse text-yellow-400 text-xs">{t('reqDetail.executingShort')}</span>
                 )}
               </div>
               <div className="flex items-center gap-4 mt-1 text-xs text-[var(--muted)]">
                 <span>🏢 {req.departmentName}</span>
-                <span>📅 {new Date(req.createdAt).toLocaleString('zh')}</span>
+                <span>📅 {new Date(req.createdAt).toLocaleString()}</span>
                 <span className="truncate max-w-md">{req.description}</span>
                 {req.summary && (
                   <>
-                    <span>✅ {req.summary.successTasks}/{req.summary.totalTasks} 任务</span>
-                    <span>⏱️ {Math.round((req.summary.totalDuration || 0) / 1000)}秒</span>
+                    <span>{t('reqDetail.summary.tasks', { n: req.summary.successTasks, total: req.summary.totalTasks })}</span>
+                    <span>{t('reqDetail.summary.duration', { n: Math.round((req.summary.totalDuration || 0) / 1000) })}</span>
                   </>
                 )}
               </div>
@@ -230,13 +232,13 @@ export default function RequirementDetail({ requirementId, onClose }) {
           </div>
         </div>
 
-        {/* Tab栏 */}
+        {/* Tab bar */}
         <div className="flex border-b border-white/[0.06] shrink-0 px-6 bg-[var(--card)]">
           {[
-            { id: 'workflow', label: '📊 工作流', badge: req.workflow?.nodes?.length },
-            { id: 'chat', label: '💬 群聊', badge: req.groupChat?.length },
-            { id: 'outputs', label: '📦 产出', badge: req.outputs?.length },
-            { id: 'files', label: '📁 文件', badge: req.liveStatus?.recentFileChanges?.length || 0 },
+            { id: 'workflow', label: t('reqDetail.tabs.workflow'), badge: req.workflow?.nodes?.length },
+            { id: 'chat', label: t('reqDetail.tabs.chat'), badge: req.groupChat?.length },
+            { id: 'outputs', label: t('reqDetail.tabs.outputs'), badge: req.outputs?.length },
+            { id: 'files', label: t('reqDetail.tabs.files'), badge: req.liveStatus?.recentFileChanges?.length || 0 },
           ].map(tab => (
             <button
               key={tab.id}
@@ -255,11 +257,11 @@ export default function RequirementDetail({ requirementId, onClose }) {
           ))}
         </div>
 
-        {/* 内容区 - 全屏 */}
+        {/* Content area - full screen */}
         <div className={`flex-1 min-h-0 flex flex-col pb-6 ${activeTab === 'files' ? 'overflow-hidden' : 'overflow-auto'}`}>
           {activeTab === 'workflow' && (
             <>
-              {/* 实时进度面板（仅在工作流tab下展示） */}
+              {/* Live progress panel (only shown under workflow tab) */}
               {(req.status === 'in_progress' || req.status === 'planning' || req.status === 'failed') && req.liveStatus && (
                 <LiveStatusPanel
                   liveStatus={req.liveStatus}
@@ -290,14 +292,14 @@ export default function RequirementDetail({ requirementId, onClose }) {
     );
   }
 
-  // 弹窗模式（兼容旧的调用方式，但实际已不用）
+  // Modal mode (backward compatible, but no longer used)
   return (
     <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center !m-0" onClick={handleClose}>
       <div
         className="bg-[var(--card)] border border-[var(--border)] rounded-2xl max-w-5xl w-full mx-4 max-h-[90vh] min-h-[60vh] flex flex-col"
         onClick={e => e.stopPropagation()}
       >
-        {/* 头部 */}
+        {/* Header */}
         <div className="px-6 py-4 border-b border-white/[0.06] flex items-start justify-between shrink-0">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-3">
@@ -306,17 +308,17 @@ export default function RequirementDetail({ requirementId, onClose }) {
                 {st.label}
               </span>
               {req.status === 'in_progress' && (
-                <span className="animate-pulse text-yellow-400 text-xs">⚙️ 执行中</span>
+                  <span className="animate-pulse text-yellow-400 text-xs">{t('reqDetail.executingShort')}</span>
               )}
             </div>
             <p className="text-sm text-[var(--muted)] mt-1 line-clamp-2">{req.description}</p>
             <div className="flex items-center gap-4 mt-2 text-xs text-[var(--muted)]">
               <span>🏢 {req.departmentName}</span>
-              <span>📅 {new Date(req.createdAt).toLocaleString('zh')}</span>
+              <span>📅 {new Date(req.createdAt).toLocaleString()}</span>
               {req.summary && (
                 <>
-                  <span>✅ {req.summary.successTasks}/{req.summary.totalTasks} 任务</span>
-                  <span>⏱️ {Math.round((req.summary.totalDuration || 0) / 1000)}秒</span>
+                  <span>✅ {req.summary.successTasks}/{req.summary.totalTasks} {t('reqDetail.summary.tasks', { n: req.summary.successTasks, total: req.summary.totalTasks }).replace(/✅ \d+\/\d+ /, '')}</span>
+                  <span>⏱️ {Math.round((req.summary.totalDuration || 0) / 1000)}s</span>
                 </>
               )}
             </div>
@@ -324,13 +326,13 @@ export default function RequirementDetail({ requirementId, onClose }) {
           <button onClick={handleClose} className="text-[var(--muted)] hover:text-white text-xl ml-4 shrink-0">✕</button>
         </div>
 
-        {/* Tab栏 */}
+        {/* Tab bar */}
         <div className="flex border-b border-white/[0.06] shrink-0 px-6">
           {[
-            { id: 'workflow', label: '📊 工作流', badge: req.workflow?.nodes?.length },
-            { id: 'chat', label: '💬 群聊', badge: req.groupChat?.length },
-            { id: 'outputs', label: '📦 产出', badge: req.outputs?.length },
-            { id: 'files', label: '📁 文件', badge: req.liveStatus?.recentFileChanges?.length || 0 },
+            { id: 'workflow', label: t('reqDetail.tabs.workflow'), badge: req.workflow?.nodes?.length },
+            { id: 'chat', label: t('reqDetail.tabs.chat'), badge: req.groupChat?.length },
+            { id: 'outputs', label: t('reqDetail.tabs.outputs'), badge: req.outputs?.length },
+            { id: 'files', label: t('reqDetail.tabs.files'), badge: req.liveStatus?.recentFileChanges?.length || 0 },
           ].map(tab => (
             <button
               key={tab.id}
@@ -349,11 +351,11 @@ export default function RequirementDetail({ requirementId, onClose }) {
           ))}
         </div>
 
-        {/* 内容区 */}
+        {/* Content area */}
         <div className={`flex-1 min-h-0 flex flex-col pb-6 ${activeTab === 'files' ? 'overflow-hidden' : 'overflow-auto'}`} style={{ minHeight: activeTab === 'files' ? '400px' : undefined }}>
           {activeTab === 'workflow' && (
             <>
-              {/* 实时进度面板（仅在工作流tab下展示） */}
+              {/* Live progress panel (only shown under workflow tab) */}
               {(req.status === 'in_progress' || req.status === 'planning' || req.status === 'failed') && req.liveStatus && (
                 <LiveStatusPanel
                   liveStatus={req.liveStatus}
@@ -387,19 +389,20 @@ export default function RequirementDetail({ requirementId, onClose }) {
 
 
 /**
- * 工作流可视化 - SVG 流程图 + div 卡片（foreignObject）
- * 多箭头汇合：多条入线先汇合为一根垂直线再连接目标节点
+ * Workflow visualization - SVG flowchart + div cards (foreignObject)
+ * Multi-arrow merging: multiple incoming edges merge into one vertical line then connect to target
  */
 function WorkflowView({ workflow, liveStatus }) {
+  const { t } = useI18n();
   const containerRef = useRef(null);
   const svgRef = useRef(null);
   const measureRef = useRef(null);
   const [containerWidth, setContainerWidth] = useState(800);
   const [hoveredNode, setHoveredNode] = useState(null); // { node, rect }
   const [measuredHeights, setMeasuredHeights] = useState({}); // nodeId -> height
-  const [measureTick, setMeasureTick] = useState(0); // 用于触发重新测量
+  const [measureTick, setMeasureTick] = useState(0); // Used to trigger re-measurement
 
-  // 监听容器宽度
+  // Watch container width
   useEffect(() => {
     if (!containerRef.current) return;
     const obs = new ResizeObserver(entries => {
@@ -410,7 +413,7 @@ function WorkflowView({ workflow, liveStatus }) {
     return () => obs.disconnect();
   }, []);
 
-  // MutationObserver：监听测量容器的 DOM 变化，防抖后自动重新测量
+  // MutationObserver: watch measurement container DOM changes, auto re-measure with debounce
   useEffect(() => {
     if (!measureRef.current) return;
     let timer = null;
@@ -422,7 +425,7 @@ function WorkflowView({ workflow, liveStatus }) {
     return () => { obs.disconnect(); clearTimeout(timer); };
   }, [workflow]);
 
-  // 测量所有卡片的实际高度
+  // Measure actual heights of all cards
   useEffect(() => {
     if (!measureRef.current) return;
     const cards = measureRef.current.querySelectorAll('[data-node-id]');
@@ -430,24 +433,24 @@ function WorkflowView({ workflow, liveStatus }) {
     cards.forEach(card => {
       const id = card.getAttribute('data-node-id');
       if (id) {
-        // scrollHeight 获取内容实际高度
-        heights[id] = Math.max(card.scrollHeight, 60); // 最小 60px
+        // scrollHeight gets actual content height
+        heights[id] = Math.max(card.scrollHeight, 60); // minimum 60px
       }
     });
     setMeasuredHeights(prev => {
-      // 只有真正变化了才更新，避免无限循环
+      // Only update when actually changed to avoid infinite loop
       const changed = Object.keys(heights).some(k => prev[k] !== heights[k]) ||
                       Object.keys(heights).length !== Object.keys(prev).length;
       return changed ? heights : prev;
     });
   }, [workflow, liveStatus, containerWidth, measureTick]);
 
-  // 拓扑分层 + 布局计算（根据测量的实际高度）
+  // Topological layering + layout calculation (based on measured heights)
   const layout = useMemo(() => {
     if (!workflow?.nodes?.length) return null;
     const nodes = workflow.nodes;
 
-    // 拓扑分层
+    // Topological layering
     const levels = [];
     const placed = new Set();
     let remaining = [...nodes];
@@ -459,21 +462,21 @@ function WorkflowView({ workflow, liveStatus }) {
       remaining = remaining.filter(n => !placed.has(n.id));
     }
 
-    // 布局参数
+    // Layout parameters
     const nodeW = 280;
-    const defaultH = 90; // 默认高度（测量前的初始值）
-    const padding = 8; // 额外内边距
+    const defaultH = 90; // Default height (initial value before measurement)
+    const padding = 8; // Extra padding
     const gapX = 32, gapY = 80;
     const padX = 40, padY = 40;
 
-    // 有效宽度
+    // Effective width
     const effectiveW = Math.max(containerWidth - padX * 2, 600);
 
-    // 计算每层节点位置（居中排列，高度取实际测量值）
+    // Calculate node positions per layer (centered, height from measurement)
     const nodePositions = {};
     let cumulativeY = padY;
     levels.forEach((level, li) => {
-      // 该层最大高度 = 该层中最高卡片的测量高度
+      // Max height of this layer = tallest measured card height in this layer
       const layerH = Math.max(...level.map(n => (measuredHeights[n.id] || defaultH) + padding));
       const totalW = level.length * nodeW + (level.length - 1) * gapX;
       const startX = padX + (effectiveW - totalW) / 2;
@@ -494,7 +497,7 @@ function WorkflowView({ workflow, liveStatus }) {
     const totalHeight = cumulativeY - gapY + padY;
     const totalWidth = Math.max(effectiveW + padX * 2, containerWidth);
 
-    // 构建边的汇合信息
+    // Build edge merge info
     const edgeGroups = {}; // targetId -> [fromId, ...]
     nodes.forEach(node => {
       if (node.dependencies.length > 0) {
@@ -510,7 +513,7 @@ function WorkflowView({ workflow, liveStatus }) {
       <div className="flex items-center justify-center py-16 text-[var(--muted)]">
         <div className="text-center">
           <div className="text-4xl mb-2">📋</div>
-          <p>工作流尚未拆解</p>
+          <p>{t('reqDetail.workflow.notParsed')}</p>
         </div>
       </div>
     );
@@ -534,7 +537,7 @@ function WorkflowView({ workflow, liveStatus }) {
     failed: 'border-red-500',
   };
 
-  // 卡片内容渲染函数（测量容器和实际渲染共用）
+  // Card content render function (shared by measurement container and actual render)
   const renderCardContent = (node) => (
     <>
       <div className="flex items-start justify-between">
@@ -547,21 +550,21 @@ function WorkflowView({ workflow, liveStatus }) {
         </div>
         {node.completedAt && node.startedAt && (
           <span className="text-[10px] text-[var(--muted)] shrink-0 ml-1">
-            {Math.round((new Date(node.completedAt) - new Date(node.startedAt)) / 1000)}秒
+            {Math.round((new Date(node.completedAt) - new Date(node.startedAt)) / 1000)}s
           </span>
         )}
       </div>
       {node.description && (
         <p className="text-xs text-[var(--muted)] mt-1.5 line-clamp-2">{node.description}</p>
       )}
-      {/* 实时操作提示 */}
+      {/* Live action hint */}
       {node.status === 'running' && liveStatus?.currentNodeId === node.id && liveStatus.currentAction && (
         <div className="mt-1.5 bg-yellow-900/10 border border-yellow-500/20 rounded-lg px-2 py-1 text-[10px] text-yellow-300 flex items-center gap-1 overflow-hidden">
           <span className="animate-spin text-xs shrink-0">⚙️</span>
           <span className="truncate">{liveStatus.currentAction}</span>
         </div>
       )}
-      {/* 工具调用进度 */}
+      {/* Tool call progress */}
       {node.status === 'running' && liveStatus?.currentNodeId === node.id && liveStatus.toolCallsInProgress?.length > 0 && (
         <div className="mt-1 flex gap-1 flex-wrap">
           {liveStatus.toolCallsInProgress.slice(0, 3).map((tool, ti) => (
@@ -574,10 +577,10 @@ function WorkflowView({ workflow, liveStatus }) {
     </>
   );
 
-  // 生成连线路径：多条入线汇合成一根垂直线
+  // Generate connection paths: multiple incoming edges merge into one vertical line
   const renderEdges = () => {
     const paths = [];
-    const mergeGap = 25; // 汇合点距离目标节点顶部的距离
+    const mergeGap = 25; // Distance from merge point to target node top
 
     Object.entries(edgeGroups).forEach(([targetId, fromIds]) => {
       const to = nodePositions[targetId];
@@ -585,9 +588,9 @@ function WorkflowView({ workflow, liveStatus }) {
 
       const toCenterX = to.x + to.w / 2;
       const toTopY = to.y;
-      const mergeY = toTopY - mergeGap; // 汇合点 Y 坐标
+      const mergeY = toTopY - mergeGap; // Merge point Y coordinate
 
-      // 判断边的状态颜色
+      // Determine edge status color
       const getEdgeStyle = (fromId) => {
         const fromNode = nodePositions[fromId]?.node;
         const toNode = to.node;
@@ -601,7 +604,7 @@ function WorkflowView({ workflow, liveStatus }) {
       };
 
       if (fromIds.length === 1) {
-        // 单条入线：直接贝塞尔曲线连接
+        // Single incoming edge: direct Bezier curve connection
         const fromId = fromIds[0];
         const from = nodePositions[fromId];
         if (!from) return;
@@ -624,12 +627,12 @@ function WorkflowView({ workflow, liveStatus }) {
           />
         );
       } else {
-        // 多条入线汇合：所有入线先汇到目标上方的汇合点，再用一根垂直线+箭头连接目标
-        // 使用统一颜色避免重叠时颜色不一致
+        // Multi-edge merge: all edges merge above target, then connect with one vertical line + arrow
+        // Use unified color to avoid inconsistency when edges overlap
         const allStyles = fromIds.map(fid => getEdgeStyle(fid));
         const bestStyle = allStyles.find(s => s.isActive) || allStyles.find(s => s.color === '#22c55e') || allStyles[0];
 
-        // 1. 汇合的垂直线：从 mergeY 到 toTopY（统一颜色）
+        // 1. Merge vertical line: from mergeY to toTopY (unified color)
         paths.push(
           <path
             key={`merge-vert-${targetId}`}
@@ -643,8 +646,8 @@ function WorkflowView({ workflow, liveStatus }) {
           />
         );
 
-        // 2. 每条入线用同一颜色，避免重叠时颜色不一致
-        // 对入线按 X 坐标排序，使路径更清晰
+        // 2. Each incoming edge uses same color to avoid inconsistency when overlapping
+        // Sort incoming edges by X coordinate for clearer paths
         const sortedFromIds = [...fromIds].sort((a, b) => {
           const ax = nodePositions[a]?.x || 0;
           const bx = nodePositions[b]?.x || 0;
@@ -658,7 +661,7 @@ function WorkflowView({ workflow, liveStatus }) {
           const y1 = from.y + from.h;
 
           if (Math.abs(x1 - toCenterX) < 2) {
-            // 几乎垂直对齐，直接垂直线到汇合点
+            // Nearly vertically aligned, direct vertical line to merge point
             paths.push(
               <path
                 key={`edge-${fromId}-${targetId}`}
@@ -671,7 +674,7 @@ function WorkflowView({ workflow, liveStatus }) {
               />
             );
           } else {
-            // 从源底部出发，先垂直下行，然后平滑转弯水平到达汇合点
+            // From source bottom, first go down vertically, then smooth turn horizontally to merge point
             const turnRadius = Math.min(15, Math.abs(x1 - toCenterX) / 2, (mergeY - y1) / 2);
             const dir = toCenterX > x1 ? 1 : -1;
 
@@ -712,24 +715,24 @@ function WorkflowView({ workflow, liveStatus }) {
           className="select-none"
         >
           <defs>
-            {/* 箭头标记（按颜色） */}
+            {/* Arrow markers (by color) */}
             {['4b5563', '22c55e', 'eab308', '3b82f6', 'ef4444'].map(hex => (
               <marker key={hex} id={`arrow-${hex}`} viewBox="0 0 10 10" refX="9" refY="5"
                 markerWidth="6" markerHeight="6" orient="auto-start-reverse">
                 <path d="M1,1 L9,5 L1,9" fill="none" stroke={`#${hex}`} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
               </marker>
             ))}
-            {/* 流动动画 */}
+            {/* Flow animation */}
             <style>{`
               @keyframes dash-flow { to { stroke-dashoffset: -20; } }
               .edge-running { stroke-dasharray: 8 4; animation: dash-flow 0.8s linear infinite; }
             `}</style>
           </defs>
 
-          {/* 连线 */}
+          {/* Connections */}
           {renderEdges()}
 
-          {/* 节点卡片（foreignObject 嵌入 div） */}
+          {/* Node cards (foreignObject embedded div) */}
           {Object.values(nodePositions).map(({ x, y, w, h, node }) => (
             <foreignObject key={node.id} x={x} y={y} width={w} height={h}>
               <div
@@ -749,7 +752,7 @@ function WorkflowView({ workflow, liveStatus }) {
         </svg>
       </div>
 
-      {/* 隐藏的测量容器：渲染所有卡片获取实际高度 */}
+      {/* Hidden measurement container: render all cards to get actual heights */}
       <div
         ref={measureRef}
         aria-hidden="true"
@@ -774,7 +777,7 @@ function WorkflowView({ workflow, liveStatus }) {
         ))}
       </div>
 
-      {/* Hover Tooltip - 独立浮动层，展示完整任务内容 */}
+      {/* Hover Tooltip - floating layer showing full task content */}
       {hoveredNode && (
         <div
           className="fixed z-[9999] pointer-events-none"
@@ -791,12 +794,12 @@ function WorkflowView({ workflow, liveStatus }) {
               <p className="text-[var(--muted)] whitespace-pre-wrap break-words">{hoveredNode.node.description}</p>
             )}
             {hoveredNode.node.completedAt && hoveredNode.node.startedAt && (
-              <div className="mt-1 text-[var(--muted)]">⏱ 耗时 {Math.round((new Date(hoveredNode.node.completedAt) - new Date(hoveredNode.node.startedAt)) / 1000)}秒</div>
+              <div className="mt-1 text-[var(--muted)]">{t('reqDetail.timeDuration', { n: Math.round((new Date(hoveredNode.node.completedAt) - new Date(hoveredNode.node.startedAt)) / 1000) })}</div>
             )}
             {hoveredNode.node.status === 'running' && liveStatus?.currentNodeId === hoveredNode.node.id && liveStatus.currentAction && (
               <div className="mt-1 text-yellow-300">⚙️ {liveStatus.currentAction}</div>
             )}
-            {/* 小三角 */}
+            {/* Arrow triangle */}
             <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[6px] border-t-white/10" />
           </div>
         </div>
@@ -807,15 +810,16 @@ function WorkflowView({ workflow, liveStatus }) {
 
 
 /**
- * 群聊视图
+ * Group chat view
  */
 function ChatView({ groupChat, chatEndRef }) {
+  const { t } = useI18n();
   if (groupChat.length === 0) {
     return (
       <div className="flex items-center justify-center py-16 text-[var(--muted)]">
         <div className="text-center">
           <div className="text-4xl mb-2">💬</div>
-          <p>暂无群聊消息</p>
+          <p>{t('reqDetail.chat.noMessages')}</p>
         </div>
       </div>
     );
@@ -875,9 +879,10 @@ function ChatView({ groupChat, chatEndRef }) {
 
 
 /**
- * 产出视图
+ * Outputs view
  */
 function OutputsView({ outputs }) {
+  const { t } = useI18n();
   const [expandedId, setExpandedId] = useState(null);
 
   if (outputs.length === 0) {
@@ -885,7 +890,7 @@ function OutputsView({ outputs }) {
       <div className="flex items-center justify-center py-16 text-[var(--muted)]">
         <div className="text-center">
           <div className="text-4xl mb-2">📦</div>
-          <p>暂无产出</p>
+          <p>{t('reqDetail.outputs.noOutputsShort')}</p>
         </div>
       </div>
     );
@@ -908,7 +913,7 @@ function OutputsView({ outputs }) {
             key={output.id}
             className="bg-[var(--background)] border border-[var(--border)] rounded-xl overflow-hidden"
           >
-            {/* 头部 */}
+            {/* Header */}
             <div
               className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-white/5 transition-colors"
               onClick={() => setExpandedId(isExpanded ? null : output.id)}
@@ -928,11 +933,11 @@ function OutputsView({ outputs }) {
                 }`}>
                   {output.outputType}
                 </span>
-                <span className="text-[var(--muted)] text-xs">{isExpanded ? '收起 ▲' : '展开 ▼'}</span>
+                <span className="text-[var(--muted)] text-xs">{isExpanded ? t('reqDetail.outputs.collapse') : t('reqDetail.outputs.expand')}</span>
               </div>
             </div>
 
-            {/* 内容 */}
+            {/* Content */}
             {isExpanded && (
               <div className="px-4 pb-4 border-t border-white/[0.06]">
                 {output.outputType === 'code' ? (
@@ -941,7 +946,7 @@ function OutputsView({ outputs }) {
                   </pre>
                 ) : output.outputType === 'image' && output.content?.startsWith('http') ? (
                   <div className="mt-3">
-                    <img src={output.content} alt="产出图片" className="max-w-full rounded-lg" />
+                    <img src={output.content} alt="output image" className="max-w-full rounded-lg" />
                   </div>
                 ) : (
                   <div className="mt-3 text-sm text-[var(--foreground)] whitespace-pre-wrap leading-relaxed">
@@ -968,14 +973,15 @@ function OutputsView({ outputs }) {
 
 
 /**
- * 实时进度面板 - 展示当前执行状态、心跳、卡住检测
+ * Live progress panel - shows current execution status, heartbeat, stuck detection
  */
 function LiveStatusPanel({ liveStatus, requirementId, requirementStatus, onRestart, onDelete }) {
+  const { t } = useI18n();
   const [now, setNow] = useState(Date.now());
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [operating, setOperating] = useState(false);
 
-  // 每秒更新，计算心跳间隔
+  // Update every second, calculate heartbeat interval
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
@@ -989,9 +995,9 @@ function LiveStatusPanel({ liveStatus, requirementId, requirementStatus, onResta
     ? Math.round((now - new Date(liveStatus.lastActiveAt).getTime()) / 1000)
     : null;
 
-  // 判断是否可能卡住：超过60秒没有心跳
+  // Check if possibly stuck: no heartbeat for >60s
   const maybeStuck = heartbeatAge !== null && heartbeatAge > 60;
-  // 长时间无活动：超过120秒
+  // Long inactivity: >120s
   const definitelyStuck = heartbeatAge !== null && heartbeatAge > 120;
 
   return (
@@ -1014,10 +1020,10 @@ function LiveStatusPanel({ liveStatus, requirementId, requirementStatus, onResta
           <div>
             <div className="font-medium text-xs">
               {definitelyStuck
-                ? '🔴 可能卡住了'
+                ? t('reqDetail.live.stuck')
                 : maybeStuck
-                ? '🟡 等待响应中...'
-                : '🟢 正在执行'}
+                ? t('reqDetail.live.waiting')
+                : t('reqDetail.live.running')}
             </div>
             {liveStatus.currentAction && (
               <div className="text-xs text-[var(--muted)] mt-0.5 truncate max-w-md">
@@ -1038,10 +1044,10 @@ function LiveStatusPanel({ liveStatus, requirementId, requirementStatus, onResta
             <span className={`${
               definitelyStuck ? 'text-red-400' : maybeStuck ? 'text-orange-400' : 'text-green-400'
             }`}>
-              💓 {heartbeatAge < 60 ? `${heartbeatAge}秒前` : `${Math.round(heartbeatAge / 60)}分钟前`}
+              💓 {heartbeatAge < 60 ? t('reqDetail.live.secondsAgo', { n: heartbeatAge }) : t('reqDetail.live.minutesAgo', { n: Math.round(heartbeatAge / 60) })}
             </span>
           )}
-          {/* 工具调用中 */}
+          {/* Tool calling in progress */}
           {liveStatus.toolCallsInProgress?.length > 0 && (
             <span className="text-purple-400 animate-pulse">
               🔧 {liveStatus.toolCallsInProgress.join(', ')}
@@ -1050,7 +1056,7 @@ function LiveStatusPanel({ liveStatus, requirementId, requirementStatus, onResta
         </div>
       </div>
 
-      {/* 卡住时显示操作按钮 */}
+      {/* Show action buttons when stuck */}
       {(maybeStuck || definitelyStuck || requirementStatus === 'failed') && onRestart && onDelete && (
         <div className="mt-2 pt-2 border-t border-white/[0.04] flex items-center gap-2">
           <button
@@ -1061,7 +1067,7 @@ function LiveStatusPanel({ liveStatus, requirementId, requirementStatus, onResta
             disabled={operating}
             className="text-[11px] px-3 py-1 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/30 transition-colors disabled:opacity-50 flex items-center gap-1"
           >
-            🔄 {operating ? '重启中...' : '重新开始'}
+            {operating ? t('reqDetail.live.restarting') : t('reqDetail.live.restart')}
           </button>
           {!confirmDelete ? (
             <button
@@ -1069,11 +1075,11 @@ function LiveStatusPanel({ liveStatus, requirementId, requirementStatus, onResta
               disabled={operating}
               className="text-[11px] px-3 py-1 rounded-lg bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-500/30 transition-colors disabled:opacity-50 flex items-center gap-1"
             >
-              🗑️ 删除需求
+              {t('reqDetail.live.deleteReq')}
             </button>
           ) : (
             <div className="flex items-center gap-1">
-              <span className="text-[10px] text-red-400">确认删除？</span>
+              <span className="text-[10px] text-red-400">{t('reqDetail.live.confirmDelete')}</span>
               <button
                 onClick={async () => {
                   setOperating(true);
@@ -1082,23 +1088,23 @@ function LiveStatusPanel({ liveStatus, requirementId, requirementStatus, onResta
                 disabled={operating}
                 className="text-[10px] px-2 py-0.5 rounded bg-red-600 hover:bg-red-700 text-white transition-colors disabled:opacity-50"
               >
-                确认
+                {t('common.confirm')}
               </button>
               <button
                 onClick={() => setConfirmDelete(false)}
                 className="text-[10px] px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 text-[var(--muted)] transition-colors"
               >
-                取消
+                {t('common.cancel')}
               </button>
             </div>
           )}
         </div>
       )}
 
-      {/* 最近文件变更快速预览 */}
+      {/* Recent file changes quick preview */}
       {liveStatus.recentFileChanges?.length > 0 && (
         <div className="mt-2 pt-2 border-t border-white/[0.04] flex items-center gap-2 overflow-x-auto">
-          <span className="text-[10px] text-[var(--muted)] shrink-0">最近文件:</span>
+          <span className="text-[10px] text-[var(--muted)] shrink-0">{t('reqDetail.live.recentFiles')}</span>
           {liveStatus.recentFileChanges.slice(-5).map((fc, i) => (
             <span key={i} className="text-[10px] bg-white/5 px-1.5 py-0.5 rounded text-blue-300 shrink-0">
               📝 {fc.filePath?.split('/').pop() || fc.filePath}
@@ -1112,18 +1118,19 @@ function LiveStatusPanel({ liveStatus, requirementId, requirementStatus, onResta
 
 
 /**
- * 文件变更视图 - VSCode 风格左右布局
- * 左侧：文件资源管理器（树形结构）
- * 右侧：Monaco Editor 代码预览
+ * File changes view - VSCode style left-right layout
+ * Left: file explorer (tree structure)
+ * Right: Monaco Editor code preview
  */
 function FilesView({ fileChanges, departmentId, previewFile, onPreview, onClosePreview }) {
+  const { t } = useI18n();
   const [sidebarWidth, setSidebarWidth] = useState(260);
   const [isResizing, setIsResizing] = useState(false);
-  const [openTabs, setOpenTabs] = useState([]); // 打开的标签页 [{path, name}]
+  const [openTabs, setOpenTabs] = useState([]); // Open tabs [{path, name}]
   const [collapsedDirs, setCollapsedDirs] = useState(new Set());
   const resizeRef = useRef(null);
 
-  // 按文件路径去重，只保留最新的
+  // Deduplicate by file path, keep latest only
   const uniqueFiles = useMemo(() => {
     const files = [];
     const seen = new Set();
@@ -1137,7 +1144,7 @@ function FilesView({ fileChanges, departmentId, previewFile, onPreview, onCloseP
     return files;
   }, [fileChanges]);
 
-  // 构建文件树结构
+  // Build file tree structure
   const fileTree = useMemo(() => {
     const tree = {};
     uniqueFiles.forEach(fc => {
@@ -1145,10 +1152,10 @@ function FilesView({ fileChanges, departmentId, previewFile, onPreview, onCloseP
       let node = tree;
       parts.forEach((part, idx) => {
         if (idx === parts.length - 1) {
-          // 文件节点
+          // File node
           node[part] = { __isFile: true, __data: fc, __path: fc.filePath };
         } else {
-          // 目录节点
+          // Directory node
           if (!node[part] || node[part].__isFile) {
             node[part] = {};
           }
@@ -1159,7 +1166,7 @@ function FilesView({ fileChanges, departmentId, previewFile, onPreview, onCloseP
     return tree;
   }, [uniqueFiles]);
 
-  // 拖拽调整侧边栏宽度
+  // Drag to resize sidebar width
   useEffect(() => {
     if (!isResizing) return;
     const handleMouseMove = (e) => {
@@ -1178,7 +1185,7 @@ function FilesView({ fileChanges, departmentId, previewFile, onPreview, onCloseP
     };
   }, [isResizing]);
 
-  // 点击文件：打开标签 + 预览
+  // Click file: open tab + preview
   const handleFileClick = (filePath) => {
     const name = filePath?.split('/').pop() || filePath;
     if (!openTabs.find(t => t.path === filePath)) {
@@ -1187,12 +1194,12 @@ function FilesView({ fileChanges, departmentId, previewFile, onPreview, onCloseP
     onPreview(filePath);
   };
 
-  // 关闭标签
+  // Close tab
   const handleCloseTab = (e, tabPath) => {
     e.stopPropagation();
     setOpenTabs(prev => prev.filter(t => t.path !== tabPath));
     if (previewFile?.path === tabPath) {
-      // 如果关闭的是当前预览的，切到最近的标签或关闭预览
+      // If closing the current preview, switch to nearest tab or close preview
       const remaining = openTabs.filter(t => t.path !== tabPath);
       if (remaining.length > 0) {
         onPreview(remaining[remaining.length - 1].path);
@@ -1202,7 +1209,7 @@ function FilesView({ fileChanges, departmentId, previewFile, onPreview, onCloseP
     }
   };
 
-  // 切换目录折叠
+  // Toggle directory collapse
   const toggleDir = (dirPath) => {
     setCollapsedDirs(prev => {
       const next = new Set(prev);
@@ -1212,7 +1219,7 @@ function FilesView({ fileChanges, departmentId, previewFile, onPreview, onCloseP
     });
   };
 
-  // 根据扩展名获取语言
+  // Get language by file extension
   const getLanguage = (path) => {
     const ext = path?.split('.').pop()?.toLowerCase();
     const langMap = {
@@ -1225,7 +1232,7 @@ function FilesView({ fileChanges, departmentId, previewFile, onPreview, onCloseP
     return langMap[ext] || 'plaintext';
   };
 
-  // 根据扩展名获取文件图标
+  // Get file icon by extension
   const getFileIcon = (name) => {
     const ext = name?.split('.').pop()?.toLowerCase();
     const iconMap = {
@@ -1236,20 +1243,20 @@ function FilesView({ fileChanges, departmentId, previewFile, onPreview, onCloseP
     return iconMap[ext] || '📄';
   };
 
-  // 空状态
+  // Empty state
   if (fileChanges.length === 0 && !previewFile) {
     return (
       <div className="flex items-center justify-center py-16 text-[var(--muted)]">
         <div className="text-center">
           <div className="text-4xl mb-2">📁</div>
-          <p>暂无文件变更</p>
-          <p className="text-xs mt-1">任务执行过程中产生的文件会在这里显示</p>
+          <p>{t('reqDetail.files.noChanges')}</p>
+          <p className="text-xs mt-1">{t('reqDetail.files.noChangesHint')}</p>
         </div>
       </div>
     );
   }
 
-  // 渲染文件树节点
+  // Render file tree node
   const renderTreeNode = (node, name, path, depth = 0) => {
     if (node.__isFile) {
       const isActive = previewFile?.path === node.__path;
@@ -1276,11 +1283,11 @@ function FilesView({ fileChanges, departmentId, previewFile, onPreview, onCloseP
       );
     }
 
-    // 目录节点
+    // Directory node
     const dirPath = path;
     const isCollapsed = collapsedDirs.has(dirPath);
     const entries = Object.entries(node).filter(([k]) => !k.startsWith('__'));
-    // 目录优先排列
+    // Directories first
     const dirs = entries.filter(([, v]) => !v.__isFile).sort(([a], [b]) => a.localeCompare(b));
     const files = entries.filter(([, v]) => v.__isFile).sort(([a], [b]) => a.localeCompare(b));
     const sorted = [...dirs, ...files];
@@ -1308,23 +1315,23 @@ function FilesView({ fileChanges, departmentId, previewFile, onPreview, onCloseP
 
   return (
     <div className="flex h-full min-h-[400px] overflow-hidden">
-      {/* 左侧：文件资源管理器 */}
+      {/* Left: file explorer */}
       <div
         className="shrink-0 border-r border-[var(--border)] bg-[var(--card)] flex flex-col"
         style={{ width: sidebarWidth }}
       >
-        {/* 侧边栏标题 */}
+        {/* Sidebar title */}
         <div className="px-3 py-2 text-[10px] font-semibold tracking-wider text-[var(--muted)] uppercase border-b border-[var(--border)] flex items-center justify-between">
-          <span>资源管理器</span>
+          <span>{t('reqDetail.files.explorer')}</span>
           <span className="text-[10px] normal-case font-normal bg-white/10 px-1.5 py-0.5 rounded">
-            {uniqueFiles.length} 文件
+            {t('reqDetail.files.fileCount', { n: uniqueFiles.length })}
           </span>
         </div>
 
-        {/* 文件树 */}
+        {/* File tree */}
         <div className="flex-1 overflow-auto py-1 select-none">
           {Object.entries(fileTree).sort(([a, av], [b, bv]) => {
-            // 目录优先
+            // Directories first
             const aDir = !av.__isFile;
             const bDir = !bv.__isFile;
             if (aDir && !bDir) return -1;
@@ -1335,14 +1342,14 @@ function FilesView({ fileChanges, departmentId, previewFile, onPreview, onCloseP
           )}
         </div>
 
-        {/* 侧边栏底部状态 */}
+        {/* Sidebar bottom status */}
         <div className="px-3 py-1.5 border-t border-[var(--border)] text-[10px] text-[var(--muted)] flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-          <span>实时同步中</span>
+          <span>{t('reqDetail.files.syncing')}</span>
         </div>
       </div>
 
-      {/* 拖拽调整手柄 */}
+      {/* Drag resize handle */}
       <div
         ref={resizeRef}
         className={`w-[3px] cursor-col-resize hover:bg-[var(--accent)]/40 transition-colors shrink-0 ${
@@ -1351,9 +1358,9 @@ function FilesView({ fileChanges, departmentId, previewFile, onPreview, onCloseP
         onMouseDown={() => setIsResizing(true)}
       />
 
-      {/* 右侧：编辑器区域 */}
+      {/* Right: editor area */}
       <div className="flex-1 flex flex-col min-w-0 min-h-0 bg-[var(--background)]">
-        {/* 打开的标签页 */}
+        {/* Open tabs */}
         {openTabs.length > 0 && (
           <div className="flex border-b border-[var(--border)] bg-[var(--card)] overflow-x-auto shrink-0">
             {openTabs.map(tab => {
@@ -1385,10 +1392,10 @@ function FilesView({ fileChanges, departmentId, previewFile, onPreview, onCloseP
           </div>
         )}
 
-        {/* 编辑器主体 */}
+        {/* Editor body */}
         {previewFile ? (
           <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-            {/* 面包屑路径栏 */}
+            {/* Breadcrumb path bar */}
             <div className="flex items-center justify-between px-3 py-1 bg-[var(--card)] border-b border-[var(--border)] text-[10px] text-[var(--muted)]">
               <div className="flex items-center gap-1 truncate">
                 {previewFile.path?.split('/').filter(Boolean).map((seg, i, arr) => (
@@ -1400,32 +1407,32 @@ function FilesView({ fileChanges, departmentId, previewFile, onPreview, onCloseP
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 {previewFile.loading && (
-                  <span className="text-yellow-400 animate-pulse">同步中...</span>
+                  <span className="text-yellow-400 animate-pulse">{t('reqDetail.files.syncingShort')}</span>
                 )}
                 <button
                   onClick={() => onPreview(previewFile.path)}
                   className="text-[var(--muted)] hover:text-white transition-colors px-1"
-                  title="刷新"
+                  title={t('common.refresh')}
                 >
                   ↻
                 </button>
               </div>
             </div>
 
-            {/* Monaco 编辑器 */}
+            {/* Monaco editor */}
             <div className="flex-1 min-h-0 overflow-hidden">
               {previewFile.loading ? (
                 <div className="flex items-center justify-center h-full text-[var(--muted)] animate-pulse">
                   <div className="text-center">
                     <div className="text-2xl mb-2">⏳</div>
-                    <p className="text-sm">加载中...</p>
+                    <p className="text-sm">{t('common.loading')}</p>
                   </div>
                 </div>
               ) : (
                 <MonacoEditor
                   height="100%"
                   language={getLanguage(previewFile.path)}
-                  value={previewFile.content || '(空文件)'}
+                  value={previewFile.content || t('reqDetail.files.emptyFile')}
                   theme={CUSTOM_THEME_NAME}
                   beforeMount={defineCustomTheme}
                   options={{
@@ -1449,31 +1456,31 @@ function FilesView({ fileChanges, departmentId, previewFile, onPreview, onCloseP
               )}
             </div>
 
-            {/* 底部状态栏 */}
+            {/* Bottom status bar */}
             <div className="flex items-center justify-between px-3 py-1 bg-[var(--card)] border-t border-[var(--border)] text-[10px] text-[var(--muted)]">
               <div className="flex items-center gap-3">
                 <span>{getLanguage(previewFile.path).toUpperCase()}</span>
                 <span>UTF-8</span>
                 {previewFile.content && (
-                  <span>{previewFile.content.split('\n').length} 行</span>
+                  <span>{previewFile.content.split('\n').length} {t('reqDetail.files.lines', { n: '' }).trim()}</span>
                 )}
               </div>
               <div className="flex items-center gap-3">
-                <span>只读</span>
+                <span>{t('reqDetail.files.readOnly')}</span>
                 <span className="w-2 h-2 rounded-full bg-green-500 inline-block" />
               </div>
             </div>
           </div>
         ) : (
-          /* 空状态 - 欢迎页 */
+          /* Empty state - welcome page */
           <div className="flex-1 flex items-center justify-center text-[var(--muted)]">
             <div className="text-center">
               <div className="text-6xl mb-4 opacity-20">{ }</div>
               <div className="w-16 h-16 mx-auto mb-4 rounded-xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-center">
                 <span className="text-3xl opacity-40">📝</span>
               </div>
-              <p className="text-sm">点击左侧文件查看内容</p>
-              <p className="text-[10px] mt-1 text-[var(--muted)]/60">支持语法高亮 · 实时同步</p>
+              <p className="text-sm">{t('reqDetail.files.clickToView')}</p>
+              <p className="text-[10px] mt-1 text-[var(--muted)]/60">{t('reqDetail.files.syntaxHighlight')}</p>
             </div>
           </div>
         )}

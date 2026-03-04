@@ -1,22 +1,22 @@
 import { v4 as uuidv4 } from 'uuid';
 
 /**
- * 记忆系统 - 每个Agent拥有独立的长期记忆和短期记忆
+ * Memory System - Each Agent has independent long-term and short-term memory
  * 
- * 短期记忆：当前任务相关的临时信息，任务结束后可能被遗忘或提炼为长期记忆
- * 长期记忆：经验教训、技能成长、自我反思等持久信息，跟随Agent终身
+ * Short-term memory: temporary info related to current task, may be forgotten or consolidated after task ends
+ * Long-term memory: lessons learned, skill growth, self-reflection and other persistent info, stays with Agent permanently
  */
 export class Memory {
   constructor() {
-    this.shortTerm = [];   // 短期记忆列表
-    this.longTerm = [];    // 长期记忆列表
-    this.maxShortTerm = 10; // 短期记忆最大容量，超出后自动淘汰最旧的
+    this.shortTerm = [];   // Short-term memory list
+    this.longTerm = [];    // Long-term memory list
+    this.maxShortTerm = 10; // Max short-term capacity, oldest auto-evicted when exceeded
   }
 
   /**
-   * 添加短期记忆
-   * @param {string} content - 记忆内容
-   * @param {string} [category] - 分类标签
+   * Add short-term memory
+   * @param {string} content - Memory content
+   * @param {string} [category] - Category tag
    */
   addShortTerm(content, category = 'task') {
     const memory = {
@@ -28,12 +28,12 @@ export class Memory {
     };
     this.shortTerm.push(memory);
 
-    // 超出容量时淘汰最旧的
+    // Evict oldest when capacity exceeded
     if (this.shortTerm.length > this.maxShortTerm) {
       const evicted = this.shortTerm.shift();
-      // 被淘汰的短期记忆自动提炼为长期记忆摘要
+      // Auto-archive evicted short-term memory as long-term summary
       this.addLongTerm(
-        `[自动归档] ${evicted.content}`,
+        `[Auto-archived] ${evicted.content}`,
         'archived'
       );
     }
@@ -42,9 +42,9 @@ export class Memory {
   }
 
   /**
-   * 添加长期记忆
-   * @param {string} content - 记忆内容
-   * @param {string} [category] - 分类: experience | reflection | skill | feedback | archived
+   * Add long-term memory
+   * @param {string} content - Memory content
+   * @param {string} [category] - Category: experience | reflection | skill | feedback | archived
    */
   addLongTerm(content, category = 'experience') {
     const memory = {
@@ -59,9 +59,9 @@ export class Memory {
   }
 
   /**
-   * 将短期记忆提炼为长期记忆
-   * @param {string} shortTermId - 短期记忆ID
-   * @param {string} [refinedContent] - 提炼后的内容（不传则使用原内容）
+   * Consolidate short-term memory into long-term
+   * @param {string} shortTermId - Short-term memory ID
+   * @param {string} [refinedContent] - Refined content (uses original if not provided)
    */
   consolidate(shortTermId, refinedContent = null) {
     const idx = this.shortTerm.findIndex(m => m.id === shortTermId);
@@ -77,14 +77,14 @@ export class Memory {
   }
 
   /**
-   * 清空短期记忆（比如换部门/换项目时）
+   * Clear short-term memory (e.g. when switching department/project)
    */
   clearShortTerm() {
     this.shortTerm = [];
   }
 
   /**
-   * 按分类检索长期记忆
+   * Search long-term memory by category
    */
   searchLongTerm(category = null) {
     if (!category) return [...this.longTerm];
@@ -92,7 +92,7 @@ export class Memory {
   }
 
   /**
-   * 按关键词搜索所有记忆
+   * Search all memory by keyword
    */
   search(keyword) {
     const kw = keyword.toLowerCase();
@@ -106,7 +106,7 @@ export class Memory {
   }
 
   /**
-   * 获取记忆摘要
+   * Get memory summary
    */
   getSummary() {
     return {
@@ -126,7 +126,7 @@ export class Memory {
   }
 
   /**
-   * 序列化（用于持久化/人才市场保存）
+   * Serialize (for persistence / talent market storage)
    */
   serialize() {
     return {
@@ -136,7 +136,7 @@ export class Memory {
   }
 
   /**
-   * 从序列化数据恢复
+   * Restore from serialized data
    */
   static deserialize(data) {
     const memory = new Memory();
@@ -146,16 +146,16 @@ export class Memory {
   }
 
   /**
-   * 打印记忆内容
+   * Print memory contents (debug)
    */
   print(agentName = '') {
     const prefix = agentName ? `[${agentName}]` : '';
-    console.log(`\n🧠 ${prefix} 记忆系统:`);
-    console.log(`   短期记忆 (${this.shortTerm.length}条):`);
+    console.log(`\n🧠 ${prefix} Memory System:`);
+    console.log(`   Short-term (${this.shortTerm.length} items):`);
     this.shortTerm.forEach(m => {
       console.log(`     📝 [${m.category}] ${m.content}`);
     });
-    console.log(`   长期记忆 (${this.longTerm.length}条):`);
+    console.log(`   Long-term (${this.longTerm.length} items):`);
     this.longTerm.forEach(m => {
       console.log(`     💾 [${m.category}] ${m.content}`);
     });

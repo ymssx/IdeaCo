@@ -2,8 +2,10 @@
 
 import { useState, useEffect } from 'react';
 import { useStore } from '@/lib/client-store';
+import { useI18n } from '@/lib/i18n';
 
 export default function AgentDetailModal({ agentId, onClose }) {
+  const { t } = useI18n();
   const { fetchAgentDetail } = useStore();
   const [agent, setAgent] = useState(null);
   const [activeTab, setActiveTab] = useState('info');
@@ -25,7 +27,7 @@ export default function AgentDetailModal({ agentId, onClose }) {
       <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 !m-0" onClick={onClose}>
         <div className="card p-8 text-center" onClick={e => e.stopPropagation()}>
           <div className="text-2xl animate-pulse">⏳</div>
-          <p className="text-sm text-[var(--muted)] mt-2">加载中...</p>
+          <p className="text-sm text-[var(--muted)] mt-2">{t('common.loading')}</p>
         </div>
       </div>
     );
@@ -35,25 +37,25 @@ export default function AgentDetailModal({ agentId, onClose }) {
     return (
       <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 !m-0" onClick={onClose}>
         <div className="card p-8 text-center" onClick={e => e.stopPropagation()}>
-          <p>员工信息未找到</p>
-          <button className="btn-secondary mt-4" onClick={onClose}>关闭</button>
+          <p>{t('agent.notFound')}</p>
+          <button className="btn-secondary mt-4" onClick={onClose}>{t('common.close')}</button>
         </div>
       </div>
     );
   }
 
   const tabs = [
-    { id: 'info', label: '📋 基本信息' },
-    { id: 'memory', label: '🧠 记忆' },
-    { id: 'performance', label: '📊 绩效' },
-    { id: 'tasks', label: '📝 任务历史' },
-    { id: 'usage', label: '💰 消耗' },
+    { id: 'info', label: t('agent.tabs.info') },
+    { id: 'memory', label: t('agent.tabs.memory') },
+    { id: 'performance', label: t('agent.tabs.performance') },
+    { id: 'tasks', label: t('agent.tabs.tasks') },
+    { id: 'usage', label: t('agent.tabs.usage') },
   ];
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 !m-0" onClick={onClose}>
       <div className="card max-w-2xl w-full mx-4 max-h-[80vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
-        {/* 头部 */}
+        {/* Header */}
         <div className="flex items-start gap-4 pb-4 border-b border-[var(--border)]">
           <img src={agent.avatar} alt={agent.name} className="w-16 h-16 rounded-full bg-[var(--border)]" />
           <div className="flex-1">
@@ -62,6 +64,10 @@ export default function AgentDetailModal({ agentId, onClose }) {
               <span className={`status-dot ${agent.status}`} />
             </div>
             <div className="text-sm text-[var(--muted)]">{agent.role} · {agent.department}</div>
+            <div className="text-xs text-[var(--muted)] mt-1">
+              {agent.gender === 'female' ? '👩' : '👨'} {agent.age ? `${agent.age}岁` : ''}
+              {agent.personality?.trait && <span className="ml-2 text-purple-400">· {agent.personality.trait}</span>}
+            </div>
             <div className="text-xs text-[var(--muted)] italic mt-1">"{agent.signature}"</div>
             <div className="flex items-center gap-2 mt-2">
               <span className="text-xs bg-blue-900/30 text-blue-400 px-2 py-0.5 rounded">{agent.provider.name}</span>
@@ -71,7 +77,7 @@ export default function AgentDetailModal({ agentId, onClose }) {
                   agent.avgScore >= 60 ? 'bg-yellow-900/30 text-yellow-400' :
                   'bg-red-900/30 text-red-400'
                 }`}>
-                  平均绩效 {agent.avgScore}
+                  {t('agent.avgPerformance', { score: agent.avgScore })}
                 </span>
               )}
             </div>
@@ -79,7 +85,7 @@ export default function AgentDetailModal({ agentId, onClose }) {
           <button onClick={onClose} className="text-[var(--muted)] hover:text-white text-xl">✕</button>
         </div>
 
-        {/* 标签页 */}
+        {/* Tabs */}
         <div className="flex gap-1 pt-3 pb-2 border-b border-[var(--border)]">
           {tabs.map(t => (
             <button
@@ -94,18 +100,33 @@ export default function AgentDetailModal({ agentId, onClose }) {
           ))}
         </div>
 
-        {/* 内容区 */}
+        {/* Content area */}
         <div className="flex-1 overflow-auto p-4">
           {activeTab === 'info' && (
             <div className="space-y-4 animate-fade-in">
+              {/* 基本信息 */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-[var(--background)] border border-[var(--border)] rounded-lg p-3">
+                  <div className="text-xs text-[var(--muted)] mb-1">性别</div>
+                  <div className="text-sm font-medium">{agent.gender === 'female' ? '👩 女' : '👨 男'}</div>
+                </div>
+                <div className="bg-[var(--background)] border border-[var(--border)] rounded-lg p-3">
+                  <div className="text-xs text-[var(--muted)] mb-1">年龄</div>
+                  <div className="text-sm font-medium">{agent.age || '未知'}岁</div>
+                </div>
+                <div className="bg-[var(--background)] border border-[var(--border)] rounded-lg p-3">
+                  <div className="text-xs text-[var(--muted)] mb-1">性格</div>
+                  <div className="text-sm font-medium text-purple-400">{agent.personality?.trait || '未知'}</div>
+                </div>
+              </div>
               <div>
-                <h4 className="text-sm font-medium mb-2 text-[var(--muted)]">角色 Prompt</h4>
+                <h4 className="text-sm font-medium mb-2 text-[var(--muted)]">{t('agent.rolePrompt')}</h4>
                 <div className="bg-[var(--background)] p-3 rounded-lg text-sm whitespace-pre-wrap max-h-40 overflow-auto">
                   {agent.prompt}
                 </div>
               </div>
               <div>
-                <h4 className="text-sm font-medium mb-2 text-[var(--muted)]">技能</h4>
+                <h4 className="text-sm font-medium mb-2 text-[var(--muted)]">{t('agent.skills')}</h4>
                 <div className="flex flex-wrap gap-2">
                   {agent.skills.map((s, i) => (
                     <span key={i} className="text-sm bg-[var(--accent)]/10 text-[var(--accent)] px-2 py-1 rounded-lg">{s}</span>
@@ -118,10 +139,10 @@ export default function AgentDetailModal({ agentId, onClose }) {
           {activeTab === 'memory' && (
             <div className="space-y-4 animate-fade-in">
               <div>
-                <h4 className="text-sm font-medium mb-2 text-yellow-400">⚡ 短期记忆 ({agent.memory.shortTermCount})</h4>
+                <h4 className="text-sm font-medium mb-2 text-yellow-400">{t('agent.shortTermMemory', { n: agent.memory.shortTermCount })}</h4>
                 <div className="space-y-1.5">
                   {agent.memory.shortTerm.length === 0 ? (
-                    <p className="text-xs text-[var(--muted)]">暂无短期记忆</p>
+                    <p className="text-xs text-[var(--muted)]">{t('agent.noShortTerm')}</p>
                   ) : agent.memory.shortTerm.map((m) => (
                     <div key={m.id} className="bg-yellow-900/10 border border-yellow-900/20 rounded-lg p-2 text-xs">
                       <span className="text-yellow-500">[{m.category}]</span> {m.content}
@@ -130,10 +151,10 @@ export default function AgentDetailModal({ agentId, onClose }) {
                 </div>
               </div>
               <div>
-                <h4 className="text-sm font-medium mb-2 text-purple-400">💾 长期记忆 ({agent.memory.longTermCount})</h4>
+                <h4 className="text-sm font-medium mb-2 text-purple-400">{t('agent.longTermMemory', { n: agent.memory.longTermCount })}</h4>
                 <div className="space-y-1.5 max-h-60 overflow-auto">
                   {agent.memory.longTerm.length === 0 ? (
-                    <p className="text-xs text-[var(--muted)]">暂无长期记忆</p>
+                    <p className="text-xs text-[var(--muted)]">{t('agent.noLongTerm')}</p>
                   ) : agent.memory.longTerm.map((m) => (
                     <div key={m.id} className="bg-purple-900/10 border border-purple-900/20 rounded-lg p-2 text-xs">
                       <span className="text-purple-500">[{m.category}]</span> {m.content}
@@ -147,7 +168,7 @@ export default function AgentDetailModal({ agentId, onClose }) {
           {activeTab === 'performance' && (
             <div className="space-y-3 animate-fade-in">
               {agent.reviews.length === 0 ? (
-                <p className="text-sm text-[var(--muted)]">暂无绩效记录</p>
+                <p className="text-sm text-[var(--muted)]">{t('agent.noPerformance')}</p>
               ) : agent.reviews.map((r) => (
                 <div key={r.id} className="bg-[var(--background)] border border-[var(--border)] rounded-lg p-3">
                   <div className="flex items-center justify-between mb-2">
@@ -156,7 +177,7 @@ export default function AgentDetailModal({ agentId, onClose }) {
                       r.overallScore >= 80 ? 'text-green-400' :
                       r.overallScore >= 60 ? 'text-yellow-400' : 'text-red-400'
                     }`}>
-                      {r.overallScore}分 {r.level}
+                      {t('agent.score', { score: r.overallScore })} {r.level}
                     </span>
                   </div>
                   <div className="grid grid-cols-5 gap-1 mb-2">
@@ -177,15 +198,15 @@ export default function AgentDetailModal({ agentId, onClose }) {
           {activeTab === 'tasks' && (
             <div className="space-y-2 animate-fade-in">
               {agent.taskHistory.length === 0 ? (
-                <p className="text-sm text-[var(--muted)]">暂无任务记录</p>
+                <p className="text-sm text-[var(--muted)]">{t('agent.noTasks')}</p>
               ) : agent.taskHistory.map((t, i) => (
                 <div key={i} className="bg-[var(--background)] border border-[var(--border)] rounded-lg p-3 text-sm flex items-center gap-3">
                   <span>{t.success ? '✅' : '❌'}</span>
                   <div className="flex-1">
                     <div className="font-medium">{t.task}</div>
                     <div className="text-xs text-[var(--muted)]">
-                      {t.toolsUsed > 0 && `🔧 ${t.toolsUsed}次工具调用`}
-                      {t.completedAt && ` · ${new Date(t.completedAt).toLocaleString('zh')}`}
+                      {t.toolsUsed > 0 && `🔧 ${t.toolsUsed} tool calls`}
+                      {t.completedAt && ` · ${new Date(t.completedAt).toLocaleString()}`}
                     </div>
                   </div>
                 </div>
@@ -197,13 +218,13 @@ export default function AgentDetailModal({ agentId, onClose }) {
             <div className="space-y-4 animate-fade-in">
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-[var(--background)] border border-[var(--border)] rounded-lg p-3">
-                  <div className="text-xs text-[var(--muted)] mb-1">总费用</div>
+                  <div className="text-xs text-[var(--muted)] mb-1">{t('agent.totalCost')}</div>
                   <div className="text-2xl font-bold text-green-400">
                     ${(agent.tokenUsage?.totalCost || 0).toFixed(4)}
                   </div>
                 </div>
                 <div className="bg-[var(--background)] border border-[var(--border)] rounded-lg p-3">
-                  <div className="text-xs text-[var(--muted)] mb-1">总 Token</div>
+                  <div className="text-xs text-[var(--muted)] mb-1">{t('agent.totalTokens')}</div>
                   <div className="text-2xl font-bold text-blue-400">
                     {(agent.tokenUsage?.totalTokens || 0).toLocaleString()}
                   </div>
@@ -222,13 +243,13 @@ export default function AgentDetailModal({ agentId, onClose }) {
                 </div>
               </div>
               <div className="bg-[var(--background)] border border-[var(--border)] rounded-lg p-3">
-                <div className="text-xs text-[var(--muted)] mb-1">LLM 调用次数</div>
+                <div className="text-xs text-[var(--muted)] mb-1">{t('agent.callCount')}</div>
                 <div className="text-lg font-bold">
-                  {agent.tokenUsage?.callCount || 0} 次
+                  {agent.tokenUsage?.callCount || 0} {t('agent.callUnit')}
                 </div>
               </div>
               <div className="text-xs text-[var(--muted)]">
-                💡 消耗数据基于实际 LLM API 调用返回的 usage 信息累计
+                💡 {t('agent.usageHint')}
               </div>
             </div>
           )}

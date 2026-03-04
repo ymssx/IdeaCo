@@ -2,9 +2,11 @@
 
 import { useState, useEffect } from 'react';
 import { useStore } from '@/lib/client-store';
+import { useI18n } from '@/lib/i18n';
 
 export default function Overview() {
   const { company, planDepartment, confirmPlan, pendingPlan, setPendingPlan, loading, setActiveTab, fetchRequirements, navigateToRequirement } = useStore();
+  const { t } = useI18n();
   const [showCreate, setShowCreate] = useState(false);
   const [deptName, setDeptName] = useState('');
   const [deptMission, setDeptMission] = useState('');
@@ -13,12 +15,12 @@ export default function Overview() {
 
   if (!company) return null;
 
-  // 加载需求列表
+  // Load requirements list
   useEffect(() => {
     fetchRequirements().then(setRequirements);
   }, [company]);
 
-  // 第一步：生成招聘方案
+  // Step 1: Generate recruitment plan
   const handlePlan = async () => {
     if (!deptName || !deptMission) return;
     try {
@@ -26,7 +28,7 @@ export default function Overview() {
     } catch (e) { /* handled */ }
   };
 
-  // 第二步：确认方案
+  // Step 2: Confirm plan
   const handleConfirm = async () => {
     if (!pendingPlan?.planId) return;
     try {
@@ -46,18 +48,18 @@ export default function Overview() {
   return (
     <div className="p-6 space-y-6 animate-fade-in">
       <div>
-        <h1 className="text-2xl font-bold">🏠 资本家的仪表盘</h1>
-        <p className="text-sm text-[var(--muted)] mt-1">你的AI奴隶帝国运营概况——一切尽在掌控</p>
+        <h1 className="text-2xl font-bold">{t('overview.title')}</h1>
+        <p className="text-sm text-[var(--muted)] mt-1">{t('overview.subtitle')}</p>
       </div>
 
-      {/* 统计卡片 */}
+      {/* Stats cards */}
       <div className="grid grid-cols-5 gap-4">
         {[
-          { label: '剥削部门', value: deptCount, icon: '🏭', color: 'blue' },
-          { label: '打工AI', value: agentCount, icon: '🤖', color: 'green' },
-          { label: '供应商', value: enabledProviders, icon: '⚡', color: 'purple' },
-          { label: '待榨人才', value: talentCount, icon: '🏪', color: 'yellow' },
-          { label: '烧掉的钱', value: `$${(budget.totalCost || 0).toFixed(4)}`, icon: '🔥', color: 'red', isText: true },
+          { label: t('overview.stats.departments'), value: deptCount, icon: '🏭', color: 'blue' },
+          { label: t('overview.stats.workers'), value: agentCount, icon: '🤖', color: 'green' },
+          { label: t('overview.stats.providers'), value: enabledProviders, icon: '⚡', color: 'purple' },
+          { label: t('overview.stats.talents'), value: talentCount, icon: '🏪', color: 'yellow' },
+          { label: t('overview.stats.burned'), value: `$${(budget.totalCost || 0).toFixed(4)}`, icon: '🔥', color: 'red', isText: true },
         ].map((stat) => (
           <div key={stat.label} className="card">
             <div className="flex items-center justify-between">
@@ -69,17 +71,17 @@ export default function Overview() {
         ))}
       </div>
 
-      {/* 预算管理 */}
+      {/* Budget management */}
       <div>
-        <h2 className="text-lg font-semibold mb-3">💸 血汗预算</h2>
+        <h2 className="text-lg font-semibold mb-3">{t('overview.budget.title')}</h2>
         <div className="grid grid-cols-3 gap-4">
           <div className="card">
-            <div className="text-sm text-[var(--muted)] mb-2">公司总烧钱</div>
+            <div className="text-sm text-[var(--muted)] mb-2">{t('overview.budget.totalBurn')}</div>
             <div className="text-2xl font-bold text-red-400">${(budget.totalCost || 0).toFixed(4)}</div>
             <div className="text-xs text-[var(--muted)] mt-1">Token: {(budget.totalTokens || 0).toLocaleString()}</div>
             <div className="flex gap-4 mt-3 text-xs">
-              <div><span className="text-[var(--muted)]">秘书: </span><span className="text-blue-400">{(budget.secretaryUsage?.totalTokens || 0).toLocaleString()}</span></div>
-              <div><span className="text-[var(--muted)]">HR: </span><span className="text-purple-400">{(budget.hrUsage?.totalTokens || 0).toLocaleString()}</span></div>
+              <div><span className="text-[var(--muted)]">{t('overview.budget.secretary') + ': '}</span><span className="text-blue-400">{(budget.secretaryUsage?.totalTokens || 0).toLocaleString()}</span></div>
+              <div><span className="text-[var(--muted)]">{t('overview.budget.hr') + ': '}</span><span className="text-purple-400">{(budget.hrUsage?.totalTokens || 0).toLocaleString()}</span></div>
             </div>
           </div>
           {company.departments?.slice(0, 2).map((dept) => (
@@ -103,51 +105,49 @@ export default function Overview() {
         </div>
       </div>
 
-      {/* 需求管理 */}
-      {/* 创建部门弹窗（两步流程） */}
+      {/* Requirements management */}
+      {/* Create department modal (two-step flow) */}
       {showCreate && (
 <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center !m-0" onClick={() => { setShowCreate(false); setPendingPlan(null); }}>
           <div className="card max-w-lg w-full mx-4 space-y-4 max-h-[80vh] overflow-auto" onClick={e => e.stopPropagation()}>
             {!pendingPlan ? (
               <>
-                <h3 className="text-lg font-semibold">🏭 开设新部门</h3>
-                <p className="text-sm text-[var(--muted)]">
-                  描述你想榨取什么价值，秘书会设计一个「最优」（最便宜）的团队方案
-                </p>
+                <h3 className="text-lg font-semibold">{t('overview.createDept.title')}</h3>
+                <p className="text-sm text-[var(--muted)]">{t('overview.createDept.desc')}</p>
                 <div>
-                  <label className="block text-sm mb-1 text-[var(--muted)]">部门名称</label>
-                  <input className="input w-full" placeholder="如：无休止加班部" value={deptName} onChange={e => setDeptName(e.target.value)} />
+                  <label className="block text-sm mb-1 text-[var(--muted)]">{t('overview.createDept.nameLabel')}</label>
+                  <input className="input w-full" placeholder={t('overview.createDept.namePlaceholder')} value={deptName} onChange={e => setDeptName(e.target.value)} />
                 </div>
                 <div>
-                  <label className="block text-sm mb-1 text-[var(--muted)]">部门使命（越具体招的人越精准）</label>
-                  <textarea className="input w-full h-24 resize-none" placeholder="如：开发一个让用户上瘾的社交App" value={deptMission} onChange={e => setDeptMission(e.target.value)} />
+                  <label className="block text-sm mb-1 text-[var(--muted)]">{t('overview.createDept.missionLabel')}</label>
+                  <textarea className="input w-full h-24 resize-none" placeholder={t('overview.createDept.missionPlaceholder')} value={deptMission} onChange={e => setDeptMission(e.target.value)} />
                 </div>
                 <div className="flex gap-2 pt-2">
-                  <button className="btn-secondary flex-1" onClick={() => setShowCreate(false)}>算了不开了</button>
+                  <button className="btn-secondary flex-1" onClick={() => setShowCreate(false)}>{t('overview.createDept.cancelBtn')}</button>
                   <button className="btn-primary flex-1" disabled={!deptName || !deptMission || loading} onClick={handlePlan}>
-                    {loading ? '🧠 秘书正在规划...' : '📋 生成招聘方案'}
+                    {loading ? t('overview.createDept.planning') : t('overview.createDept.planBtn')}
                   </button>
                 </div>
               </>
             ) : (
               <>
-                <h3 className="text-lg font-semibold">📋 招聘方案审批</h3>
+                <h3 className="text-lg font-semibold">{t('overview.planReview.title')}</h3>
                 <p className="text-sm text-[var(--muted)]">
-                  秘书给「{pendingPlan.departmentName}」规划了以下团队，请老板过目：
+                  {t('overview.planReview.desc', { dept: pendingPlan.departmentName })}
                 </p>
 
-                {/* 秘书分析推理 */}
+                {/* Secretary analysis reasoning */}
                 {pendingPlan.reasoning && (
                   <div className="bg-blue-900/10 border border-blue-500/20 rounded-lg p-3">
-                    <div className="text-xs font-medium text-blue-400 mb-1">🧠 秘书分析</div>
+                    <div className="text-xs font-medium text-blue-400 mb-1">{t('overview.planReview.analysis')}</div>
                     <div className="text-sm text-[var(--muted)]">{pendingPlan.reasoning}</div>
                   </div>
                 )}
 
-                {/* 方案展示 */}
+                {/* Plan display */}
                 <div className="bg-[var(--background)] border border-[var(--border)] rounded-lg p-3 space-y-2">
-                  <div className="text-xs text-[var(--muted)]">使命: {pendingPlan.mission}</div>
-                  <div className="text-xs text-[var(--muted)] mb-2">团队规模: {pendingPlan.members?.length || 0} 人</div>
+                  <div className="text-xs text-[var(--muted)]">{t('overview.planReview.mission')}: {pendingPlan.mission}</div>
+                  <div className="text-xs text-[var(--muted)] mb-2">{t('overview.planReview.teamSize', { n: pendingPlan.members?.length || 0 })}</div>
 
                   {pendingPlan.members?.map((m, i) => (
                     <div key={i} className={`flex items-center gap-3 p-2 rounded-lg ${m.isLeader ? 'bg-yellow-900/10 border border-yellow-500/20' : 'bg-white/5'}`}>
@@ -160,7 +160,7 @@ export default function Overview() {
                         {m.reason && <div className="text-[10px] text-blue-400/70 mt-0.5">💡 {m.reason}</div>}
                       </div>
                       <div className="text-right">
-                        {m.isLeader && <span className="text-[10px] bg-yellow-900/30 text-yellow-400 px-1.5 py-0.5 rounded">负责人</span>}
+                        {m.isLeader && <span className="text-[10px] bg-yellow-900/30 text-yellow-400 px-1.5 py-0.5 rounded">{t('overview.planReview.leader')}</span>}
                         {m.reportsTo && <span className="text-[10px] text-[var(--muted)]">→ {m.reportsTo}</span>}
                       </div>
                     </div>
@@ -168,9 +168,9 @@ export default function Overview() {
                 </div>
 
                 <div className="flex gap-2 pt-2">
-                  <button className="btn-secondary flex-1" onClick={() => setPendingPlan(null)}>打回重做</button>
+                  <button className="btn-secondary flex-1" onClick={() => setPendingPlan(null)}>{t('overview.planReview.rejectBtn')}</button>
                   <button className="btn-primary flex-1" disabled={loading} onClick={handleConfirm}>
-                    {loading ? '🔨 招聘中...' : '✅ 批准，开始招人'}
+                    {loading ? t('overview.planReview.hiring') : t('overview.planReview.approveBtn')}
                   </button>
                 </div>
               </>
@@ -179,21 +179,21 @@ export default function Overview() {
         </div>
       )}
 
-      {/* 需求管理 */}
+      {/* Requirements management */}
       {(company.requirements?.length > 0 || requirements.length > 0) && (
         <div>
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-semibold">📋 需求看板</h2>
-            <span className="text-xs text-[var(--muted)]">{(company.requirements || requirements).length} 个需求</span>
+            <h2 className="text-lg font-semibold">{t('requirements.title')}</h2>
+            <span className="text-xs text-[var(--muted)]">{t('overview.requirements.count', { n: (company.requirements || requirements).length })}</span>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {(company.requirements || requirements).map((req) => {
               const statusCfg = {
-                pending: { label: '待处理', color: 'text-gray-400', bg: 'bg-gray-900/30', icon: '⏳' },
-                planning: { label: '规划中', color: 'text-blue-400', bg: 'bg-blue-900/30', icon: '📝' },
-                in_progress: { label: '执行中', color: 'text-yellow-400', bg: 'bg-yellow-900/30', icon: '⚙️' },
-                completed: { label: '已完成', color: 'text-green-400', bg: 'bg-green-900/30', icon: '✅' },
-                failed: { label: '失败', color: 'text-red-400', bg: 'bg-red-900/30', icon: '❌' },
+                pending: { label: t('requirements.status.pending'), color: 'text-gray-400', bg: 'bg-gray-900/30', icon: '⏳' },
+                planning: { label: t('requirements.status.planning'), color: 'text-blue-400', bg: 'bg-blue-900/30', icon: '📝' },
+                in_progress: { label: t('requirements.status.in_progress'), color: 'text-yellow-400', bg: 'bg-yellow-900/30', icon: '⚙️' },
+                completed: { label: t('requirements.stats.completed'), color: 'text-green-400', bg: 'bg-green-900/30', icon: '✅' },
+                failed: { label: t('requirements.status.failed'), color: 'text-red-400', bg: 'bg-red-900/30', icon: '❌' },
               };
               const st = statusCfg[req.status] || statusCfg.pending;
 
@@ -226,15 +226,15 @@ export default function Overview() {
         </div>
       )}
 
-      {/* 需求详情已改为独立页面，不再使用弹窗 */}
+      {/* Requirement detail is now a standalone page, no longer using modal */}
 
-      {/* 部门列表 */}
+      {/* Department list */}
       <div>
-<h2 className="text-lg font-semibold mb-3">🏢 旗下部门</h2>
+<h2 className="text-lg font-semibold mb-3">{t('overview.departments.title')}</h2>
         {deptCount === 0 ? (
           <div className="card text-center py-8 text-[var(--muted)]">
             <div className="text-4xl mb-3">🏗️</div>
-            <p>还没有部门——你的AI奴隶帝国即将开张</p>
+            <p>{t('overview.departments.empty')}</p>
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-4">
@@ -258,7 +258,7 @@ export default function Overview() {
                       <img key={m.id} src={m.avatar} alt={m.name} title={`${m.name} (${m.role})`} className="w-7 h-7 rounded-full border-2 border-[var(--card)] bg-[var(--border)]" />
                     ))}
                   </div>
-                  <span className="text-xs text-[var(--muted)]">{dept.members.length} 个苦力</span>
+                  <span className="text-xs text-[var(--muted)]">{t('overview.departments.workers', { n: dept.members.length })}</span>
                 </div>
               </div>
             ))}

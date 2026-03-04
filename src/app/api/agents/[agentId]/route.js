@@ -3,7 +3,7 @@ import { getCompany } from '@/lib/store';
 
 export async function GET(request, { params }) {
   const company = getCompany();
-  if (!company) return NextResponse.json({ error: '请先创建公司' }, { status: 400 });
+  if (!company) return NextResponse.json({ error: 'Please create a company first' }, { status: 400 });
 
   try {
     const { agentId } = await params;
@@ -17,6 +17,9 @@ export async function GET(request, { params }) {
             name: agent.name,
             role: agent.role,
             avatar: agent.avatar,
+            gender: agent.gender,
+            age: agent.age,
+            personality: agent.personality,
             signature: agent.signature,
             prompt: agent.prompt,
             skills: agent.skills,
@@ -41,7 +44,7 @@ export async function GET(request, { params }) {
         });
       }
     }
-    return NextResponse.json({ error: '员工不存在' }, { status: 404 });
+    return NextResponse.json({ error: 'Employee not found' }, { status: 404 });
   } catch (e) {
     return NextResponse.json({ error: e.message }, { status: 500 });
   }

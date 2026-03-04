@@ -1,6 +1,6 @@
 /**
- * 客户端状态管理 - Zustand
- * 资本的血泪都在这里流转
+ * Client-side state management - Zustand
+ * Where the blood and tears of capital flow
  */
 import { create } from 'zustand';
 import { normalizeAvatarUrl } from '@/lib/avatar';
@@ -13,12 +13,12 @@ async function apiCall(url, options = {}) {
     ...options,
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || '请求失败');
+  if (!res.ok) throw new Error(data.error || 'Request failed');
   return data;
 }
 
 /**
- * 将公司数据中所有头像 URL 转换为本地代理 URL
+ * Convert all avatar URLs in company data to local proxy URLs
  */
 function normalizeCompanyAvatars(company) {
   if (!company) return company;
@@ -48,7 +48,7 @@ function normalizeCompanyAvatars(company) {
 }
 
 export const useStore = create((set, get) => ({
-  // === 公司状态 ===
+  // === Company State ===
   company: null,
   initialized: false,
   loading: false,
@@ -56,8 +56,8 @@ export const useStore = create((set, get) => ({
   activeTab: 'overview',
   chatOpen: false,
 
-  // === 招聘方案 ===
-  pendingPlan: null, // 当前待审批的招聘方案
+  // === Recruitment Plan ===
+  pendingPlan: null, // Current pending recruitment plan
 
   setActiveTab: (tab) => set({ activeTab: tab }),
   setChatOpen: (open) => set({ chatOpen: open }),
@@ -65,7 +65,7 @@ export const useStore = create((set, get) => ({
   clearError: () => set({ error: null }),
   setPendingPlan: (plan) => set({ pendingPlan: plan }),
 
-  // === 需求详情页导航 ===
+  // === Requirement Detail Navigation ===
   previousTab: null,
   navigateToRequirement: (id) => {
     const { activeTab } = get();
@@ -85,7 +85,7 @@ export const useStore = create((set, get) => ({
     });
   },
 
-  // === 公司操作 ===
+  // === Company Operations ===
   fetchCompany: async () => {
     try {
       const data = await apiCall('/company');
@@ -110,7 +110,7 @@ export const useStore = create((set, get) => ({
     }
   },
 
-  // === 供应商操作 ===
+  // === Provider Operations ===
   configureProvider: async (providerId, apiKey) => {
     try {
       await apiCall(`/providers/${providerId}/configure`, {
@@ -124,8 +124,8 @@ export const useStore = create((set, get) => ({
     }
   },
 
-  // === 部门操作（两步流程） ===
-  // 第一步：获取招聘方案
+  // === Department Operations (two-step flow) ===
+  // Step 1: Get recruitment plan
   planDepartment: async (name, mission) => {
     set({ loading: true, error: null });
     try {
@@ -141,7 +141,7 @@ export const useStore = create((set, get) => ({
     }
   },
 
-  // 第二步：确认方案，开始招人
+  // Step 2: Confirm plan, start recruiting
   confirmPlan: async (planId) => {
     set({ loading: true, error: null });
     try {
@@ -157,8 +157,8 @@ export const useStore = create((set, get) => ({
     }
   },
 
-  // === 部门调整（两步流程） ===
-  // 第一步：获取调整方案
+  // === Department Adjustment (two-step flow) ===
+  // Step 1: Get adjustment plan
   planAdjustment: async (departmentId, adjustGoal) => {
     set({ loading: true, error: null });
     try {
@@ -174,7 +174,7 @@ export const useStore = create((set, get) => ({
     }
   },
 
-  // 第二步：确认调整
+  // Step 2: Confirm adjustment
   confirmAdjustment: async (planId) => {
     set({ loading: true, error: null });
     try {
@@ -190,7 +190,7 @@ export const useStore = create((set, get) => ({
     }
   },
 
-  // 解散部门
+  // Disband department
   disbandDepartment: async (departmentId, reason) => {
     set({ loading: true, error: null });
     try {
@@ -206,7 +206,7 @@ export const useStore = create((set, get) => ({
     }
   },
 
-  // === 员工操作 ===
+  // === Employee Operations ===
   dismissAgent: async (deptId, agentId, reason) => {
     try {
       const data = await apiCall(`/departments/${deptId}/agents/${agentId}/dismiss`, {
@@ -230,7 +230,7 @@ export const useStore = create((set, get) => ({
     }
   },
 
-  // === 人才市场 ===
+  // === Talent Market ===
   recallAgent: async (profileId, departmentId, newSkills) => {
     try {
       const data = await apiCall(`/talent-market/${profileId}/recall`, {
@@ -256,7 +256,7 @@ export const useStore = create((set, get) => ({
     }
   },
 
-  // === 与秘书聊天 ===
+  // === Chat with Secretary ===
   chatWithSecretary: async (message) => {
     try {
       const data = await apiCall('/chat', {
@@ -265,7 +265,7 @@ export const useStore = create((set, get) => ({
       });
       await get().fetchCompany();
 
-      // 如果有任务正在执行，启动轮询
+      // If a task is running, start polling
       const reply = data.data?.reply;
       if (reply?.action?.taskId && reply?.action?.taskStatus === 'running') {
         get()._pollTaskStatus(reply.action.taskId);
@@ -278,7 +278,7 @@ export const useStore = create((set, get) => ({
     }
   },
 
-  // === 任务状态轮询 ===
+  // === Task Status Polling ===
   runningTaskId: null,
   taskResult: null,
 
@@ -292,29 +292,153 @@ export const useStore = create((set, get) => ({
 
         if (state.status === 'completed') {
           set({ taskResult: state.summary, runningTaskId: null });
-          // 刷新公司状态以获取最新邮件和数据
+          // Refresh company state to get latest mail and data
           await get().fetchCompany();
-          return; // 停止轮询
+          return; // Stop polling
         } else if (state.status === 'failed') {
           set({ taskResult: { error: state.error }, runningTaskId: null });
-          return; // 停止轮询
+          return; // Stop polling
         }
 
-        // 还在执行中，继续轮询
+        // Still running, continue polling
         setTimeout(poll, 3000);
       } catch {
-        // 轮询失败，重试
+        // Polling failed, retry
         setTimeout(poll, 5000);
       }
     };
 
-    // 首次延迟5秒后开始轮询（给任务一些执行时间）
+    // Initial 5-second delay before polling (give the task some execution time)
     setTimeout(poll, 5000);
   },
 
   clearTaskResult: () => set({ taskResult: null, runningTaskId: null }),
 
-  // === 秘书设置 ===
+  // === Cron Jobs ===
+  fetchCronJobs: async () => {
+    try {
+      const data = await apiCall('/system/cron');
+      return data.data;
+    } catch (e) {
+      return { summary: {}, jobs: [] };
+    }
+  },
+
+  createCronJob: async (config) => {
+    try {
+      const data = await apiCall('/system/cron', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'create', ...config }),
+      });
+      return data.data;
+    } catch (e) {
+      set({ error: e.message });
+      throw e;
+    }
+  },
+
+  manageCronJob: async (action, jobId) => {
+    try {
+      const data = await apiCall('/system/cron', {
+        method: 'POST',
+        body: JSON.stringify({ action, jobId }),
+      });
+      return data.data;
+    } catch (e) {
+      set({ error: e.message });
+      throw e;
+    }
+  },
+
+  // === Plugins ===
+  fetchPlugins: async () => {
+    try {
+      const data = await apiCall('/system/plugins');
+      return data.data;
+    } catch (e) {
+      return [];
+    }
+  },
+
+  managePlugin: async (action, pluginId) => {
+    try {
+      const data = await apiCall('/system/plugins', {
+        method: 'POST',
+        body: JSON.stringify({ action, pluginId }),
+      });
+      return data.data;
+    } catch (e) {
+      set({ error: e.message });
+      throw e;
+    }
+  },
+
+  // === Skills ===
+  fetchSkills: async () => {
+    try {
+      const data = await apiCall('/system/skills');
+      return data.data;
+    } catch (e) {
+      return [];
+    }
+  },
+
+  manageSkill: async (action, skillId, config) => {
+    try {
+      const data = await apiCall('/system/skills', {
+        method: 'POST',
+        body: JSON.stringify({ action, skillId, config }),
+      });
+      return data.data;
+    } catch (e) {
+      set({ error: e.message });
+      throw e;
+    }
+  },
+
+  // === Knowledge Base ===
+  fetchKnowledge: async () => {
+    try {
+      const data = await apiCall('/system/knowledge');
+      return data.data;
+    } catch (e) {
+      return { bases: [], stats: {} };
+    }
+  },
+
+  searchKnowledge: async (query) => {
+    try {
+      const data = await apiCall(`/system/knowledge?query=${encodeURIComponent(query)}`);
+      return data.data;
+    } catch (e) {
+      return [];
+    }
+  },
+
+  manageKnowledge: async (action, payload) => {
+    try {
+      const data = await apiCall('/system/knowledge', {
+        method: 'POST',
+        body: JSON.stringify({ action, ...payload }),
+      });
+      return data.data;
+    } catch (e) {
+      set({ error: e.message });
+      throw e;
+    }
+  },
+
+  // === System Status ===
+  fetchSystemStatus: async () => {
+    try {
+      const data = await apiCall('/system/status');
+      return data.data;
+    } catch (e) {
+      return null;
+    }
+  },
+
+  // === Secretary Settings ===
   updateSecretarySettings: async (settings) => {
     try {
       const data = await apiCall('/secretary', {
@@ -333,7 +457,7 @@ export const useStore = create((set, get) => ({
     }
   },
 
-  // === 邮箱 ===
+  // === Mailbox ===
   replyMail: async (mailId, content) => {
     try {
       const data = await apiCall('/mailbox', {
@@ -354,7 +478,7 @@ export const useStore = create((set, get) => ({
         method: 'POST',
         body: JSON.stringify({ action: 'read', mailId }),
       });
-      // 本地更新已读状态
+      // Locally update read status
       const { company } = get();
       if (company?.mailbox) {
         const mail = company.mailbox.find(m => m.id === mailId);
@@ -374,7 +498,7 @@ export const useStore = create((set, get) => ({
     } catch (e) { /* ignore */ }
   },
 
-  // === 消息 ===
+  // === Messages ===
   fetchMessages: async (limit = 20) => {
     try {
       const data = await apiCall(`/messages?limit=${limit}`);
@@ -384,7 +508,7 @@ export const useStore = create((set, get) => ({
     }
   },
 
-  // === 工作空间 ===
+  // === Workspace ===
   fetchWorkspaceFiles: async (departmentId) => {
     try {
       const data = await apiCall(`/workspace/${departmentId}/files`);
@@ -403,7 +527,7 @@ export const useStore = create((set, get) => ({
     }
   },
 
-  // === 需求管理 ===
+  // === Requirement Management ===
   activeRequirementId: null,
   requirementDetail: null,
 
@@ -438,11 +562,11 @@ export const useStore = create((set, get) => ({
     }
   },
 
-  // === 需求操作 ===
+  // === Requirement Operations ===
   deleteRequirement: async (id) => {
     try {
       await apiCall(`/requirements?id=${id}`, { method: 'DELETE' });
-      // 如果当前正在查看这个需求，跳回列表
+      // If currently viewing this requirement, navigate back to list
       const { activeRequirementId } = get();
       if (activeRequirementId === id) {
         get().navigateBack();
@@ -460,7 +584,7 @@ export const useStore = create((set, get) => ({
         method: 'POST',
         body: JSON.stringify({ action: 'restart', id }),
       });
-      // 如果有新的需求ID，导航到新需求
+      // If there's a new requirement ID, navigate to the new requirement
       if (data.data?.newId) {
         set({ activeRequirementId: data.data.newId, requirementDetail: null });
         await get().fetchRequirementDetail(data.data.newId);

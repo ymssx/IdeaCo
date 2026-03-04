@@ -1,14 +1,18 @@
-import './globals.css';
+'use client';
 
-export const metadata = {
-  title: 'AI Enterprise - AI企业管理系统',
-  description: '招聘AI Agent组建部门协作完成真实项目',
-};
+import './globals.css';
+import { I18nProvider } from '@/lib/i18n';
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="zh-CN">
-      <body className="min-h-screen">{children}</body>
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <title>AI Enterprise - AI Company Management</title>
+        <meta name="description" content="Recruit AI Agents to form departments and collaborate on real projects" />
+      </head>
+      <body className="min-h-screen">
+        <I18nProvider>{children}</I18nProvider>
+      </body>
     </html>
   );
 }

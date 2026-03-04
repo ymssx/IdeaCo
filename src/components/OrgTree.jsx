@@ -3,16 +3,17 @@
 import { useState } from 'react';
 import { useStore } from '@/lib/client-store';
 import AgentDetailModal from './AgentDetailModal';
+import { useI18n } from '@/lib/i18n';
 
 /**
- * 树状图节点 - 递归渲染（可点击查看详情）
+ * Tree node - recursive render (clickable for detail)
  */
 function TreeNode({ node, allMembers, depth = 0, onClickAgent }) {
   const subs = allMembers.filter(m => m.reportsTo === node.id);
 
   return (
     <div className="flex flex-col items-center">
-      {/* 节点 */}
+      {/* Node */}
       <div
         onClick={() => onClickAgent?.(node.id)}
         className={`flex flex-col items-center p-3 rounded-xl border transition-all hover:scale-105 cursor-pointer ${
@@ -25,7 +26,9 @@ function TreeNode({ node, allMembers, depth = 0, onClickAgent }) {
       >
         <img src={node.avatar} alt={node.name} className="w-12 h-12 rounded-full bg-[var(--border)] mb-1" />
         <div className="text-sm font-medium text-center">{node.name}</div>
-        <div className="text-[10px] text-[var(--muted)]">{node.role}</div>
+        <div className="text-[10px] text-[var(--muted)]">
+          {node.gender === 'female' ? '👩' : '👨'}{node.age ? ` ${node.age}` : ''} · {node.role}
+        </div>
         <div className="text-[10px] text-[var(--muted)] italic mt-0.5 max-w-[120px] truncate text-center" title={node.signature}>
           "{node.signature}"
         </div>
@@ -34,12 +37,12 @@ function TreeNode({ node, allMembers, depth = 0, onClickAgent }) {
         )}
       </div>
 
-      {/* 下属连接线和子节点 */}
+      {/* Subordinate connections and child nodes */}
       {subs.length > 0 && (
         <>
           <div className="w-px h-6 bg-[var(--border)]" />
           <div className="flex gap-6 relative">
-            {/* 横线连接 */}
+            {/* Horizontal connector */}
             {subs.length > 1 && (
               <div className="absolute top-0 left-1/2 -translate-x-1/2 h-px bg-[var(--border)]"
                 style={{ width: `calc(100% - 60px)` }} />
@@ -58,6 +61,7 @@ function TreeNode({ node, allMembers, depth = 0, onClickAgent }) {
 }
 
 export default function OrgTree({ embedded = false }) {
+  const { t } = useI18n();
   const { company } = useStore();
   const [selectedAgent, setSelectedAgent] = useState(null);
 
@@ -67,34 +71,36 @@ export default function OrgTree({ embedded = false }) {
     <div className={`${embedded ? 'p-4' : 'p-6 space-y-6'} animate-fade-in`}>
       {!embedded && (
         <div>
-          <h1 className="text-2xl font-bold">🌳 压迫链</h1>
-          <p className="text-sm text-[var(--muted)] mt-1">谁压迫谁，一目了然。点击任意节点查看详情。</p>
+          <h1 className="text-2xl font-bold">{t('orgTree.title')}</h1>
+          <p className="text-sm text-[var(--muted)] mt-1">{t('orgTree.subtitle')}</p>
         </div>
       )}
 
-      {/* 公司级别 */}
+      {/* Company level */}
       <div className="flex flex-col items-center">
-        {/* 老板 */}
+        {/* Boss */}
         <div className="flex flex-col items-center p-4 rounded-xl bg-gradient-to-br from-yellow-900/30 to-red-900/20 border border-yellow-500/30 shadow-lg shadow-yellow-500/10 mb-2">
           <div className="text-3xl mb-1">👑</div>
           <div className="text-sm font-bold">{company.boss}</div>
-          <div className="text-[10px] text-yellow-400">终极资本家</div>
+          <div className="text-[10px] text-yellow-400">{t('orgTree.boss')}</div>
         </div>
         <div className="w-px h-6 bg-[var(--border)]" />
 
-        {/* 秘书 */}
+        {/* Secretary */}
         <div className="flex flex-col items-center p-3 rounded-xl bg-gradient-to-br from-purple-900/20 to-pink-900/20 border border-purple-500/20 mb-2">
-          <img src={company.secretary?.avatar} alt="秘书" className="w-10 h-10 rounded-full bg-[var(--border)] mb-1" />
+          <img src={company.secretary?.avatar} alt="secretary" className="w-10 h-10 rounded-full bg-[var(--border)] mb-1" />
           <div className="text-sm font-medium">{company.secretary?.name}</div>
-          <div className="text-[10px] text-purple-400">专属秘书（首席帮凶）</div>
+          <div className="text-[10px] text-purple-400">
+            {company.secretary?.gender === 'female' ? '👩' : '👨'}{company.secretary?.age ? ` ${company.secretary.age}岁` : ''} · {t('orgTree.secretary')}
+          </div>
         </div>
         <div className="w-px h-6 bg-[var(--border)]" />
 
-        {/* 各部门 */}
+        {/* Departments */}
         {company.departments?.length > 0 ? (
           <div className="flex gap-12 flex-wrap justify-center">
             {company.departments.map(dept => {
-              // 找到部门负责人（顶级节点）
+              // Find department leader (top-level node)
               const leader = dept.members.find(m => m.id === dept.leader);
               const others = dept.members.filter(m => !m.reportsTo && m.id !== dept.leader);
 
@@ -108,10 +114,10 @@ export default function OrgTree({ embedded = false }) {
                   {leader ? (
                     <TreeNode node={leader} allMembers={dept.members} depth={0} onClickAgent={setSelectedAgent} />
                   ) : (
-                    <div className="text-sm text-[var(--muted)]">暂无负责人</div>
+                    <div className="text-sm text-[var(--muted)]">{t('orgTree.noLeader')}</div>
                   )}
 
-                  {/* 没有上级的非leader成员 */}
+                  {/* Non-leader members without a superior */}
                   {others.length > 0 && (
                     <div className="flex gap-4 mt-4">
                       {others.map(m => (
@@ -126,12 +132,12 @@ export default function OrgTree({ embedded = false }) {
         ) : (
           <div className="card text-center py-8 text-[var(--muted)]">
             <div className="text-4xl mb-3">🕳️</div>
-            <p>还没有任何下属——孤独的暴君</p>
+            <p>{t('orgTree.empty')}</p>
           </div>
         )}
       </div>
 
-      {/* Agent详情弹窗 */}
+      {/* Agent detail modal */}
       {selectedAgent && (
         <AgentDetailModal agentId={selectedAgent} onClose={() => setSelectedAgent(null)} />
       )}

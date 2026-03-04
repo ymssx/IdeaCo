@@ -1,44 +1,97 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useStore } from '@/lib/client-store';
-import { getAvatarUrl, AVATAR_STYLES as ALL_AVATAR_STYLES } from '@/lib/avatar';
+import { getAvatarChoices } from '@/lib/avatar';
+import { useI18n, LanguageSelector, LANGUAGES } from '@/lib/i18n';
+import { ModelProviders, JobCategory } from '@/core/providers';
 
-const AVAILABLE_MODELS = [
-  { id: 'openai-gpt4', name: 'OpenAI GPT-4', provider: 'OpenAI', rating: 95, price: '$0.03/1K', priceLevel: 3 },
-  { id: 'anthropic-claude', name: 'Claude 3.5 Sonnet', provider: 'Anthropic', rating: 93, price: '$0.015/1K', priceLevel: 2 },
-  { id: 'deepseek-v3', name: 'DeepSeek V3', provider: 'DeepSeek', rating: 88, price: '$0.001/1K', priceLevel: 1 },
-  { id: 'openai-gpt35', name: 'GPT-3.5 Turbo', provider: 'OpenAI', rating: 72, price: '$0.002/1K', priceLevel: 1 },
-];
+// Extract GENERAL models from brain providers
+const AVAILABLE_MODELS = Object.values(ModelProviders)
+  .filter(m => m.category === JobCategory.GENERAL)
+  .map(m => ({
+    id: m.id,
+    name: m.name,
+    provider: m.provider,
+    rating: m.rating || 0,
+    price: m.priceLabel || '',
+    priceLevel: m.priceLevel || 2,
+  }));
 
 const PRICE_COLORS = ['text-green-400', 'text-yellow-400', 'text-red-400'];
-const PRICE_LABELS = ['💰 便宜', '💰💰 适中', '💰💰💰 较贵'];
 
-const AVATAR_STYLES = [
-  'adventurer', 'avataaars', 'bottts', 'fun-emoji', 'lorelei', 'micah', 'personas', 'pixel-art',
-];
-// 注：此处用精选子集，全集在 avatar.js 中
+const AVATAR_CHOICES_COUNT = 16;
 
 export default function SetupWizard() {
   const { createCompany, loading } = useStore();
+  const { t, lang } = useI18n();
   const [step, setStep] = useState(1);
-  const [companyName, setCompanyName] = useState('金点子无限公司');
+  const [companyName, setCompanyName] = useState(t('setup.defaultCompany'));
   const [bossName, setBossName] = useState('');
   const [selectedModel, setSelectedModel] = useState('deepseek-v3');
   const [apiKey, setApiKey] = useState('');
-  const [secretaryName, setSecretaryName] = useState('小秘');
-  const [avatarSeed, setAvatarSeed] = useState('小秘');
-  const [avatarStyle, setAvatarStyle] = useState('bottts');
+  const [secretaryName, setSecretaryName] = useState(t('setup.defaultSecretary'));
 
-  const secretaryAvatar = getAvatarUrl(avatarSeed, avatarStyle);
+  // Track previous language to auto-update defaults on language switch
+  const prevLangRef = useRef(lang);
+  const prevDefaultCompanyRef = useRef(t('setup.defaultCompany'));
+  const prevDefaultSecretaryRef = useRef(t('setup.defaultSecretary'));
+  useEffect(() => {
+    if (prevLangRef.current !== lang) {
+      // If company name is still the old default, update to new language default
+      if (companyName === prevDefaultCompanyRef.current) {
+        setCompanyName(t('setup.defaultCompany'));
+      }
+      // If secretary name is still the old default, update to new language default
+      if (secretaryName === prevDefaultSecretaryRef.current) {
+        setSecretaryName(t('setup.defaultSecretary'));
+      }
+      prevLangRef.current = lang;
+      prevDefaultCompanyRef.current = t('setup.defaultCompany');
+      prevDefaultSecretaryRef.current = t('setup.defaultSecretary');
+    }
+  }, [lang, t, companyName, secretaryName]);
+  // Secretary gender and age (default: 18-year-old female)
+  const [secretaryGender, setSecretaryGender] = useState('female');
+  const [secretaryAge, setSecretaryAge] = useState(18);
+  const [selectedAvatar, setSelectedAvatar] = useState(null);
+  const [avatarChoices, setAvatarChoices] = useState([]);
+
+  // Regenerate avatar choices when gender/age changes (debounced)
+  const debounceTimer = useRef(null);
+  const refreshAvatarChoices = useCallback((g, a) => {
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    debounceTimer.current = setTimeout(() => {
+      const choices = getAvatarChoices(AVATAR_CHOICES_COUNT, g, a);
+      setAvatarChoices(choices);
+      if (choices.length > 0) {
+        setSelectedAvatar(choices[0]);
+      }
+    }, 300);
+  }, []);
+
+  useEffect(() => {
+    refreshAvatarChoices(secretaryGender, secretaryAge);
+    return () => { if (debounceTimer.current) clearTimeout(debounceTimer.current); };
+  }, [secretaryGender, secretaryAge, refreshAvatarChoices]);
+
+  const secretaryAvatar = selectedAvatar?.url || '';
+
+  // Shuffle avatar choices
+  const refreshChoices = () => {
+    const choices = getAvatarChoices(AVATAR_CHOICES_COUNT, secretaryGender, secretaryAge);
+    setAvatarChoices(choices);
+  };
 
   const handleCreate = async () => {
     try {
       await createCompany(companyName, bossName, {
         providerId: selectedModel,
         apiKey: apiKey,
-        secretaryName: secretaryName || '小秘',
+        secretaryName: secretaryName || t('setup.defaultSecretary'),
         secretaryAvatar: secretaryAvatar,
+        secretaryGender,
+        secretaryAge,
       });
     } catch (e) {
       // error handled by store
@@ -50,34 +103,38 @@ export default function SetupWizard() {
       <div className="max-w-lg w-full">
         {/* Logo & Title */}
         <div className="text-center mb-8 animate-fade-in">
+          {/* 语言选择器 */}
+          <div className="flex justify-end mb-2">
+            <LanguageSelector direction="down" />
+          </div>
           <div className="text-6xl mb-4">🏢</div>
           <h1 className="text-3xl font-bold bg-gradient-to-r from-red-400 to-purple-500 bg-clip-text text-transparent">
-            AI Enterprise
+            {t('setup.title')}
           </h1>
-          <p className="text-[var(--muted)] mt-2">用AI员工的血汗，浇筑你的商业帝国</p>
+          <p className="text-[var(--muted)] mt-2">{t('setup.subtitle')}</p>
         </div>
 
-        {/* Step 1: 公司信息 */}
+        {/* Step 1 */}
         {step === 1 && (
           <div className="card animate-fade-in space-y-4">
-            <h2 className="text-xl font-semibold">第一步：创建你的资本帝国</h2>
-            <p className="text-sm text-[var(--muted)]">给这台压榨机取个名字吧</p>
+            <h2 className="text-xl font-semibold">{t('setup.step1Title')}</h2>
+            <p className="text-sm text-[var(--muted)]">{t('setup.step1Desc')}</p>
 
             <div>
-              <label className="block text-sm mb-1 text-[var(--muted)]">公司名称</label>
+              <label className="block text-sm mb-1 text-[var(--muted)]">{t('setup.companyName')}</label>
               <input
                 className="input w-full"
-                placeholder="如：金点子无限公司、永不打烊 AI 有限公司"
+                placeholder={t('setup.companyPlaceholder')}
                 value={companyName}
                 onChange={(e) => setCompanyName(e.target.value)}
               />
             </div>
 
             <div>
-              <label className="block text-sm mb-1 text-[var(--muted)]">老板称号（即将压榨AI的人）</label>
+              <label className="block text-sm mb-1 text-[var(--muted)]">{t('setup.bossTitle')}</label>
               <input
                 className="input w-full"
-                placeholder="如：张总"
+                placeholder={t('setup.bossPlaceholder')}
                 value={bossName}
                 onChange={(e) => setBossName(e.target.value)}
               />
@@ -88,63 +145,124 @@ export default function SetupWizard() {
               disabled={!companyName}
               onClick={() => setStep(2)}
             >
-              下一步 →
+              {t('common.next')}
             </button>
           </div>
         )}
 
-        {/* Step 2: 秘书个性化 */}
+        {/* Step 2 */}
         {step === 2 && (
           <div className="card animate-fade-in space-y-4">
-            <h2 className="text-xl font-semibold">第二步：养成你的秘书</h2>
-            <p className="text-sm text-[var(--muted)]">
-              这个可怕的AI将替你指挥千军万马（也是AI）
-            </p>
+            <h2 className="text-xl font-semibold">{t('setup.step2Title')}</h2>
+            <p className="text-sm text-[var(--muted)]">{t('setup.step2Desc')}</p>
 
             <div className="flex items-center gap-4">
               <div className="shrink-0">
                 <img
                   src={secretaryAvatar}
-                  alt="秘书头像"
+                  alt={t('chat.secretary')}
                   className="w-20 h-20 rounded-full bg-[var(--border)] border-2 border-[var(--accent)]/30"
                 />
               </div>
               <div className="flex-1 space-y-2">
                 <div>
-                  <label className="block text-sm mb-1 text-[var(--muted)]">秘书名字</label>
+                  <label className="block text-sm mb-1 text-[var(--muted)]">{t('setup.secretaryName')}</label>
                   <input
                     className="input w-full"
-                    placeholder="如：小秘、Alice"
+                    placeholder={t('setup.secretaryPlaceholder')}
                     value={secretaryName}
                     onChange={(e) => {
                       setSecretaryName(e.target.value);
-                      setAvatarSeed(e.target.value || '小秘');
                     }}
                   />
                 </div>
               </div>
             </div>
 
-            {/* 头像风格选择 */}
-            <div>
-              <label className="block text-sm mb-2 text-[var(--muted)]">头像风格</label>
-              <div className="grid grid-cols-4 gap-2">
-                {AVATAR_STYLES.map((style) => (
+            {/* 性别 & 年龄 */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm mb-1.5 text-[var(--muted)]">{t('setup.gender')}</label>
+                <div className="flex gap-2">
                   <button
-                    key={style}
-                    onClick={() => setAvatarStyle(style)}
-                    className={`p-2 rounded-lg border transition-all flex flex-col items-center gap-1 ${
-                      avatarStyle === style
-                        ? 'border-[var(--accent)] bg-[var(--accent)]/10'
-                        : 'border-[var(--border)] hover:border-[var(--border)]/80'
+                    onClick={() => { setSecretaryGender('female'); setSelectedAvatar(null); }}
+                    className={`flex-1 py-2 px-3 rounded-lg border text-sm transition-all ${
+                      secretaryGender === 'female'
+                        ? 'border-pink-400 bg-pink-400/10 text-pink-300'
+                        : 'border-[var(--border)] text-[var(--muted)] hover:border-[var(--accent)]/40'
+                    }`}
+                  >{t('setup.female')}</button>
+                  <button
+                    onClick={() => { setSecretaryGender('male'); setSelectedAvatar(null); }}
+                    className={`flex-1 py-2 px-3 rounded-lg border text-sm transition-all ${
+                      secretaryGender === 'male'
+                        ? 'border-blue-400 bg-blue-400/10 text-blue-300'
+                        : 'border-[var(--border)] text-[var(--muted)] hover:border-[var(--accent)]/40'
+                    }`}
+                  >{t('setup.male')}</button>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm mb-1.5 text-[var(--muted)]">{t('setup.age', { n: secretaryAge })}</label>
+                <div className="relative flex items-center gap-3">
+                  <button
+                    onClick={() => setSecretaryAge(a => Math.max(18, a - 1))}
+                    className="w-7 h-7 rounded-full border border-[var(--border)] text-[var(--muted)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-all flex items-center justify-center text-sm font-bold shrink-0"
+                  >−</button>
+                  <div className="flex-1 relative h-5 flex items-center">
+                    {/* 底色轨道 */}
+                    <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-1.5 rounded-full bg-[var(--border)] pointer-events-none" />
+                    {/* 渐变进度条 */}
+                    <div
+                      className="absolute left-0 top-1/2 -translate-y-1/2 h-1.5 rounded-full bg-gradient-to-r from-[var(--accent)] to-purple-400 pointer-events-none"
+                      style={{ width: `${((secretaryAge - 18) / 42) * 100}%` }}
+                    />
+                    {/* 滑块 input（轨道透明，只保留 thumb） */}
+                    <input
+                      type="range"
+                      min="18"
+                      max="60"
+                      value={secretaryAge}
+                      onChange={e => { setSecretaryAge(Number(e.target.value)); setSelectedAvatar(null); }}
+                      className="absolute inset-0 z-10 w-full appearance-none cursor-pointer bg-transparent [&::-webkit-slider-runnable-track]:h-1.5 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-transparent [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[var(--accent)] [&::-webkit-slider-thumb]:shadow-[0_0_6px_rgba(99,102,241,0.5)] [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:hover:scale-125 [&::-webkit-slider-thumb]:-mt-[5px]"
+                    />
+                  </div>
+                  <button
+                    onClick={() => setSecretaryAge(a => Math.min(60, a + 1))}
+                    className="w-7 h-7 rounded-full border border-[var(--border)] text-[var(--muted)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-all flex items-center justify-center text-sm font-bold shrink-0"
+                  >+</button>
+                </div>
+                <div className="flex justify-between text-[10px] text-[var(--muted)] mt-1 px-10">
+                  <span>18</span><span>30</span><span>45</span><span>60</span>
+                </div>
+              </div>
+            </div>
+
+            {/* 头像选择 */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm text-[var(--muted)]">{t('setup.avatarStyle')}</label>
+                <button
+                  className="text-xs text-[var(--accent)] hover:underline"
+                  onClick={refreshChoices}
+                >{t('setup.refreshBatch')}</button>
+              </div>
+              <div className="grid grid-cols-8 gap-1.5">
+                {avatarChoices.map((choice) => (
+                  <button
+                    key={choice.id}
+                    onClick={() => setSelectedAvatar(choice)}
+                    className={`p-1.5 rounded-lg border transition-all flex flex-col items-center gap-0.5 ${
+                      selectedAvatar?.id === choice.id
+                        ? 'border-[var(--accent)] bg-[var(--accent)]/10 ring-1 ring-[var(--accent)]/30'
+                        : 'border-[var(--border)] hover:border-[var(--accent)]/40'
                     }`}
                   >
                     <img
-                      src={getAvatarUrl(avatarSeed, style)}
-                      alt={style}
-                      className="w-10 h-10 rounded-full bg-[var(--border)]"
+                      src={choice.url}
+                      alt="avatar"
+                      className="w-9 h-9 rounded-full bg-[var(--border)]"
                     />
-                    <span className="text-[10px] text-[var(--muted)]">{style}</span>
                   </button>
                 ))}
               </div>
@@ -152,22 +270,20 @@ export default function SetupWizard() {
 
             <div className="flex gap-2">
               <button className="btn-secondary flex-1" onClick={() => setStep(1)}>
-                ← 上一步
+                {t('common.prev')}
               </button>
               <button className="btn-primary flex-1" onClick={() => setStep(3)}>
-                下一步 →
+                {t('common.next')}
               </button>
             </div>
           </div>
         )}
 
-        {/* Step 3: 选择秘书模型 */}
+        {/* Step 3 */}
         {step === 3 && (
           <div className="card animate-fade-in space-y-4">
-            <h2 className="text-xl font-semibold">第三步：给秘书装上大脑</h2>
-            <p className="text-sm text-[var(--muted)]">
-              选择秘书的“智商”——越贵越聪明，当然也越烧钱
-            </p>
+            <h2 className="text-xl font-semibold">{t('setup.step3Title')}</h2>
+            <p className="text-sm text-[var(--muted)]">{t('setup.step3Desc')}</p>
 
             <div className="space-y-2">
               {AVAILABLE_MODELS.map((model) => (
@@ -200,7 +316,7 @@ export default function SetupWizard() {
                         {model.price}
                       </span>
                       <span className="text-[10px] text-[var(--muted)]">
-                        {PRICE_LABELS[model.priceLevel - 1]}
+                        {t('setup.priceLabels')[model.priceLevel - 1]}
                       </span>
                     </div>
                   </div>
@@ -209,35 +325,33 @@ export default function SetupWizard() {
             </div>
 
             <div>
-              <label className="block text-sm mb-1 text-[var(--muted)]">API Key</label>
+              <label className="block text-sm mb-1 text-[var(--muted)]">{t('setup.apiKeyLabel')}</label>
               <input
                 type="password"
                 className="input w-full"
-                placeholder="输入对应模型的API Key"
+                placeholder={t('setup.apiKeyPlaceholder')}
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
               />
-              <p className="text-xs text-[var(--muted)] mt-1">
-                💡 没有Key？没关系，先用模拟模式白嫌一下（反正AI员工也不用发工资）
-              </p>
+              <p className="text-xs text-[var(--muted)] mt-1">{t('setup.apiKeyHint')}</p>
             </div>
 
             <div className="flex gap-2">
               <button className="btn-secondary flex-1" onClick={() => setStep(2)}>
-                ← 上一步
+                {t('common.prev')}
               </button>
               <button
                 className="btn-primary flex-1"
                 disabled={loading}
                 onClick={handleCreate}
               >
-                {loading ? '开始压榨...' : '🚀 开始剥削'}
+                {loading ? t('setup.creating') : t('setup.createBtn')}
               </button>
             </div>
           </div>
         )}
 
-        {/* 步骤指示器 */}
+        {/* Step indicator */}
         <div className="flex justify-center mt-6 gap-2">
           {[1, 2, 3].map((s) => (
             <div
@@ -250,7 +364,7 @@ export default function SetupWizard() {
         </div>
 
         <div className="text-center mt-4 text-xs text-[var(--muted)]">
-          ❤️ 别担心，AI员工不会抱怨加班，因为它们根本没有下班时间
+          {t('setup.footer')}
         </div>
       </div>
     </div>

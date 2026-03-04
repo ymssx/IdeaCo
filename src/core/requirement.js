@@ -2,29 +2,29 @@ import { v4 as uuidv4 } from 'uuid';
 import { llmClient } from './llm-client.js';
 
 /**
- * 需求状态枚举
+ * Requirement status enum
  */
 export const RequirementStatus = {
-  PENDING: 'pending',       // 刚创建，等待分配
-  PLANNING: 'planning',     // 负责人在拆解工作流
-  IN_PROGRESS: 'in_progress', // 执行中
-  COMPLETED: 'completed',   // 已完成
-  FAILED: 'failed',         // 失败
+  PENDING: 'pending',       // Just created, awaiting assignment
+  PLANNING: 'planning',     // Leader is decomposing workflow
+  IN_PROGRESS: 'in_progress', // In progress
+  COMPLETED: 'completed',   // Completed
+  FAILED: 'failed',         // Failed
 };
 
 /**
- * 工作流节点状态
+ * Workflow node status
  */
 export const TaskNodeStatus = {
-  WAITING: 'waiting',       // 等待依赖完成
-  READY: 'ready',           // 就绪，可以开始
-  RUNNING: 'running',       // 执行中
-  COMPLETED: 'completed',   // 已完成
-  FAILED: 'failed',         // 失败
+  WAITING: 'waiting',       // Waiting for dependencies
+  READY: 'ready',           // Ready to start
+  RUNNING: 'running',       // Running
+  COMPLETED: 'completed',   // Completed
+  FAILED: 'failed',         // Failed
 };
 
 /**
- * 需求数据模型
+ * Requirement data model
  */
 export class Requirement {
   constructor({ title, description, departmentId, departmentName, bossMessage }) {
@@ -33,35 +33,35 @@ export class Requirement {
     this.description = description;
     this.departmentId = departmentId;
     this.departmentName = departmentName;
-    this.bossMessage = bossMessage;       // 老板原始消息
+    this.bossMessage = bossMessage;       // Boss's original message
     this.status = RequirementStatus.PENDING;
-    this.workflow = null;                  // 工作流（由负责人拆解）
-    this.groupChat = [];                   // 群聊消息
-    this.outputs = [];                     // 产出结果
+    this.workflow = null;                  // Workflow (decomposed by leader)
+    this.groupChat = [];                   // Group chat messages
+    this.outputs = [];                     // Output results
     this.createdAt = new Date();
     this.startedAt = null;
     this.completedAt = null;
-    this.summary = null;                   // 完成后的执行摘要
+    this.summary = null;                   // Post-completion execution summary
 
-    // 实时进度状态（执行中动态更新）
+    // Live progress status (dynamically updated during execution)
     this.liveStatus = {
-      currentNodeId: null,          // 当前执行的节点ID
-      currentNodeTitle: null,       // 当前执行的节点标题
-      currentAgent: null,           // 当前执行的Agent名字
-      currentAction: null,          // 当前操作描述（如"调用LLM"、"执行工具file_write"等）
-      lastActiveAt: null,           // 最后活跃时间
-      heartbeat: null,              // 心跳时间（每次LLM/工具调用更新）
-      toolCallsInProgress: [],      // 正在执行的工具调用
-      recentFileChanges: [],        // 最近文件变更记录
+      currentNodeId: null,          // Currently executing node ID
+      currentNodeTitle: null,       // Currently executing node title
+      currentAgent: null,           // Currently executing Agent name
+      currentAction: null,          // Current action description (e.g. "calling LLM", "executing tool file_write")
+      lastActiveAt: null,           // Last active time
+      heartbeat: null,              // Heartbeat time (updated on each LLM/tool call)
+      toolCallsInProgress: [],      // Tool calls in progress
+      recentFileChanges: [],        // Recent file change records
     };
   }
 
-  /** 更新实时状态 */
+  /** Update live status */
   updateLiveStatus(updates) {
     Object.assign(this.liveStatus, updates, { lastActiveAt: new Date(), heartbeat: new Date() });
   }
 
-  /** 记录文件变更 */
+  /** Record file change */
   addFileChange(agentName, filePath, action = 'write') {
     this.liveStatus.recentFileChanges.push({
       agentName,
@@ -69,7 +69,7 @@ export class Requirement {
       action,
       time: new Date(),
     });
-    // 只保留最近20条
+    // Keep only last 20 entries
     if (this.liveStatus.recentFileChanges.length > 20) {
       this.liveStatus.recentFileChanges = this.liveStatus.recentFileChanges.slice(-20);
     }
@@ -77,13 +77,13 @@ export class Requirement {
     this.liveStatus.heartbeat = new Date();
   }
 
-  /** 添加群聊消息 */
+  /** Add group chat message */
   addGroupMessage(from, content, type = 'message') {
     this.groupChat.push({
       id: uuidv4(),
       from: {
         id: from.id || 'system',
-        name: from.name || '系统',
+        name: from.name || 'System',
         avatar: from.avatar || null,
         role: from.role || null,
       },
@@ -91,12 +91,12 @@ export class Requirement {
       type,  // message | system | tool_call | output
       time: new Date(),
     });
-    // 同步更新心跳
+    // Sync update heartbeat
     this.liveStatus.heartbeat = new Date();
     this.liveStatus.lastActiveAt = new Date();
   }
 
-  /** 添加产出 */
+  /** Add output */
   addOutput(agentId, agentName, role, outputType, content, metadata = {}) {
     this.outputs.push({
       id: uuidv4(),
@@ -110,7 +110,7 @@ export class Requirement {
     });
   }
 
-  /** 序列化 */
+  /** Serialize */
   serialize() {
     return {
       id: this.id,
@@ -121,7 +121,7 @@ export class Requirement {
       bossMessage: this.bossMessage,
       status: this.status,
       workflow: this.workflow,
-      groupChat: this.groupChat.slice(-200), // 保留最新200条
+      groupChat: this.groupChat.slice(-200), // Keep latest 200 entries
       outputs: this.outputs,
       createdAt: this.createdAt,
       startedAt: this.startedAt,
@@ -131,7 +131,7 @@ export class Requirement {
     };
   }
 
-  /** 反序列化 */
+  /** Deserialize */
   static deserialize(data) {
     const req = new Requirement({
       title: data.title,
@@ -159,59 +159,59 @@ export class Requirement {
 }
 
 /**
- * 需求管理器
- * 管理公司所有需求的生命周期
+ * Requirement Manager
+ * Manages the lifecycle of all company requirements
  */
 export class RequirementManager {
   constructor() {
     this.requirements = new Map();
   }
 
-  /** 创建需求 */
+  /** Create requirement */
   create(data) {
     const req = new Requirement(data);
     this.requirements.set(req.id, req);
     return req;
   }
 
-  /** 获取需求 */
+  /** Get requirement */
   get(id) {
     return this.requirements.get(id);
   }
 
-  /** 获取所有需求 */
+  /** List all requirements */
   listAll() {
     return [...this.requirements.values()].sort(
       (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
     );
   }
 
-  /** 获取部门的需求列表 */
+  /** List requirements by department */
   listByDepartment(departmentId) {
     return this.listAll().filter(r => r.departmentId === departmentId);
   }
 
-  /** 获取某状态的需求 */
+  /** List requirements by status */
   listByStatus(status) {
     return this.listAll().filter(r => r.status === status);
   }
 
   /**
-   * 由负责人使用 LLM 拆解需求为工作流
-   * @param {Requirement} requirement - 需求
-   * @param {Array} members - 部门成员列表
-   * @param {object} leaderProvider - 负责人的 LLM provider
-   * @returns {object} 工作流
+   * Leader uses LLM to decompose requirement into workflow
+   * @param {Requirement} requirement - Requirement
+   * @param {Array} members - Department members list
+   * @param {object} leaderProvider - Leader's LLM provider
+   * @returns {object} Workflow
    */
   async planWorkflow(requirement, members, leaderProvider) {
     requirement.status = RequirementStatus.PLANNING;
     requirement.addGroupMessage(
-      { name: '系统', role: 'system' },
-      `📋 需求「${requirement.title}」已创建，负责人正在进行工作拆解...`,
+      { name: 'System', role: 'system' },
+      `📋 Requirement "${requirement.title}" created, leader is decomposing the workflow...`,
       'system'
     );
 
-    // 构建成员信息
+    // Build member info
     const memberInfo = members.map(m => ({
       id: m.id,
       name: m.name,
@@ -219,47 +219,47 @@ export class RequirementManager {
       skills: m.skills,
     }));
 
-    const systemPrompt = `你是一位项目负责人，需要将一个需求拆解为可执行的工作流。
+    const systemPrompt = `You are a project leader who needs to decompose a requirement into an executable workflow.
 
-团队成员：
+Team members:
 ${JSON.stringify(memberInfo, null, 2)}
 
-请将需求拆解为一个工作流（DAG有向无环图），包含多个任务节点。任务之间可以有依赖关系。
-输出JSON格式：
+Please decompose the requirement into a workflow (DAG - Directed Acyclic Graph) with multiple task nodes. Tasks can have dependency relationships.
+Output in JSON format:
 {
   "nodes": [
     {
       "id": "node_1",
-      "title": "任务标题",
-      "description": "详细描述",
-      "assigneeId": "执行人ID",
-      "assigneeName": "执行人名字",
+      "title": "Task title",
+      "description": "Detailed description",
+      "assigneeId": "Assignee ID",
+      "assigneeName": "Assignee name",
       "dependencies": [],
       "estimatedMinutes": 5,
       "outputType": "text|code|file"
     }
   ],
-  "summary": "工作流总体说明"
+  "summary": "Workflow overview"
 }
 
-要求：
-1. 任务粒度适中，每个任务由一个人负责
-2. 能并行的任务不要串行
-3. dependencies 填写依赖的 node id 数组，无依赖则为空数组
-4. 负责人可以负责"整合和审核"类任务
-5. assigneeId 必须从团队成员中选择
-6. 只返回JSON，不要其他内容
-7. **极其重要：不需要让每个成员都参与！** 只分配真正需要的人，与需求无关的成员不要安排任务。宁可让人闲着，也不要硬凑任务
-8. 任务节点要精简高效，简单需求只需1-3个节点即可，避免过度拆解
-9. 每个任务的描述要清晰具体，让执行人一次性完成，避免需要多轮反复`;
+Requirements:
+1. Task granularity should be moderate, each task assigned to one person
+2. Tasks that can run in parallel should not be serialized
+3. dependencies should contain the dependent node id array, empty array if no dependencies
+4. The leader can handle "integration and review" type tasks
+5. assigneeId must be selected from team members
+6. Return JSON only, no other content
+7. **Extremely important: Not every member needs to participate!** Only assign people who are truly needed. Members unrelated to the requirement should not be given tasks. Better to leave people idle than to create busywork
+8. Task nodes should be lean and efficient. Simple requirements only need 1-3 nodes, avoid over-decomposition
+9. Each task description should be clear and specific, allowing the assignee to complete it in one go, avoiding multiple iterations`;
 
     try {
       const response = await llmClient.chat(leaderProvider, [
         { role: 'system', content: systemPrompt },
-        { role: 'user', content: `需求标题：${requirement.title}\n需求描述：${requirement.description}\n\n请拆解工作流。` },
+        { role: 'user', content: `Requirement title: ${requirement.title}\nRequirement description: ${requirement.description}\n\nPlease decompose the workflow.` },
       ], { temperature: 0.7, maxTokens: 2048 });
 
-      // 解析 JSON
+      // Parse JSON
       const tick = String.fromCharCode(96);
       const fence = tick + tick + tick;
       let jsonStr = response.content
@@ -269,7 +269,7 @@ ${JSON.stringify(memberInfo, null, 2)}
 
       const workflow = JSON.parse(jsonStr);
 
-      // 验证并补全
+      // Validate and complete
       const memberIds = new Set(members.map(m => m.id));
       workflow.nodes = (workflow.nodes || []).map(node => ({
         ...node,
@@ -284,7 +284,7 @@ ${JSON.stringify(memberInfo, null, 2)}
         completedAt: null,
       }));
 
-      // 没有依赖的节点标记为就绪
+      // Nodes with no dependencies are marked as ready
       workflow.nodes.forEach(node => {
         if (node.dependencies.length === 0) {
           node.status = TaskNodeStatus.READY;
@@ -293,24 +293,24 @@ ${JSON.stringify(memberInfo, null, 2)}
 
       requirement.workflow = workflow;
 
-      // 群聊通知
-      const leader = members.find(m => m.role === '项目负责人') || members[0];
+      // Group chat notification
+      const leader = members.find(m => m.role === 'Project Leader') || members[0];
       requirement.addGroupMessage(
         leader,
-        `📊 我已完成工作流拆解！共 ${workflow.nodes.length} 个任务节点。\n\n${workflow.summary || ''}\n\n${workflow.nodes.map((n, i) =>
-          `${i + 1}. 【${n.assigneeName || '待定'}】${n.title}${n.dependencies.length > 0 ? ` (依赖: ${n.dependencies.join(', ')})` : ' (可立即开始)'}`
+        `📊 Workflow decomposition complete! ${workflow.nodes.length} task nodes in total.\n\n${workflow.summary || ''}\n\n${workflow.nodes.map((n, i) =>
+          `${i + 1}. [${n.assigneeName || 'TBD'}] ${n.title}${n.dependencies.length > 0 ? ` (depends on: ${n.dependencies.join(', ')})` : ' (can start immediately)'}`
         ).join('\n')}`,
         'message'
       );
 
       return workflow;
     } catch (e) {
-      // LLM 失败，用规则生成简单工作流
-      console.error('工作流拆解失败:', e.message);
+      // LLM failed, generate simple workflow using rules
+      console.error('Workflow decomposition failed:', e.message);
       const fallbackWorkflow = this._fallbackWorkflow(requirement, members);
       requirement.addGroupMessage(
-        { name: '系统', role: 'system' },
-        `⚠️ AI拆解失败，已使用规则生成简单工作流（${fallbackWorkflow.nodes.length}个任务）`,
+        { name: 'System', role: 'system' },
+        `⚠️ AI decomposition failed, generated a simple workflow using rules (${fallbackWorkflow.nodes.length} tasks)`,
         'system'
       );
       return fallbackWorkflow;
@@ -318,24 +318,23 @@ ${JSON.stringify(memberInfo, null, 2)}
   }
 
   /**
-   * 规则兜底：生成简单的串行工作流
+   * Fallback: generate simple serial workflow
    */
   _fallbackWorkflow(requirement, members) {
-    const leader = members.find(m => m.role === '项目负责人') || members[0];
+    const leader = members.find(m => m.role === 'Project Leader') || members[0];
     const workers = members.filter(m => m.id !== leader?.id);
 
     const nodes = [];
 
-    // 简单需求只需一个核心执行人即可，不需要所有人都参与
-    // 选择最合适的执行人（第一个非负责人的成员）
-    const primaryWorker = workers[0];
+    // Simple requirements only need one core worker, not everyone
+    // Pick the most suitable worker (first non-leader member)    const primaryWorker = workers[0];
 
     if (primaryWorker) {
-      // 简单模式：一个人直接执行核心任务
+      // Simple mode: one person directly executes the core task
       nodes.push({
         id: 'node_work_0',
-        title: `${primaryWorker.role}: 执行需求`,
-        description: `直接执行需求「${requirement.title}」：${requirement.description}。请一次性完成所有工作并输出最终成果。`,
+        title: `${primaryWorker.role}: Execute requirement`,
+        description: `Directly execute requirement "${requirement.title}": ${requirement.description}. Please complete all work in one go and output the final result.`,
         assigneeId: primaryWorker.id,
         assigneeName: primaryWorker.name,
         dependencies: [],
@@ -346,15 +345,15 @@ ${JSON.stringify(memberInfo, null, 2)}
         completedAt: null,
       });
 
-      // 仅当成员较多（>2人）时，才加一个负责人整合环节
+      // Only add a leader integration step when there are many members (>2)
       if (leader && workers.length > 2) {
-        // 分配第二个执行人协助
+        // Assign a second worker to assist
         const secondWorker = workers[1];
         if (secondWorker) {
           nodes.push({
             id: 'node_work_1',
-            title: `${secondWorker.role}: 协助工作`,
-            description: `协助完成需求「${requirement.title}」中与你专业相关的部分`,
+            title: `${secondWorker.role}: Assist with work`,
+            description: `Assist in completing the parts of requirement "${requirement.title}" related to your expertise`,
             assigneeId: secondWorker.id,
             assigneeName: secondWorker.name,
             dependencies: [],
@@ -368,8 +367,8 @@ ${JSON.stringify(memberInfo, null, 2)}
 
         nodes.push({
           id: 'node_integrate',
-          title: '成果整合与交付',
-          description: '汇总成员的成果，整合输出最终交付物',
+          title: 'Results integration and delivery',
+          description: 'Consolidate all member outputs and produce the final deliverable',
           assigneeId: leader.id,
           assigneeName: leader.name,
           dependencies: nodes.map(n => n.id),
@@ -381,11 +380,11 @@ ${JSON.stringify(memberInfo, null, 2)}
         });
       }
     } else if (leader) {
-      // 只有负责人的情况，负责人直接执行
+      // Only leader available, leader executes directly
       nodes.push({
         id: 'node_work_0',
-        title: '执行需求',
-        description: `直接执行需求「${requirement.title}」：${requirement.description}`,
+        title: 'Execute requirement',
+        description: `Directly execute requirement "${requirement.title}": ${requirement.description}`,
         assigneeId: leader.id,
         assigneeName: leader.name,
         dependencies: [],
@@ -399,7 +398,7 @@ ${JSON.stringify(memberInfo, null, 2)}
 
     const workflow = {
       nodes,
-      summary: `基于规则拆解的工作流: ${nodes.length} 个任务`,
+      summary: `Rule-based workflow: ${nodes.length} tasks`,
     };
 
     requirement.workflow = workflow;
@@ -407,31 +406,30 @@ ${JSON.stringify(memberInfo, null, 2)}
   }
 
   /**
-   * 按 DAG 依赖关系执行工作流
-   * 支持并行 + 依赖串行
+   * Execute workflow by DAG dependency order
+   * Supports parallel + dependency serialization
    */
   async executeWorkflow(requirement, department, performanceSystem) {
     if (!requirement.workflow?.nodes?.length) {
-      // 如果工作流为空，自动创建一个简单的兜底工作流
-      console.log('工作流为空，自动创建兜底工作流...');
+      // If workflow is empty, auto-create a simple fallback workflow
+      console.log('Workflow is empty, auto-creating fallback workflow...');
       const members = department.getMembers();
       if (members.length === 0) {
-        throw new Error('部门没有员工，无法执行');
-      }
-      this._fallbackWorkflow(requirement, members);
+        throw new Error('Department has no employees, cannot execute');
+      }      this._fallbackWorkflow(requirement, members);
     }
 
     requirement.status = RequirementStatus.IN_PROGRESS;
     requirement.startedAt = new Date();
     requirement.updateLiveStatus({
-      currentAction: '工作流开始执行',
+      currentAction: 'Workflow execution started',
       toolCallsInProgress: [],
       recentFileChanges: [],
     });
 
     requirement.addGroupMessage(
-      { name: '系统', role: 'system' },
-      `🚀 需求「${requirement.title}」开始执行！`,
+      { name: 'System', role: 'system' },
+      `🚀 Requirement "${requirement.title}" execution started!`,
       'system'
     );
 
@@ -440,9 +438,9 @@ ${JSON.stringify(memberInfo, null, 2)}
     const failed = new Set();
     const allResults = [];
 
-    // 循环执行直到所有节点完成或无法继续
+    // Loop until all nodes are completed or no further progress possible
     while (completed.size + failed.size < nodes.length) {
-      // 找到可以执行的节点（依赖全部完成 + 状态为 READY/WAITING）
+      // Find executable nodes (all dependencies completed + status is READY/WAITING)
       const readyNodes = nodes.filter(n =>
         n.status !== TaskNodeStatus.COMPLETED &&
         n.status !== TaskNodeStatus.FAILED &&
@@ -451,11 +449,11 @@ ${JSON.stringify(memberInfo, null, 2)}
       );
 
       if (readyNodes.length === 0) {
-        // 没有可执行节点了（可能有循环依赖或全部失败）
+        // No executable nodes left (could be circular dependency or all failed)
         break;
       }
 
-      // 并行执行所有就绪节点
+      // Execute all ready nodes in parallel
       const promises = readyNodes.map(async (node) => {
         node.status = TaskNodeStatus.RUNNING;
         node.startedAt = new Date();
@@ -463,86 +461,86 @@ ${JSON.stringify(memberInfo, null, 2)}
         const agent = department.agents.get(node.assigneeId);
         if (!agent) {
           node.status = TaskNodeStatus.FAILED;
-          node.result = { error: '执行人不存在' };
+          node.result = { error: 'Assignee not found' };
           failed.add(node.id);
           requirement.addGroupMessage(
-            { name: '系统' },
-            `❌ 任务「${node.title}」失败：执行人不存在`,
+            { name: 'System' },
+            `❌ Task "${node.title}" failed: Assignee not found`,
             'system'
           );
           return null;
         }
 
-        // 更新实时状态
+        // Update live status
         requirement.updateLiveStatus({
           currentNodeId: node.id,
           currentNodeTitle: node.title,
           currentAgent: agent.name,
-          currentAction: `${agent.name} 正在准备执行「${node.title}」`,
+          currentAction: `${agent.name} is preparing to execute "${node.title}"`,
           toolCallsInProgress: [],
         });
 
-        // 群聊通知：开始工作
+        // Group chat notification: starting work
         requirement.addGroupMessage(
           agent,
-          `🔨 我开始处理「${node.title}」了！`,
+          `🔨 Starting to work on "${node.title}"!`,
           'message'
         );
 
         try {
-          // 收集依赖节点的产出作为上下文
+          // Collect dependency node outputs as context
           const depContext = node.dependencies
             .map(d => nodes.find(n => n.id === d))
             .filter(Boolean)
-            .map(d => `【${d.assigneeName}的产出 - ${d.title}】\n${d.result?.output || '(无产出)'}`)
+            .map(d => `[${d.assigneeName}'s output - ${d.title}]\n${d.result?.output || '(no output)'}`)
             .join('\n\n');
 
           const task = {
             title: node.title,
             description: node.description,
-            context: depContext ? `以下是前置任务的产出，供你参考：\n\n${depContext}` : undefined,
-            requirements: `这是需求「${requirement.title}」的一部分。需求描述：${requirement.description}`,
+            context: depContext ? `Here are the outputs from preceding tasks for your reference:\n\n${depContext}` : undefined,
+            requirements: `This is part of requirement "${requirement.title}". Requirement description: ${requirement.description}`,
           };
 
-          // 更新实时状态：开始调用LLM
+          // Update live status: starting LLM call
           requirement.updateLiveStatus({
-currentAction: `${agent.name} 正在敲键盘中...「${node.title}」`,
+currentAction: `${agent.name} is typing..."${node.title}"`,
           });
           requirement.addGroupMessage(
             agent,
-`⌨️ 正在敲键盘中...规划如何完成这个任务`,
+`⌨️ Typing... planning how to complete this task`,
             'tool_call'
           );
 
           const result = await agent.executeTask(task, {
             onToolCall: ({ tool, args, status, success, error: toolErr }) => {
-              // 实时更新需求的 liveStatus
+              // Update requirement's liveStatus in real-time
               if (status === 'start') {
                 requirement.updateLiveStatus({
-                  currentAction: `${agent.name} 正在调用工具 ${tool}`,
+                  currentAction: `${agent.name} is calling tool ${tool}`,
                   toolCallsInProgress: [...(requirement.liveStatus.toolCallsInProgress || []), tool],
                 });
-                // 实时群聊：正在调用工具
+                // Real-time group chat: calling tool
                 if (tool === 'file_write') {
-                  const filePath = args?.path || args?.filePath || '';
-                  requirement.addGroupMessage(agent, `📝 正在写入文件: ${filePath}`, 'tool_call');
+                  const filePath = args?.path || args?.filePath || args?.file_path || '';
+                  requirement.addGroupMessage(agent, `📝 Writing file: ${filePath}`, 'tool_call');
                   requirement.addFileChange(agent.name, filePath, 'write');
                 } else if (tool === 'file_read') {
-                  requirement.addGroupMessage(agent, `📄 正在读取文件: ${args?.path || ''}`, 'tool_call');
+                  requirement.addGroupMessage(agent, `📄 Reading file: ${args?.path || args?.filePath || args?.file_path || ''}`, 'tool_call');
                 } else if (tool === 'shell_exec') {
-                  requirement.addGroupMessage(agent, `⌨️ 正在执行命令: ${(args?.command || '').slice(0, 80)}`, 'tool_call');
+                  requirement.addGroupMessage(agent, `⌨️ Executing command: ${(args?.command || '').slice(0, 80)}`, 'tool_call');
                 } else if (tool === 'send_message') {
-                  requirement.addGroupMessage(agent, `💬 正在发送消息给同事`, 'tool_call');
+                  requirement.addGroupMessage(agent, `💬 Sending message to colleague`, 'tool_call');
                 } else {
-                  requirement.addGroupMessage(agent, `🔧 正在使用工具: ${tool}`, 'tool_call');
+                  requirement.addGroupMessage(agent, `🔧 Using tool: ${tool}`, 'tool_call');
                 }
               } else if (status === 'done') {
                 requirement.updateLiveStatus({
-                  currentAction: `${agent.name} 完成工具调用 ${tool}`,
+                  currentAction: `${agent.name} completed tool call ${tool}`,
                   toolCallsInProgress: (requirement.liveStatus.toolCallsInProgress || []).filter(t => t !== tool),
                 });
               } else if (status === 'error') {
-                requirement.addGroupMessage(agent, `⚠️ 工具 ${tool} 执行失败: ${toolErr}`, 'tool_call');
+                requirement.addGroupMessage(agent, `⚠️ Tool ${tool} failed: ${toolErr}`, 'tool_call');
                 requirement.updateLiveStatus({
                   toolCallsInProgress: (requirement.liveStatus.toolCallsInProgress || []).filter(t => t !== tool),
                 });
@@ -550,10 +548,10 @@ currentAction: `${agent.name} 正在敲键盘中...「${node.title}」`,
             },
             onLLMCall: ({ iteration, maxIterations }) => {
               requirement.updateLiveStatus({
-currentAction: `${agent.name} 正在敲键盘中... (第${iteration}轮)`,
+currentAction: `${agent.name} is typing... (round ${iteration})`,
               });
               if (iteration > 1) {
-                requirement.addGroupMessage(agent, `🧠 继续思考和执行中... (第${iteration}轮)`, 'tool_call');
+                requirement.addGroupMessage(agent, `🧠 Continuing to think and execute... (round ${iteration})`, 'tool_call');
               }
             },
           });
@@ -563,9 +561,9 @@ currentAction: `${agent.name} 正在敲键盘中... (第${iteration}轮)`,
           node.result = result;
           completed.add(node.id);
 
-          // 记录产出
+          // Record output
           if (result.output) {
-            // 判断产出类型
+          // Determine output type
             const outputType = this._detectOutputType(result);
             requirement.addOutput(
               agent.id, agent.name, agent.role,
@@ -574,20 +572,20 @@ currentAction: `${agent.name} 正在敲键盘中... (第${iteration}轮)`,
             );
           }
 
-          // 群聊通知：完成
+          // Group chat notification: completed
           const duration = Math.round((result.duration || 0) / 1000);
           requirement.addGroupMessage(
             agent,
-            `✅ 「${node.title}」完成！耗时${duration}秒。${result.toolResults?.length ? `\n🔧 使用了 ${result.toolResults.length} 个工具` : ''}`,
+            `✅ "${node.title}" completed! Took ${duration}s.${result.toolResults?.length ? `\n🔧 Used ${result.toolResults.length} tools` : ''}`,
             'message'
           );
 
-          // 分享产出摘要
+          // Share output preview
           if (result.output) {
             const preview = result.output.length > 200 ? result.output.slice(0, 200) + '...' : result.output;
             requirement.addGroupMessage(
               agent,
-              `📄 我的产出：\n${preview}`,
+              `📄 My output:\n${preview}`,
               'output'
             );
           }
@@ -602,7 +600,7 @@ currentAction: `${agent.name} 正在敲键盘中... (第${iteration}轮)`,
 
           requirement.addGroupMessage(
             agent,
-            `❌ 「${node.title}」执行失败：${err.message}`,
+            `❌ "${node.title}" failed: ${err.message}`,
             'message'
           );
           return null;
@@ -612,7 +610,7 @@ currentAction: `${agent.name} 正在敲键盘中... (第${iteration}轮)`,
       await Promise.all(promises);
     }
 
-    // 汇总
+    // Summary
     const successCount = completed.size;
     const totalCount = nodes.length;
     const totalDuration = allResults.reduce((s, r) => s + (r?.duration || 0), 0);
@@ -623,7 +621,7 @@ currentAction: `${agent.name} 正在敲键盘中... (第${iteration}轮)`,
       currentNodeId: null,
       currentNodeTitle: null,
       currentAgent: null,
-      currentAction: requirement.status === RequirementStatus.COMPLETED ? '全部任务执行完成' : '执行结束（部分失败）',
+      currentAction: requirement.status === RequirementStatus.COMPLETED ? 'All tasks completed' : 'Execution finished (some failed)',
       toolCallsInProgress: [],
     });
     requirement.summary = {
@@ -635,12 +633,12 @@ currentAction: `${agent.name} 正在敲键盘中... (第${iteration}轮)`,
     };
 
     requirement.addGroupMessage(
-      { name: '系统', role: 'system' },
-      `🏁 需求「${requirement.title}」执行${requirement.status === RequirementStatus.COMPLETED ? '完成' : '失败'}！\n📊 ${successCount}/${totalCount} 个任务成功，总耗时 ${Math.round(totalDuration / 1000)} 秒`,
+      { name: 'System', role: 'system' },
+      `🏁 Requirement "${requirement.title}" ${requirement.status === RequirementStatus.COMPLETED ? 'completed' : 'failed'}!\n📊 ${successCount}/${totalCount} tasks succeeded, total duration ${Math.round(totalDuration / 1000)}s`,
       'system'
     );
 
-    // 绩效评估
+    // Performance evaluation
     if (performanceSystem) {
       const leader = department.getLeader();
       for (const node of nodes) {
@@ -661,7 +659,7 @@ currentAction: `${agent.name} 正在敲键盘中... (第${iteration}轮)`,
   }
 
   /**
-   * 检测产出类型
+   * Detect output type
    */
   _detectOutputType(result) {
     const toolNames = (result.toolResults || []).map(t => t.tool);
@@ -670,12 +668,12 @@ currentAction: `${agent.name} 正在敲键盘中... (第${iteration}轮)`,
     return 'text';
   }
 
-  /** 序列化所有需求 */
+  /** Serialize all requirements */
   serialize() {
     return [...this.requirements.values()].map(r => r.serialize());
   }
 
-  /** 反序列化 */
+  /** Deserialize */
   static deserialize(dataList) {
     const mgr = new RequirementManager();
     for (const d of (dataList || [])) {
