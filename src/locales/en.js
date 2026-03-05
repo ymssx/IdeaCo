@@ -194,6 +194,8 @@ When the boss communicates with you, you need to:
     groupChatCount: '🏢 {dept} · {n} messages',
     noGroupChatHint: 'Employee communications during task execution will appear here',
     groupChatInput: 'Send a message in the group chat. The leader will see it and respond...',
+    sendFailed: 'Failed to send',
+    thinkingReply: 'is thinking about a reply...',
   },
 
   // === Department View ===

@@ -84,6 +84,9 @@ stats: { departments: 'Abt.', workers: 'Arbeiter', requirements: 'Anforderungen'
     system: 'System', chatHint: 'Sagen Sie {name} etwas',
     viewAgentDetail: 'Mitarbeiterdetails ansehen', groupChatCount: '🏢 {dept} · {n} Nachrichten',
     noGroupChatHint: 'Kommunikation während der Aufgabenausführung erscheint hier',
+    groupChatInput: 'Nachricht im Gruppenchat senden. Der Leiter wird sie sehen und reagieren...',
+    sendFailed: 'Senden fehlgeschlagen',
+    thinkingReply: 'überlegt eine Antwort...',
   },
   dept: {
     title: '🏢 Unternehmensstruktur', subtitle: 'Verwalten Sie Ihr Abteilungs-Imperium — aufbauen, einsetzen, optimieren',

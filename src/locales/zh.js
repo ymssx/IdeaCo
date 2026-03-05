@@ -145,6 +145,8 @@ const zh = {
     groupChatCount: '🏢 {dept} · {n} 条消息',
     noGroupChatHint: '任务执行时员工的沟通消息会在这里显示',
     groupChatInput: '在群聊中发言，负责人会看到并做出响应...',
+    sendFailed: '发送失败',
+    thinkingReply: '正在思考回复...',
   },
   dept: {
     title: '🏢 公司架构',

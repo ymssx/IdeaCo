@@ -319,7 +319,7 @@ export default function GroupChatView({
       setOptimisticMessages(prev => [...prev, {
         id: `err-${Date.now()}`,
         from: { id: 'system', name: 'System' },
-        content: `⚠️ ${t('mailbox.sendFailed') || '发送失败'}: ${err.message}`,
+content: `⚠️ ${t('mailbox.sendFailed')}: ${err.message}`,
         type: 'system',
         time: new Date().toISOString(),
       }]);
@@ -491,7 +491,7 @@ export default function GroupChatView({
               </div>
             )}
             <div className="bg-[var(--card)] border border-[var(--border)] rounded-2xl rounded-bl-sm px-3 py-2 text-sm">
-              <span className="animate-pulse text-[var(--muted)]">{leaderInfo.name} {t('mailbox.thinkingReply') || '正在思考回复...'}</span>
+              <span className="animate-pulse text-[var(--muted)]">{leaderInfo.name} {t('mailbox.thinkingReply')}</span>
             </div>
           </div>
         )}
@@ -513,7 +513,7 @@ export default function GroupChatView({
                   doSend();
                 }
               }}
-              placeholder={inputPlaceholder || t('mailbox.groupChatInput') || '在群聊中发言，负责人会看到并做出响应...'}
+              placeholder={inputPlaceholder || t('mailbox.groupChatInput')}
               disabled={sending}
               className="flex-1 bg-transparent text-sm outline-none placeholder:text-[var(--muted)] disabled:opacity-50"
             />

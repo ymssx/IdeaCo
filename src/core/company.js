@@ -1850,18 +1850,33 @@ Reply in the same language the Boss used. Be concise but warm.`
         replies: (m.replies || []).slice(-10),
       })),
       unreadMailCount: this.mailbox.filter(m => !m.read).length,
-      pendingPlans: [...this.pendingPlans.entries()].map(([id, p]) => ({
-        planId: id,
-        name: p.name,
-        mission: p.mission,
-        members: p.teamPlan.members.map(m => ({
-          templateId: m.templateId,
-          title: m.templateTitle,
-          name: m.name,
-          isLeader: m.isLeader,
-          reportsTo: m.reportsTo !== null ? p.teamPlan.members[m.reportsTo]?.name : null,
-        })),
-      })),
+      pendingPlans: [...this.pendingPlans.entries()].map(([id, p]) => {
+        if (p.type === 'adjustment') {
+          return {
+            planId: id,
+            type: 'adjustment',
+            departmentId: p.departmentId,
+            departmentName: p.departmentName,
+            adjustGoal: p.adjustGoal,
+            reasoning: p.adjustPlan?.reasoning,
+            fires: p.adjustPlan?.fires || [],
+            hires: p.adjustPlan?.hires || [],
+          };
+        }
+        return {
+          planId: id,
+          type: 'recruitment',
+          name: p.name,
+          mission: p.mission,
+          members: (p.teamPlan?.members || []).map(m => ({
+            templateId: m.templateId,
+            title: m.templateTitle,
+            name: m.name,
+            isLeader: m.isLeader,
+            reportsTo: m.reportsTo !== null ? p.teamPlan.members[m.reportsTo]?.name : null,
+          })),
+        };
+      }),
       chatHistory: this.chatHistory.slice(-30),
       progressReports: this.progressReports.slice(-20),
       talentMarket: this.talentMarket.listAvailable().map(p => ({

@@ -85,6 +85,9 @@ stats: { departments: '부서', workers: '직원', requirements: '요구사항' 
     system: '시스템', chatHint: '{name}에게 무언가 말해보세요',
     viewAgentDetail: '직원 상세 보기', groupChatCount: '🏢 {dept} · {n}개 메시지',
     noGroupChatHint: '작업 실행 시 직원 간 대화가 여기에 표시됩니다',
+    groupChatInput: '그룹 채팅에서 메시지를 보내면 리더가 대응합니다...',
+    sendFailed: '전송 실패',
+    thinkingReply: '답장을 생각 중...',
   },
   dept: {
     title: '🏢 조직 구조', subtitle: '부서 제국을 관리 — 구축, 배치, 최적화 올인원',
