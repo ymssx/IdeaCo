@@ -389,7 +389,7 @@ export default function FilesView({ fileChanges, departmentId, previewFile, onPr
           {(fileChanges || []).length > 0 && Object.keys(recentTree).length > 0 && (
             <>
               <div className="px-3 py-1 text-[10px] text-yellow-400 font-medium">
-                ⚡ Agent Changes
+                {t('systemSettings.agentChanges')}
               </div>
               {Object.entries(recentTree).sort(([a, av], [b, bv]) => {
                 const aDir = !av.__isFile;

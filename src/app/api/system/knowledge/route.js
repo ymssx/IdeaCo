@@ -1,25 +1,27 @@
 import { NextResponse } from 'next/server';
 import { knowledgeManager, KnowledgeType, EntryType } from '@/core/knowledge.js';
+import { getApiT } from '@/lib/api-i18n';
 
 /**
- * GET /api/system/knowledge - 获取知识库列表或搜索
+ * GET /api/system/knowledge - Get knowledge base list or search
  */
 export async function GET(request) {
+  const t = getApiT(request);
   try {
     const { searchParams } = new URL(request.url);
     const query = searchParams.get('query');
     const kbId = searchParams.get('kbId');
 
-    // 搜索
+    // Search
     if (query) {
       const results = knowledgeManager.search(query, { limit: 20 });
       return NextResponse.json({ data: results });
     }
 
-    // 获取单个知识库的条目列表
+    // Get entries for a specific knowledge base
     if (kbId) {
       const kb = knowledgeManager.get(kbId);
-      if (!kb) return NextResponse.json({ error: 'Knowledge base not found' }, { status: 404 });
+      if (!kb) return NextResponse.json({ error: t('api.kbNotFound') }, { status: 404 });
       return NextResponse.json({
         data: {
           id: kb.id,
@@ -33,7 +35,7 @@ export async function GET(request) {
       });
     }
 
-    // 列出所有知识库
+    // List all knowledge bases
     return NextResponse.json({
       data: {
         bases: knowledgeManager.list(),
@@ -48,10 +50,11 @@ export async function GET(request) {
 }
 
 /**
- * POST /api/system/knowledge - 知识库管理操作
+ * POST /api/system/knowledge - Knowledge base management operations
  * Actions: create, addEntry, removeEntry, delete, toggle
  */
 export async function POST(request) {
+  const t = getApiT(request);
   try {
     const body = await request.json();
     const { action } = body;
@@ -88,12 +91,12 @@ export async function POST(request) {
       }
       case 'toggle': {
         const kb = knowledgeManager.get(body.kbId);
-        if (!kb) return NextResponse.json({ error: 'Knowledge base not found' }, { status: 404 });
+        if (!kb) return NextResponse.json({ error: t('api.kbNotFound') }, { status: 404 });
         kb.enabled = !kb.enabled;
         return NextResponse.json({ data: { success: true, enabled: kb.enabled } });
       }
       default:
-        return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 });
+        return NextResponse.json({ error: t('api.kbUnknownAction', { action }) }, { status: 400 });
     }
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import { skillRegistry } from '@/core/skills.js';
+import { getApiT } from '@/lib/api-i18n';
 
 /**
- * GET /api/system/skills - 获取所有技能列表
+ * GET /api/system/skills - Get all skills
  */
 export async function GET() {
   try {
@@ -13,14 +14,15 @@ export async function GET() {
 }
 
 /**
- * POST /api/system/skills - 管理技能
+ * POST /api/system/skills - Manage skills
  * Actions: enable, disable, configure
  */
 export async function POST(request) {
+  const t = getApiT(request);
   try {
     const { action, skillId, config } = await request.json();
     if (!skillId) {
-      return NextResponse.json({ error: 'Missing skillId' }, { status: 400 });
+      return NextResponse.json({ error: t('api.missingSkillId') }, { status: 400 });
     }
     switch (action) {
       case 'enable':
@@ -36,7 +38,7 @@ export async function POST(request) {
         skillRegistry.configure(skillId, config || {});
         return NextResponse.json({ data: { success: true } });
       default:
-        return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 });
+        return NextResponse.json({ error: t('api.pluginUnknownAction', { action }) }, { status: 400 });
     }
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

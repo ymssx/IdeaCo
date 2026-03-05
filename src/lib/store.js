@@ -23,13 +23,13 @@ if (!globalStore.__aiEnterprise) {
     loaded: false,
   };
 
-  // 初始化插件运行时：将真实单例注入插件系统
+  // Initialize plugin runtime: inject real singletons into the plugin system
   initPluginRuntime({
     sessionManager,
     cronScheduler,
     knowledgeManager,
     llmClient,
-    messageBus: null, // messageBus 在 Company 创建后才有，延迟注入
+    messageBus: null, // messageBus is created after Company, injected lazily
   });
 
   // Try restoring from disk on first startup
@@ -37,7 +37,7 @@ if (!globalStore.__aiEnterprise) {
     const savedData = loadState();
     if (savedData) {
       globalStore.__aiEnterprise.company = Company.deserialize(savedData);
-      // 恢复后注入 messageBus
+      // Inject messageBus after restoration
       if (globalStore.__aiEnterprise.company?.messageBus) {
         initPluginRuntime({ messageBus: globalStore.__aiEnterprise.company.messageBus });
       }
@@ -56,7 +56,7 @@ export function getCompany() {
 
 export function setCompany(company) {
   globalStore.__aiEnterprise.company = company;
-  // 注入 messageBus 到插件运行时（Company 创建后才有）
+  // Inject messageBus into plugin runtime (only available after Company is created)
   if (company && company.messageBus) {
     initPluginRuntime({ messageBus: company.messageBus });
   }

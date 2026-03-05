@@ -22,8 +22,8 @@ import path from 'path';
 const _require = createRequire(import.meta.url);
 
 /**
- * 安全加载可选依赖（puppeteer、pdf-parse、openai 等）
- * 这些包已在 next.config.mjs 中标记为 external，webpack 不会尝试打包
+ * Safely load optional dependencies (puppeteer, pdf-parse, openai, etc.)
+ * These packages are marked as external in next.config.mjs so webpack won't try to bundle them
  */
 function tryRequire(moduleName) {
   try {
@@ -35,14 +35,14 @@ function tryRequire(moduleName) {
 
 const execAsync = promisify(cpExec);
 
-// 运行时引用（延迟获取以避免循环依赖）
+// Runtime references (lazily fetched to avoid circular dependencies)
 let _sessionManager = null;
 let _cronScheduler = null;
 let _knowledgeManager = null;
 let _llmClient = null;
 let _messageBus = null;
 
-/** 初始化运行时引用（由外部调用，避免循环 import） */
+/** Initialize runtime references (called externally to avoid circular imports) */
 export function initPluginRuntime({ sessionManager, cronScheduler, knowledgeManager, llmClient, messageBus } = {}) {
   if (sessionManager) _sessionManager = sessionManager;
   if (cronScheduler) _cronScheduler = cronScheduler;
@@ -51,7 +51,7 @@ export function initPluginRuntime({ sessionManager, cronScheduler, knowledgeMana
   if (messageBus) _messageBus = messageBus;
 }
 
-// 工作区目录
+// Workspace directories
 const WORKSPACE_DIR = path.resolve(process.cwd(), 'workspace');
 const DATA_DIR = path.resolve(process.cwd(), 'data');
 
@@ -354,7 +354,7 @@ export const WebSearchPlugin = new PluginManifest({
         const query = encodeURIComponent(args.query);
         const limit = args.limit || 5;
         try {
-          // 使用 DuckDuckGo Instant Answer API（免费，不需要 API Key）
+          // Use DuckDuckGo Instant Answer API (free, no API key required)
           const ddgUrl = `https://api.duckduckgo.com/?q=${query}&format=json&no_html=1&skip_disambig=1`;
           const controller = new AbortController();
           const timeout = setTimeout(() => controller.abort(), 8000);
@@ -363,11 +363,11 @@ export const WebSearchPlugin = new PluginManifest({
           const data = await res.json();
 
           const results = [];
-          // AbstractText 摘要
+          // AbstractText summary
           if (data.AbstractText) {
             results.push({ title: data.AbstractSource || 'Summary', snippet: data.AbstractText, url: data.AbstractURL || '' });
           }
-          // RelatedTopics 作为搜索结果
+          // RelatedTopics as search results
           if (data.RelatedTopics) {
             for (const topic of data.RelatedTopics.slice(0, limit)) {
               if (topic.Text) {
@@ -375,7 +375,7 @@ export const WebSearchPlugin = new PluginManifest({
               }
             }
           }
-          // 如果 DDG 没有结果，回退到 Google 搜索页面抓取
+          // If DDG has no results, fall back to scraping Google search page
           if (results.length === 0) {
             const googleUrl = `https://www.google.com/search?q=${query}&num=${limit}`;
             const gRes = await fetch(googleUrl, {
@@ -383,7 +383,7 @@ export const WebSearchPlugin = new PluginManifest({
               signal: AbortSignal.timeout(8000),
             });
             const html = await gRes.text();
-            // 简单提取搜索结果片段
+            // Simple extraction of search result snippets
             const snippets = html.match(/<span[^>]*>([^<]{50,300})<\/span>/g) || [];
             snippets.slice(0, limit).forEach((s, i) => {
               const text = s.replace(/<[^>]*>/g, '');
@@ -451,7 +451,7 @@ export const NotificationPlugin = new PluginManifest({
     [HookPoint.AGENT_TASK_END]: async (context, config) => {
       const message = `✅ Task completed by ${context.agentName}: ${context.taskTitle || 'Unknown'}`;
       console.log(`📢 [Notification] ${message}`);
-      // 真实发送 webhook 通知
+      // Actually send webhook notification
       if (config.webhookUrl) {
         try {
           await fetch(config.webhookUrl, {
@@ -558,7 +558,7 @@ export const BrowserPlugin = new PluginManifest({
         },
       },
       _executor: async (args) => {
-        // 真实实现：使用 fetch 获取页面内容作为 DOM 快照
+        // Real implementation: use fetch to get page content as a DOM snapshot
         try {
           const controller = new AbortController();
           const timeout = setTimeout(() => controller.abort(), 15000);
@@ -569,7 +569,7 @@ export const BrowserPlugin = new PluginManifest({
           });
           clearTimeout(timeout);
           const html = await res.text();
-          // 提取纯文本内容（移除 script/style 标签）
+          // Extract plain text content (remove script/style tags)
           const cleaned = html
             .replace(/<script[\s\S]*?<\/script>/gi, '')
             .replace(/<style[\s\S]*?<\/style>/gi, '')
@@ -597,7 +597,7 @@ export const BrowserPlugin = new PluginManifest({
         },
       },
       _executor: async (args) => {
-        // 截图需要 puppeteer，尝试动态加载（使用 require 避免 webpack 解析）
+        // Screenshot requires puppeteer; try to load it dynamically (use require to avoid webpack parsing)
         try {
           const puppeteer = tryRequire('puppeteer');
           if (!puppeteer) {
@@ -605,7 +605,7 @@ export const BrowserPlugin = new PluginManifest({
           }
           const browser = await puppeteer.launch({ headless: 'new' });
           const page = await browser.newPage();
-          await page.goto('about:blank'); // 使用当前加载的页面
+          await page.goto('about:blank'); // Use the currently loaded page
           const screenshotPath = path.join(DATA_DIR, `screenshot-${Date.now()}.png`);
           if (args.selector) {
             const el = await page.$(args.selector);
@@ -654,7 +654,7 @@ export const MemoryPlugin = new PluginManifest({
         },
       },
       _executor: async (args) => {
-        // 真实实现：搜索知识库
+        // Real implementation: search the knowledge base
         try {
           if (_knowledgeManager) {
             const results = _knowledgeManager.search(args.query, { limit: args.limit || 5 });
@@ -682,10 +682,10 @@ export const MemoryPlugin = new PluginManifest({
         },
       },
       _executor: async (args) => {
-        // 真实实现：存储到知识库
+        // Real implementation: store to the knowledge base
         try {
           if (_knowledgeManager) {
-            // 获取或创建默认知识库
+            // Get or create the default knowledge base
             let bases = _knowledgeManager.list();
             let kbId = bases[0]?.id;
             if (!kbId) {
@@ -740,10 +740,10 @@ export const ImagePlugin = new PluginManifest({
         },
       },
       _executor: async (args) => {
-        // 真实实现：调用 OpenAI DALL-E API
+        // Real implementation: call the OpenAI DALL-E API
         try {
           if (_llmClient) {
-            // 从 provider-router 获取图像模型 provider
+            // Get the image model provider from provider-router
             const { providerRouter } = await import('./provider-router.js');
             const imgProvider = providerRouter.getProviderForCategory('image');
             if (imgProvider) {
@@ -787,19 +787,19 @@ export const PdfPlugin = new PluginManifest({
         },
       },
       _executor: async (args) => {
-        // 真实实现：PDF 文本提取
+        // Real implementation: PDF text extraction
         try {
           const filePath = path.resolve(WORKSPACE_DIR, args.path);
           if (!existsSync(filePath)) {
             return JSON.stringify({ error: `File not found: ${args.path}` });
           }
-          // 尝试使用 pdf-parse（使用 require 避免 webpack 解析）
+          // Try using pdf-parse (use require to avoid webpack parsing)
           const pdfParse = tryRequire('pdf-parse');
           if (pdfParse) {
             const buffer = await fs.readFile(filePath);
             const data = await pdfParse(buffer);
             let text = data.text || '';
-            // 如果指定了页码范围，简单截取
+            // If a page range is specified, do a simple slice
             if (args.pages) {
               const lines = text.split('\n');
               const perPage = Math.ceil(lines.length / (data.numpages || 1));
@@ -810,12 +810,12 @@ export const PdfPlugin = new PluginManifest({
             }
             return JSON.stringify({ path: args.path, pages: data.numpages, text: text.slice(0, 20000), textLength: text.length });
           }
-          // 回退：使用 pdftotext 命令行工具
+          // Fallback: use pdftotext command-line tool
           try {
             const { stdout } = await execAsync(`pdftotext "${filePath}" -`, { timeout: 15000 });
             return JSON.stringify({ path: args.path, text: stdout.slice(0, 20000), textLength: stdout.length, method: 'pdftotext' });
           } catch {
-            // 最终回退：读取二进制并提取可见文本
+            // Final fallback: read binary and extract visible text
             const raw = await fs.readFile(filePath, 'latin1');
             const textMatches = raw.match(/\(([^)]{2,})\)/g) || [];
             const extracted = textMatches.map(m => m.slice(1, -1)).join(' ').slice(0, 10000);
@@ -856,7 +856,7 @@ export const CanvasPlugin = new PluginManifest({
         },
       },
       _executor: async (args) => {
-        // 真实实现：将 HTML 内容写入文件并返回路径
+        // Real implementation: write HTML content to a file and return the path
         try {
           const canvasDir = path.join(DATA_DIR, 'canvas');
           if (!existsSync(canvasDir)) mkdirSync(canvasDir, { recursive: true });
@@ -946,7 +946,7 @@ export const TtsPlugin = new PluginManifest({
         },
       },
       _executor: async (args, config) => {
-        // 真实实现：调用 OpenAI TTS API
+        // Real implementation: call the OpenAI TTS API
         try {
           const openaiModule = tryRequire('openai');
           if (!openaiModule) {
@@ -954,7 +954,7 @@ export const TtsPlugin = new PluginManifest({
           }
           const OpenAI = openaiModule.default || openaiModule;
           const { providerRouter } = await import('./provider-router.js');
-          // 获取 OpenAI provider
+          // Get OpenAI provider
           const providers = providerRouter.listProviders();
           const openaiProvider = providers.find(p => p.id.startsWith('openai-') && p.enabled && p.apiKey);
           if (!openaiProvider) {
@@ -967,7 +967,7 @@ export const TtsPlugin = new PluginManifest({
             voice,
             input: args.text,
           });
-          // 保存音频文件
+          // Save audio file
           const audioDir = path.join(DATA_DIR, 'audio');
           if (!existsSync(audioDir)) mkdirSync(audioDir, { recursive: true });
           const filename = `tts-${Date.now()}.mp3`;
@@ -1015,11 +1015,11 @@ export const ExecPlugin = new PluginManifest({
         },
       },
       _executor: async (args, config) => {
-        // 真实实现：执行 Shell 命令
+        // Real implementation: execute a shell command
         try {
           const timeout = (args.timeout || config.timeout || 30) * 1000;
           if (args.background) {
-            // 后台进程：启动并返回 PID
+            // Background process: spawn and return PID
             const { spawn } = await import('child_process');
             const parts = args.command.split(/\s+/);
             const child = spawn(parts[0], parts.slice(1), {
@@ -1028,7 +1028,7 @@ export const ExecPlugin = new PluginManifest({
             child.unref();
             return JSON.stringify({ status: 'background', pid: child.pid, command: args.command });
           }
-          // 前台执行
+          // Foreground execution
           const { stdout, stderr } = await execAsync(args.command, {
             cwd: WORKSPACE_DIR, timeout, maxBuffer: 2 * 1024 * 1024,
           });
@@ -1065,7 +1065,7 @@ export const ExecPlugin = new PluginManifest({
         },
       },
       _executor: async (args) => {
-        // 真实实现：进程管理
+        // Real implementation: process management
         try {
           switch (args.action) {
             case 'list': {
@@ -1114,10 +1114,10 @@ export const ApplyPatchPlugin = new PluginManifest({
         },
       },
       _executor: async (args) => {
-        // 真实实现：解析并应用统一 diff 补丁
+        // Real implementation: parse and apply a unified diff patch
         try {
           const patchContent = args.input || '';
-          // 解析 *** Begin Patch / *** End Patch 格式
+          // Parse *** Begin Patch / *** End Patch format
           const filePatches = patchContent.split(/^\*{3}\s+/m).filter(Boolean);
           const results = [];
           for (const block of filePatches) {
@@ -1125,10 +1125,10 @@ export const ApplyPatchPlugin = new PluginManifest({
             const fileMatch = lines[0].match(/^(.+?)\s*$/);
             if (!fileMatch) continue;
             const filePath = path.resolve(WORKSPACE_DIR, fileMatch[1].trim());
-            // 读取原文件
+            // Read the original file
             let original = '';
             try { original = await fs.readFile(filePath, 'utf-8'); } catch {}
-            // 应用补丁行（简化版：与规则替换）
+            // Apply patch lines (simplified: rule-based replacement)
             let modified = original;
             let applied = 0;
             for (let i = 1; i < lines.length; i++) {
@@ -1145,7 +1145,7 @@ export const ApplyPatchPlugin = new PluginManifest({
                 applied++;
               }
             }
-            // 写入文件
+            // Write the file
             const dir = path.dirname(filePath);
             if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
             await fs.writeFile(filePath, modified, 'utf-8');
@@ -1191,7 +1191,7 @@ export const MessagePlugin = new PluginManifest({
         },
       },
       _executor: async (args) => {
-        // 真实实现：通过消息总线发送消息
+        // Real implementation: send message via the message bus
         try {
           if (_messageBus) {
             const msg = _messageBus.send({
@@ -1203,7 +1203,7 @@ export const MessagePlugin = new PluginManifest({
             });
             return JSON.stringify({ sent: true, messageId: msg.id, target: args.target });
           }
-          // 回退：记录到控制台
+          // Fallback: log to console
           console.log(`📨 [Message] To ${args.target}: ${args.text}`);
           return JSON.stringify({ sent: true, target: args.target, method: 'console' });
         } catch (e) {
@@ -1227,7 +1227,7 @@ export const MessagePlugin = new PluginManifest({
         },
       },
       _executor: async (args) => {
-        // 真实实现：搜索消息总线历史
+        // Real implementation: search message bus history
         try {
           if (_messageBus) {
             const allMsgs = _messageBus.messages || [];
@@ -1277,7 +1277,7 @@ export const CronPlugin = new PluginManifest({
         },
       },
       _executor: async (args) => {
-        // 真实实现：连接到 cronScheduler 单例
+        // Real implementation: connect to the cronScheduler singleton
         try {
           if (!_cronScheduler) {
             return JSON.stringify({ error: 'CronScheduler not initialized, call initPluginRuntime()' });
@@ -1349,13 +1349,13 @@ export const SessionsPlugin = new PluginManifest({
         },
       },
       _executor: async (args) => {
-        // 真实实现：连接到 sessionManager 单例
+        // Real implementation: connect to the sessionManager singleton
         try {
           if (!_sessionManager) return JSON.stringify({ sessions: [], note: 'SessionManager not initialized' });
           const sessions = _sessionManager.list({
             limit: args.limit || 20,
           });
-          // 过滤最近活跃的
+          // Filter to recently active sessions
           const filtered = args.activeMinutes
             ? sessions.filter(s => (Date.now() - new Date(s.lastActiveAt).getTime()) < args.activeMinutes * 60000)
             : sessions;
@@ -1380,7 +1380,7 @@ export const SessionsPlugin = new PluginManifest({
         },
       },
       _executor: async (args) => {
-        // 真实实现：通过 sessionManager 发送消息
+        // Real implementation: send message via sessionManager
         try {
           if (!_sessionManager) return JSON.stringify({ sent: false, error: 'SessionManager not initialized' });
           const success = _sessionManager.addMessage(args.sessionKey, {
@@ -1410,7 +1410,7 @@ export const SessionsPlugin = new PluginManifest({
         },
       },
       _executor: async (args) => {
-        // 真实实现：通过 sessionManager 创建新会话
+        // Real implementation: create a new session via sessionManager
         try {
           if (!_sessionManager) return JSON.stringify({ status: 'error', error: 'SessionManager not initialized' });
           const session = _sessionManager.getOrCreate({
@@ -1461,12 +1461,12 @@ export const SubagentsPlugin = new PluginManifest({
         },
       },
       _executor: async (args) => {
-        // 真实实现：子 Agent 管理
+        // Real implementation: sub-agent management
         try {
           if (!_sessionManager) return JSON.stringify({ error: 'SessionManager not initialized' });
           switch (args.action) {
             case 'list': {
-              // 列出所有任务类型的活跃会话（作为子 Agent 运行）
+              // List all task-type active sessions (running as sub-agents)
               const sessions = _sessionManager.list({ limit: 50 });
               const taskSessions = sessions.filter(s => s.peerKind === 'task');
               return JSON.stringify({ runs: taskSessions.map(s => ({ id: s.sessionKey, agent: s.agentId, label: s.label, state: s.state, messages: s.messageCount })), count: taskSessions.length });
@@ -1521,11 +1521,11 @@ export const NodesPlugin = new PluginManifest({
         },
       },
       _executor: async (args) => {
-        // 真实实现：设备节点管理（基于系统信息）
+        // Real implementation: device node management (based on system info)
         try {
           switch (args.action) {
             case 'status': {
-              // 获取本机状态作为节点信息
+              // Get local machine status as node info
               const os = await import('os');
               return JSON.stringify({
                 action: 'status',
@@ -1547,7 +1547,7 @@ export const NodesPlugin = new PluginManifest({
               return JSON.stringify({ node: args.node || 'local', hostname: os.default.hostname(), platform: os.default.platform(), networkInterfaces: Object.keys(os.default.networkInterfaces()) });
             }
             case 'notify': {
-              // 发送通知（日志记录）
+              // Send notification (log it)
               console.log(`🔔 [Node Notification] ${args.node || 'local'}: ${args.message}`);
               return JSON.stringify({ action: 'notify', node: args.node, status: 'sent', message: args.message });
             }
@@ -1595,7 +1595,7 @@ export const GatewayPlugin = new PluginManifest({
         },
       },
       _executor: async (args) => {
-        // 真实实现：Gateway 管理（配置文件 + 进程管理）
+        // Real implementation: Gateway management (config files + process management)
         try {
           const configPath = path.join(DATA_DIR, 'gateway-config.json');
           switch (args.action) {
@@ -1674,13 +1674,13 @@ export const LobsterPlugin = new PluginManifest({
         },
       },
       _executor: async (args) => {
-        // 真实实现：工作流管道运行（基于 shell 执行）
+        // Real implementation: workflow pipeline execution (shell-based)
         try {
           switch (args.action) {
             case 'run': {
               if (!args.pipeline) return JSON.stringify({ error: 'pipeline command required' });
               const timeout = args.timeoutMs || 20000;
-              // 尝试执行管道命令
+              // Try to execute the pipeline command
               const pipelineCmd = args.argsJson
                 ? `${args.pipeline} '${args.argsJson}'`
                 : args.pipeline;
@@ -1737,7 +1737,7 @@ export const LlmTaskPlugin = new PluginManifest({
         },
       },
       _executor: async (args) => {
-        // 真实实现：使用 LLM 执行结构化输出任务
+        // Real implementation: use LLM for structured output tasks
         try {
           if (!_llmClient) return JSON.stringify({ status: 'error', error: 'LLMClient not initialized' });
           const { providerRouter } = await import('./provider-router.js');
@@ -1757,7 +1757,7 @@ export const LlmTaskPlugin = new PluginManifest({
             { role: 'user', content: userMsg },
           ], { temperature: args.temperature ?? 0.3, maxTokens: 800 });
 
-          // 解析 JSON 输出
+          // Parse JSON output
           let output;
           try {
             const cleaned = response.content.replace(/```json\n?/g, '').replace(/```/g, '').trim();
@@ -1809,13 +1809,13 @@ export const DiffsPlugin = new PluginManifest({
         },
       },
       _executor: async (args) => {
-        // 真实实现：生成 diff 并写入文件
+        // Real implementation: generate diff and write to file
         try {
           let diffContent = '';
           if (args.patch) {
             diffContent = args.patch;
           } else if (args.before !== undefined && args.after !== undefined) {
-            // 生成简化版 unified diff
+            // Generate a simplified unified diff
             const beforeLines = (args.before || '').split('\n');
             const afterLines = (args.after || '').split('\n');
             const diffLines = [`--- ${args.path || 'a/file'}`, `+++ ${args.path || 'b/file'}`];
@@ -1836,7 +1836,7 @@ export const DiffsPlugin = new PluginManifest({
             }
             diffContent = diffLines.join('\n');
           }
-          // 写入文件
+          // Write to file
           const mode = args.mode || 'view';
           const result = { status: 'generated', mode, diffLength: diffContent.length };
           if (mode === 'file' || mode === 'both') {
@@ -1891,12 +1891,12 @@ export const FirecrawlPlugin = new PluginManifest({
         },
       },
       _executor: async (args, config) => {
-        // 真实实现：调用 Firecrawl API（如果有 key），否则 fallback 到 fetch
+        // Real implementation: call Firecrawl API if key available, otherwise fall back to fetch
         try {
           const apiKey = config.apiKey;
           const baseUrl = config.baseUrl || 'https://api.firecrawl.dev';
           if (apiKey) {
-            // 调用 Firecrawl API
+            // Call the Firecrawl API
             const res = await fetch(`${baseUrl}/v0/scrape`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
@@ -1909,7 +1909,7 @@ export const FirecrawlPlugin = new PluginManifest({
             }
             return JSON.stringify({ url: args.url, error: data.error || 'Firecrawl request failed', method: 'firecrawl' });
           }
-          // Fallback 到普通 fetch
+          // Fall back to plain fetch
           const controller = new AbortController();
           const timeout = setTimeout(() => controller.abort(), 15000);
           const res = await fetch(args.url, {
@@ -1959,7 +1959,7 @@ export const BirdPlugin = new PluginManifest({
         },
       },
       _executor: async (args) => {
-        // 真实实现：尝试使用 xurl CLI 发帖，fallback 到记录
+        // Real implementation: try posting via xurl CLI, fall back to logging
         try {
           const cmd = args.replyTo
             ? `xurl post --text "${args.text.replace(/"/g, '\\"')}" --reply-to ${args.replyTo}`
@@ -1967,7 +1967,7 @@ export const BirdPlugin = new PluginManifest({
           const { stdout } = await execAsync(cmd, { timeout: 15000 });
           return JSON.stringify({ status: 'posted', output: stdout.slice(0, 2000) });
         } catch (e) {
-          // xurl 不可用，记录并返回
+          // xurl unavailable, log and return
           console.log(`🐦 [Bird] Post: ${args.text.slice(0, 100)}`);
           return JSON.stringify({ status: 'logged', text: args.text.slice(0, 280), error: `xurl CLI not available: ${e.message}. Install xurl for X/Twitter posting.` });
         }
@@ -2075,7 +2075,7 @@ export const ReactionsPlugin = new PluginManifest({
         },
       },
       _executor: async (args) => {
-        // 真实实现：在消息总线上记录 reaction
+        // Real implementation: record reaction on the message bus
         try {
           if (_messageBus) {
             switch (args.action) {
@@ -2139,7 +2139,7 @@ export const ThinkingPlugin = new PluginManifest({
         },
       },
       _executor: async (args) => {
-        // 真实实现：使用 LLM 进行深度思考
+        // Real implementation: use LLM for deep thinking
         try {
           if (!_llmClient) return JSON.stringify({ status: 'error', error: 'LLMClient not initialized' });
           const { providerRouter } = await import('./provider-router.js');

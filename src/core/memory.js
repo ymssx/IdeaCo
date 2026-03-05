@@ -4,8 +4,8 @@ import { v4 as uuidv4 } from 'uuid';
  * Memory System - Each Agent has independent long-term and short-term memory
  * 
  * Short-term memory: temporary info related to current task, may be forgotten or consolidated after task ends
- *   - 有失效时间（默认 24 小时），过期自动清理
- *   - 整理记忆时清理不需要的短期记忆
+ *   - Has expiration time (default 24 hours), expired entries are auto-cleaned
+ *   - Unnecessary short-term memories are cleaned during consolidation
  * Long-term memory: lessons learned, skill growth, self-reflection and other persistent info, stays with Agent permanently
  */
 export class Memory {
@@ -13,15 +13,15 @@ export class Memory {
     this.shortTerm = [];   // Short-term memory list
     this.longTerm = [];    // Long-term memory list
     this.maxShortTerm = 20; // Max short-term capacity, oldest auto-evicted when exceeded
-    this.defaultShortTermTTL = 24 * 60 * 60 * 1000; // 默认短期记忆存活时间：24 小时
+    this.defaultShortTermTTL = 24 * 60 * 60 * 1000; // Default short-term memory TTL: 24 hours
   }
 
   /**
    * Add short-term memory
    * @param {string} content - Memory content
    * @param {string} [category] - Category tag
-   * @param {object} [options] - 额外选项
-   * @param {number} [options.ttl] - 自定义存活时间（毫秒），不传则使用默认值
+   * @param {object} [options] - Additional options
+   * @param {number} [options.ttl] - Custom TTL in milliseconds, defaults to the default value if not provided
    */
   addShortTerm(content, category = 'task', options = {}) {
     const ttl = options.ttl || this.defaultShortTermTTL;
@@ -84,39 +84,39 @@ export class Memory {
   }
 
   /**
-   * 清理过期的短期记忆
-   * @returns {number} 清理掉的记忆数量
+   * Clean up expired short-term memories
+   * @returns {number} Number of cleaned memories
    */
   cleanExpiredShortTerm() {
     const now = Date.now();
     const before = this.shortTerm.length;
     this.shortTerm = this.shortTerm.filter(m => {
-      if (!m.expiresAt) return true; // 没有失效时间的保留
+      if (!m.expiresAt) return true; // Keep entries with no expiration time
       return new Date(m.expiresAt).getTime() > now;
     });
     const cleaned = before - this.shortTerm.length;
     if (cleaned > 0) {
-      console.log(`🧹 清理了 ${cleaned} 条过期短期记忆`);
+      console.log(`🧹 Cleaned ${cleaned} expired short-term memories`);
     }
     return cleaned;
   }
 
   /**
-   * 整理记忆：清理过期短期记忆 + 去重 + 限制长期记忆总量
-   * 应在 Agent 唤醒前调用
+   * Consolidate memories: clean expired short-term, deduplicate, and limit total long-term count
+   * Should be called before waking up an Agent
    * @returns {object} { expiredCleaned, duplicatesRemoved }
    */
   consolidateMemories() {
-    // 1. 清理过期短期记忆
+    // 1. Clean expired short-term memories
     const expiredCleaned = this.cleanExpiredShortTerm();
 
-    // 2. 长期记忆去重（基于内容相似度的简单去重）
+    // 2. Deduplicate long-term memories (simple deduplication based on content similarity)
     const seen = new Map();
     const deduped = [];
     let duplicatesRemoved = 0;
 
     for (const mem of this.longTerm) {
-      // 简单的内容指纹：取前 100 字符作为 key
+      // Simple content fingerprint: use first 100 chars as key
       const key = mem.content.toLowerCase().trim().slice(0, 100);
       if (seen.has(key)) {
         duplicatesRemoved++;
@@ -127,16 +127,16 @@ export class Memory {
     }
     this.longTerm = deduped;
 
-    // 3. 如果长期记忆超过上限（200 条），保留最新的
+    // 3. If long-term memory exceeds limit (200 entries), keep the most recent
     const MAX_LONG_TERM = 200;
     if (this.longTerm.length > MAX_LONG_TERM) {
       const trimmed = this.longTerm.length - MAX_LONG_TERM;
       this.longTerm = this.longTerm.slice(-MAX_LONG_TERM);
-      console.log(`🧹 长期记忆超出上限，裁剪了 ${trimmed} 条最旧的记忆`);
+      console.log(`🧹 Long-term memory exceeded limit, trimmed ${trimmed} oldest memories`);
     }
 
     if (expiredCleaned > 0 || duplicatesRemoved > 0) {
-      console.log(`🧠 记忆整理完成: 清理过期短期 ${expiredCleaned} 条, 去重长期 ${duplicatesRemoved} 条`);
+      console.log(`🧠 Memory consolidation complete: cleaned ${expiredCleaned} expired short-term, deduplicated ${duplicatesRemoved} long-term`);
     }
 
     return { expiredCleaned, duplicatesRemoved };

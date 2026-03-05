@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getCompany } from '@/lib/store';
+import { getApiT } from '@/lib/api-i18n';
 
 /**
  * Teams Management API
@@ -11,10 +12,11 @@ import { getCompany } from '@/lib/store';
  * DELETE /api/teams?id=xxx - Delete team
  */
 export async function GET(request) {
+  const t = getApiT(request);
   try {
   const company = getCompany();
   if (!company) {
-    return NextResponse.json({ error: 'Please create a company first' }, { status: 400 });
+    return NextResponse.json({ error: t('api.noCompany') }, { status: 400 });
   }
 
   if (!company.teamManager) {
@@ -31,9 +33,9 @@ export async function GET(request) {
   // Get sprint detail
   if (teamId && sprintId) {
     const team = company.teamManager.get(teamId);
-    if (!team) return NextResponse.json({ error: 'Team not found' }, { status: 404 });
+    if (!team) return NextResponse.json({ error: t('api.teamNotFound') }, { status: 404 });
     const sprint = team.getSprint(sprintId);
-    if (!sprint) return NextResponse.json({ error: 'Sprint not found' }, { status: 404 });
+    if (!sprint) return NextResponse.json({ error: t('api.sprintNotFound') }, { status: 404 });
 
     const data = sprint.serialize();
 
@@ -52,7 +54,7 @@ export async function GET(request) {
   // Get team detail
   if (id) {
     const team = company.teamManager.get(id);
-    if (!team) return NextResponse.json({ error: 'Team not found' }, { status: 404 });
+    if (!team) return NextResponse.json({ error: t('api.teamNotFound') }, { status: 404 });
 
     const data = team.serialize();
 
@@ -117,10 +119,11 @@ export async function GET(request) {
  * DELETE /api/teams?id=xxx - Delete team
  */
 export async function DELETE(request) {
+  const t = getApiT(request);
   try {
   const company = getCompany();
   if (!company) {
-    return NextResponse.json({ error: 'Please create a company first' }, { status: 400 });
+    return NextResponse.json({ error: t('api.noCompany') }, { status: 400 });
   }
 
   if (!company.teamManager) {
@@ -130,10 +133,10 @@ export async function DELETE(request) {
 
   const url = new URL(request.url);
   const id = url.searchParams.get('id');
-  if (!id) return NextResponse.json({ error: 'Team ID is required' }, { status: 400 });
+  if (!id) return NextResponse.json({ error: t('api.teamDeleteIdRequired') }, { status: 400 });
 
   if (!company.teamManager.get(id)) {
-    return NextResponse.json({ error: 'Team not found' }, { status: 404 });
+    return NextResponse.json({ error: t('api.teamNotFound') }, { status: 404 });
   }
 
   company.teamManager.delete(id);
@@ -150,10 +153,11 @@ export async function DELETE(request) {
  * POST /api/teams - Team/Sprint operations
  */
 export async function POST(request) {
+  const t = getApiT(request);
   try {
   const company = getCompany();
   if (!company) {
-    return NextResponse.json({ error: 'Please create a company first' }, { status: 400 });
+    return NextResponse.json({ error: t('api.noCompany') }, { status: 400 });
   }
 
   if (!company.teamManager) {
@@ -168,19 +172,19 @@ export async function POST(request) {
   if (action === 'create') {
     const { departmentId, name, memberIds, leaderId, description } = body;
     if (!departmentId || !name || !memberIds?.length || !leaderId) {
-      return NextResponse.json({ error: 'departmentId, name, memberIds, and leaderId are required' }, { status: 400 });
+      return NextResponse.json({ error: t('api.teamCreateRequired') }, { status: 400 });
     }
 
     const dept = company.findDepartment(departmentId);
-    if (!dept) return NextResponse.json({ error: 'Department not found' }, { status: 404 });
+    if (!dept) return NextResponse.json({ error: t('api.deptNotFound') }, { status: 404 });
 
     const leader = dept.agents.get(leaderId);
-    if (!leader) return NextResponse.json({ error: 'Leader not found in department' }, { status: 400 });
+    if (!leader) return NextResponse.json({ error: t('api.leaderNotFound') }, { status: 400 });
 
     // Verify all members exist in department
     for (const mid of memberIds) {
       if (!dept.agents.get(mid)) {
-        return NextResponse.json({ error: `Member ${mid} not found in department` }, { status: 400 });
+        return NextResponse.json({ error: t('api.memberNotFound', { id: mid }) }, { status: 400 });
       }
     }
 
@@ -204,10 +208,10 @@ export async function POST(request) {
   // === Update Team ===
   if (action === 'update') {
     const { teamId, skills, workspacePath, name, description, memberIds, leaderId } = body;
-    if (!teamId) return NextResponse.json({ error: 'teamId is required' }, { status: 400 });
+    if (!teamId) return NextResponse.json({ error: t('api.teamIdRequired') }, { status: 400 });
 
     const team = company.teamManager.get(teamId);
-    if (!team) return NextResponse.json({ error: 'Team not found' }, { status: 404 });
+    if (!team) return NextResponse.json({ error: t('api.teamNotFound') }, { status: 404 });
 
     if (skills !== undefined) team.skills = skills;
     if (workspacePath !== undefined) {
@@ -239,11 +243,11 @@ export async function POST(request) {
   if (action === 'create_sprint') {
     const { teamId, title, goal } = body;
     if (!teamId || !title || !goal) {
-      return NextResponse.json({ error: 'teamId, title, and goal are required' }, { status: 400 });
+      return NextResponse.json({ error: t('api.sprintCreateRequired') }, { status: 400 });
     }
 
     const team = company.teamManager.get(teamId);
-    if (!team) return NextResponse.json({ error: 'Team not found' }, { status: 404 });
+    if (!team) return NextResponse.json({ error: t('api.teamNotFound') }, { status: 404 });
 
     const { Sprint } = await import('@/core/team.js');
     const sprint = new Sprint({ title, goal, teamId: team.id, teamName: team.name });
@@ -252,7 +256,7 @@ export async function POST(request) {
     // Add system message
     sprint.addGroupMessage(
       { name: 'System', role: 'system' },
-      `📋 迭代「${title}」已创建，目标：${goal}`,
+      t('api.sprintCreated', { title, goal }),
       'system'
     );
 
@@ -260,22 +264,22 @@ export async function POST(request) {
     return NextResponse.json({ data: sprint.serialize() });
   }
 
-  // === Start Sprint Discussion (负责人拉群讨论) ===
+  // === Start Sprint Discussion ===
   if (action === 'discuss_sprint') {
     const { teamId, sprintId } = body;
     if (!teamId || !sprintId) {
-      return NextResponse.json({ error: 'teamId and sprintId are required' }, { status: 400 });
+      return NextResponse.json({ error: t('api.sprintDiscussRequired') }, { status: 400 });
     }
 
     const team = company.teamManager.get(teamId);
-    if (!team) return NextResponse.json({ error: 'Team not found' }, { status: 404 });
+    if (!team) return NextResponse.json({ error: t('api.teamNotFound') }, { status: 404 });
 
     const sprint = team.getSprint(sprintId);
-    if (!sprint) return NextResponse.json({ error: 'Sprint not found' }, { status: 404 });
+    if (!sprint) return NextResponse.json({ error: t('api.sprintNotFound') }, { status: 404 });
 
     const { SprintStatus: SS } = await import('@/core/team.js');
     if (sprint.status !== SS.DRAFT) {
-      return NextResponse.json({ error: 'Sprint is not in draft status' }, { status: 400 });
+      return NextResponse.json({ error: t('api.sprintNotDraft') }, { status: 400 });
     }
 
     sprint.status = SS.DISCUSSING;
@@ -284,7 +288,7 @@ export async function POST(request) {
     // Return immediately, run discussion async so frontend can poll progress
     const response = NextResponse.json({ data: sprint.serialize() });
 
-    // Async discussion flow (心流模式)
+    // Async discussion flow
     const dept = company.findDepartment(team.departmentId);
     const leader = dept?.agents.get(team.leaderId);
 
@@ -330,7 +334,7 @@ Speak in the same language as the conversation (match the sprint goal language).
           // === Phase 1: Leader opens discussion ===
           sprint.addGroupMessage(
             leader,
-            `📢 各位，我们来讨论迭代「${sprint.title}」的方案。\n\n🎯 迭代目标：${sprint.goal}\n\n请各位结合自己的专长给出建议，我会汇总形成最终方案。`,
+            t('api.sprintDiscussionOpening', { title: sprint.title, goal: sprint.goal }),
             'message'
           );
           company.save();
@@ -358,7 +362,7 @@ Be specific and actionable. This is a DRAFT plan for the team to discuss and imp
 
           sprint.addGroupMessage(
             leader,
-            `📋 这是我的初步方案：\n\n${planResponse.content}\n\n大家觉得如何？请结合自己的专长提出意见和建议，我们一起完善。`,
+            `📋 Here is my initial plan:\n\n${planResponse.content}\n\nWhat do you think? Please share your feedback and suggestions based on your expertise so we can improve it together.`,
             'message'
           );
           company.save();
@@ -520,7 +524,7 @@ Speak in the same language as the original plan.`,
           // Final system message
           sprint.addGroupMessage(
             { name: 'System', role: 'system' },
-            `✅ 讨论完毕！方案已根据团队意见修订，等待 Boss 审批。`,
+            t('api.sprintDiscussionComplete'),
             'system'
           );
           sprint.status = SS.PENDING_APPROVAL;
@@ -530,7 +534,7 @@ Speak in the same language as the original plan.`,
           console.error('[Sprint Discussion] Error:', e.message);
           sprint.addGroupMessage(
             { name: 'System', role: 'system' },
-            `⚠️ 讨论过程中出错: ${e.message}，当前方案提交审批。`,
+            t('api.sprintDiscussionError', { error: e.message }),
             'system'
           );
           sprint.status = SS.PENDING_APPROVAL;
@@ -545,22 +549,22 @@ Speak in the same language as the original plan.`,
     return response;
   }
 
-  // === Approve Sprint (Boss 同意开始迭代 → 创建标准需求) ===
+  // === Approve Sprint (Boss approves → create standard requirement) ===
   if (action === 'approve_sprint') {
     const { teamId, sprintId } = body;
     if (!teamId || !sprintId) {
-      return NextResponse.json({ error: 'teamId and sprintId are required' }, { status: 400 });
+      return NextResponse.json({ error: t('api.sprintDiscussRequired') }, { status: 400 });
     }
 
     const team = company.teamManager.get(teamId);
-    if (!team) return NextResponse.json({ error: 'Team not found' }, { status: 404 });
+    if (!team) return NextResponse.json({ error: t('api.teamNotFound') }, { status: 404 });
 
     const sprint = team.getSprint(sprintId);
-    if (!sprint) return NextResponse.json({ error: 'Sprint not found' }, { status: 404 });
+    if (!sprint) return NextResponse.json({ error: t('api.sprintNotFound') }, { status: 404 });
 
     const { SprintStatus: SS } = await import('@/core/team.js');
     if (sprint.status !== SS.PENDING_APPROVAL) {
-      return NextResponse.json({ error: 'Sprint is not pending approval' }, { status: 400 });
+      return NextResponse.json({ error: t('api.sprintNotPendingApproval') }, { status: 400 });
     }
 
     sprint.status = SS.IN_PROGRESS;
@@ -568,7 +572,7 @@ Speak in the same language as the original plan.`,
 
     sprint.addGroupMessage(
       { name: 'Boss', role: 'boss' },
-      `✅ 同意！方案通过，正在创建需求并分配给团队执行。`,
+      t('api.sprintApproved'),
       'message'
     );
 
@@ -580,7 +584,7 @@ Speak in the same language as the original plan.`,
         const requirement = await company.assignSprintAsDepartmentTask(sprint, team);
         sprint.addGroupMessage(
           { name: 'System', role: 'system' },
-          `📋 需求「${requirement.title}」已创建并开始执行，可在需求看板中查看详情。`,
+          t('api.sprintRequirementCreated', { title: requirement.title }),
           'system'
         );
         company.save();
@@ -589,7 +593,7 @@ Speak in the same language as the original plan.`,
         sprint.status = SS.FAILED;
         sprint.addGroupMessage(
           { name: 'System', role: 'system' },
-          `❌ 需求创建或执行失败: ${e.message}`,
+          t('api.sprintRequirementFailed', { error: e.message }),
           'system'
         );
         company.save();
@@ -603,14 +607,14 @@ Speak in the same language as the original plan.`,
   if (action === 'sprint_message') {
     const { teamId, sprintId, message } = body;
     if (!teamId || !sprintId || !message) {
-      return NextResponse.json({ error: 'teamId, sprintId, and message are required' }, { status: 400 });
+      return NextResponse.json({ error: t('api.sprintMessageRequired') }, { status: 400 });
     }
 
     const team = company.teamManager.get(teamId);
-    if (!team) return NextResponse.json({ error: 'Team not found' }, { status: 404 });
+    if (!team) return NextResponse.json({ error: t('api.teamNotFound') }, { status: 404 });
 
     const sprint = team.getSprint(sprintId);
-    if (!sprint) return NextResponse.json({ error: 'Sprint not found' }, { status: 404 });
+    if (!sprint) return NextResponse.json({ error: t('api.sprintNotFound') }, { status: 404 });
 
     sprint.addGroupMessage(
       { id: 'boss', name: company.bossName, avatar: company.bossAvatar, role: 'Boss' },
@@ -762,18 +766,18 @@ Speak in the same language as the original plan.`,
   if (action === 'delete_sprint') {
     const { teamId, sprintId } = body;
     if (!teamId || !sprintId) {
-      return NextResponse.json({ error: 'teamId and sprintId are required' }, { status: 400 });
+      return NextResponse.json({ error: t('api.sprintDiscussRequired') }, { status: 400 });
     }
 
     const team = company.teamManager.get(teamId);
-    if (!team) return NextResponse.json({ error: 'Team not found' }, { status: 404 });
+    if (!team) return NextResponse.json({ error: t('api.teamNotFound') }, { status: 404 });
 
     team.sprints.delete(sprintId);
     company.save();
     return NextResponse.json({ data: { success: true } });
   }
 
-  return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
+  return NextResponse.json({ error: t('api.unknownAction') }, { status: 400 });
   } catch (e) {
     console.error('[Teams API] POST error:', e);
     return NextResponse.json({ error: e.message || 'Internal server error' }, { status: 500 });

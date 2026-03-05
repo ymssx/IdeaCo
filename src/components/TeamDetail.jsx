@@ -235,7 +235,7 @@ export default function TeamDetail() {
                   className="text-xs px-3 py-1 rounded bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 font-medium"
                   onClick={() => navigateToRequirement(sprintDetail.requirementId)}
                 >
-                  📋 {t('team.sprint.viewRequirement') || '查看需求'}
+                  {t('team.sprint.viewRequirement')}
                 </button>
               )}
               <button

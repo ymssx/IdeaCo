@@ -267,10 +267,10 @@ export class ProviderRegistry {
         costPerToken: 0,
         priceLabel: 'Free (local)',
         priceLevel: 1,
-        rating: b.rating || 80,  // 使用 CLI 自身的评分（在 BUILTIN_BACKENDS 中定义）
+        rating: b.rating || 80,  // Use CLI's own rating (defined in BUILTIN_BACKENDS)
         description: b.description || `${b.name} - local CLI coding assistant`,
       // CLI providers don't need API keys; they use local CLI authentication
-        // 检测到/已配置的 CLI 自动启用，否则保留手动开关状态
+        // Detected/configured CLIs are auto-enabled, otherwise keep manual toggle state
         apiKey: (b.state === 'detected' || b.state === 'configured') ? 'cli-local' : '',
         enabled: (b.state === 'detected' || b.state === 'configured') ? true : wasEnabled || false,
         // Extra CLI metadata

@@ -1,16 +1,18 @@
 import { NextResponse } from 'next/server';
 import { getCompany } from '@/lib/store';
+import { getApiT } from '@/lib/api-i18n';
 
 /**
- * GET /api/agents/[agentId]/conversations - 获取某agent与其他人的所有聊天会话
+ * GET /api/agents/[agentId]/conversations - Get all chat sessions between an agent and others
  * Query params:
- *   - sessionId: 如果提供, 返回该会话的聊天记录
- *   - limit: 消息数限制 (默认 50)
+ *   - sessionId: if provided, return chat history for that session
+ *   - limit: message count limit (default 50)
  */
 export async function GET(request, { params }) {
+  const t = getApiT(request);
   const company = getCompany();
   if (!company) {
-    return NextResponse.json({ error: 'Please create a company first' }, { status: 400 });
+    return NextResponse.json({ error: t('api.noCompany') }, { status: 400 });
   }
   try {
     const { agentId } = await params;
@@ -19,12 +21,12 @@ export async function GET(request, { params }) {
     const limit = parseInt(url.searchParams.get('limit') || '50');
 
     if (sessionId) {
-      // 返回特定会话的聊天记录（含 participants 信息）
+      // Return chat history for a specific session (with participant info)
       const result = company.getAgentAgentChatHistory(sessionId, limit);
       return NextResponse.json({ data: result });
     }
 
-    // 返回该agent的所有聊天会话列表
+    // Return all chat sessions for this agent
     const conversations = company.getAgentConversations(agentId);
     return NextResponse.json({ data: conversations });
   } catch (e) {

@@ -1,13 +1,15 @@
 import { NextResponse } from 'next/server';
 import { getCompany } from '@/lib/store';
+import { getApiT } from '@/lib/api-i18n';
 
 /**
  * GET /api/mailbox - Get mailbox list
  * POST /api/mailbox - Reply to mail
  */
-export async function GET() {
+export async function GET(request) {
+  const t = getApiT(request);
   const company = getCompany();
-  if (!company) return NextResponse.json({ error: 'Company not found' }, { status: 400 });
+  if (!company) return NextResponse.json({ error: t('api.companyNotFound') }, { status: 400 });
 
   return NextResponse.json({
     data: {
@@ -18,8 +20,9 @@ export async function GET() {
 }
 
 export async function POST(request) {
+  const t = getApiT(request);
   const company = getCompany();
-  if (!company) return NextResponse.json({ error: 'Company not found' }, { status: 400 });
+  if (!company) return NextResponse.json({ error: t('api.companyNotFound') }, { status: 400 });
 
   try {
     const { action, mailId, content } = await request.json();
@@ -34,7 +37,7 @@ export async function POST(request) {
     if (action === 'reply') {
       // Boss replies to mail
       const mail = company.mailbox.find(m => m.id === mailId);
-      if (!mail) return NextResponse.json({ error: 'Mail not found' }, { status: 404 });
+      if (!mail) return NextResponse.json({ error: t('api.mailNotFound') }, { status: 404 });
 
       mail.replied = true;
       mail.replies.push({
@@ -90,7 +93,7 @@ export async function POST(request) {
       return NextResponse.json({ success: true });
     }
 
-    return NextResponse.json({ error: 'Unknown operation' }, { status: 400 });
+    return NextResponse.json({ error: t('api.unknownOperation') }, { status: 400 });
   } catch (e) {
     return NextResponse.json({ error: e.message }, { status: 500 });
   }

@@ -1,21 +1,21 @@
 /**
- * Chat Store - 聊天记录文件存储模块
+ * Chat Store - Chat history file storage module
  * 
- * 将聊天记录从内存/company-state.json 中抽离出来，
- * 使用单独的文件夹存储，按会话切片。
+ * Extracts chat history out of memory/company-state.json,
+ * storing it in a dedicated folder, partitioned by session chunks.
  * 
- * 存储结构：
+ * Storage layout:
  *   data/chats/{sessionId}/
- *     ├── meta.json           # 会话元信息
- *     ├── chunk-0001.jsonl    # 聊天切片文件（每片最多 50 条消息）
+ *     ├── meta.json           # Session metadata
+ *     ├── chunk-0001.jsonl    # Chat chunk file (max 50 messages per chunk)
  *     ├── chunk-0002.jsonl
  *     └── ...
  * 
- * 功能：
- * 1. 切片存储：每 50 条消息一个文件，避免单文件过大
- * 2. 追加写入：新消息 append 到当前切片，无需重写整个文件
- * 3. 最近消息快速读取：只读最新切片的尾部
- * 4. 关键词搜索：搜索历史消息中的上下文
+ * Features:
+ * 1. Chunk storage: one file per 50 messages to avoid single large files
+ * 2. Append writes: new messages are appended to the current chunk, no full rewrites
+ * 3. Fast recent message reads: only read the tail of the latest chunk
+ * 4. Keyword search: search historical messages for context
  */
 import fs from 'fs';
 import path from 'path';
@@ -24,23 +24,23 @@ import { v4 as uuidv4 } from 'uuid';
 const DATA_DIR = path.resolve(process.cwd(), 'data');
 const CHATS_DIR = path.join(DATA_DIR, 'chats');
 
-// 每个切片最多存储的消息数
+// Max messages per chunk
 const MESSAGES_PER_CHUNK = 50;
 
-// 确保目录存在
+// Ensure the directory exists
 if (!fs.existsSync(CHATS_DIR)) {
   fs.mkdirSync(CHATS_DIR, { recursive: true });
 }
 
 /**
- * 获取会话目录路径
+ * Get the session directory path
  */
 function getSessionDir(sessionId) {
   return path.join(CHATS_DIR, sessionId);
 }
 
 /**
- * 确保会话目录存在
+ * Ensure the session directory exists
  */
 function ensureSessionDir(sessionId) {
   const dir = getSessionDir(sessionId);
@@ -51,14 +51,14 @@ function ensureSessionDir(sessionId) {
 }
 
 /**
- * 生成切片文件名
+ * Generate a chunk file name
  */
 function chunkFileName(index) {
   return `chunk-${String(index).padStart(4, '0')}.jsonl`;
 }
 
 /**
- * 获取会话的所有切片文件（按序）
+ * Get all chunk files for a session (in order)
  */
 function listChunkFiles(sessionDir) {
   if (!fs.existsSync(sessionDir)) return [];
@@ -68,7 +68,7 @@ function listChunkFiles(sessionDir) {
 }
 
 /**
- * 读取一个 JSONL 文件中的所有消息
+ * Read all messages from a JSONL file
  */
 function readChunkFile(filePath) {
   if (!fs.existsSync(filePath)) return [];
@@ -84,7 +84,7 @@ function readChunkFile(filePath) {
 }
 
 /**
- * 统计一个 JSONL 文件中的消息数
+ * Count messages in a JSONL file
  */
 function countMessagesInChunk(filePath) {
   if (!fs.existsSync(filePath)) return 0;
@@ -94,18 +94,18 @@ function countMessagesInChunk(filePath) {
 }
 
 /**
- * ChatStore - 聊天记录管理
+ * ChatStore - Chat history management
  */
 export class ChatStore {
   constructor() {
-    // 缓存：sessionId -> { currentChunkIndex, currentChunkCount }
+    // Cache: sessionId -> { currentChunkIndex, currentChunkCount }
     this._cache = new Map();
   }
 
   /**
-   * 创建新会话
-   * @param {string} sessionId - 会话 ID
-   * @param {object} meta - 会话元信息 { participants, type, title }
+   * Create a new session
+   * @param {string} sessionId - Session ID
+   * @param {object} meta - Session metadata { participants, type, title }
    * @returns {string} sessionId
    */
   createSession(sessionId, meta = {}) {
@@ -115,7 +115,7 @@ export class ChatStore {
     if (!fs.existsSync(metaPath)) {
       const metaData = {
         sessionId,
-        title: meta.title || '对话',
+        title: meta.title || 'Conversation',
         participants: meta.participants || [],
         type: meta.type || 'boss-secretary',
         createdAt: new Date().toISOString(),
@@ -129,18 +129,18 @@ export class ChatStore {
   }
 
   /**
-   * 追加一条消息到会话
-   * @param {string} sessionId - 会话 ID
-   * @param {object} message - 消息对象 { role, content, action?, time? }
+   * Append a message to a session
+   * @param {string} sessionId - Session ID
+   * @param {object} message - Message object { role, content, action?, time? }
    */
   appendMessage(sessionId, message) {
     const dir = ensureSessionDir(sessionId);
     
-    // 确定当前写入的切片
+    // Determine the current write chunk
     const cacheEntry = this._getOrInitCache(sessionId, dir);
     const chunkPath = path.join(dir, chunkFileName(cacheEntry.currentChunkIndex));
     
-    // 构造消息记录（保留扩展字段如 fromAgentId、toAgentId 等）
+    // Build the message record (preserving extended fields like fromAgentId, toAgentId, etc.)
     const record = {
       id: uuidv4(),
       role: message.role,
@@ -148,33 +148,33 @@ export class ChatStore {
       action: message.action || null,
       time: message.time ? new Date(message.time).toISOString() : new Date().toISOString(),
     };
-    // 保留 agent-agent 聊天的扩展字段
+    // Preserve extended fields for agent-to-agent chat
     if (message.fromAgentId) record.fromAgentId = message.fromAgentId;
     if (message.fromAgentName) record.fromAgentName = message.fromAgentName;
     if (message.toAgentId) record.toAgentId = message.toAgentId;
     if (message.toAgentName) record.toAgentName = message.toAgentName;
 
-    // 追加到切片文件
+    // Append to the chunk file
     fs.appendFileSync(chunkPath, JSON.stringify(record) + '\n', 'utf-8');
     cacheEntry.currentChunkCount++;
 
-    // 如果当前切片满了，准备下一个切片
+    // If the current chunk is full, advance to the next one
     if (cacheEntry.currentChunkCount >= MESSAGES_PER_CHUNK) {
       cacheEntry.currentChunkIndex++;
       cacheEntry.currentChunkCount = 0;
     }
 
-    // 更新元信息
+    // Update metadata
     this._updateMeta(sessionId, dir);
 
     return record;
   }
 
   /**
-   * 获取最近 N 条消息（用于 Agent 唤醒时读取上下文）
-   * @param {string} sessionId - 会话 ID
-   * @param {number} limit - 最多返回的消息数
-   * @returns {Array} 消息列表（按时间升序）
+   * Get the most recent N messages (used when an Agent wakes up to load context)
+   * @param {string} sessionId - Session ID
+   * @param {number} limit - Max messages to return
+   * @returns {Array} Message list (in ascending time order)
    */
   getRecentMessages(sessionId, limit = 10) {
     const dir = getSessionDir(sessionId);
@@ -184,20 +184,20 @@ export class ChatStore {
     if (chunks.length === 0) return [];
 
     const messages = [];
-    // 从最新的切片开始往回读
+    // Read backwards from the most recent chunk
     for (let i = chunks.length - 1; i >= 0 && messages.length < limit; i--) {
       const chunkPath = path.join(dir, chunks[i]);
       const chunkMessages = readChunkFile(chunkPath);
-      // 从切片尾部取
+      // Take from the tail of the chunk
       messages.unshift(...chunkMessages);
     }
 
-    // 只返回最近的 limit 条
+    // Return only the most recent `limit` messages
     return messages.slice(-limit);
   }
 
   /**
-   * 获取会话的全部消息数量
+   * Get the total message count for a session
    * @param {string} sessionId 
    * @returns {number}
    */
@@ -214,13 +214,13 @@ export class ChatStore {
   }
 
   /**
-   * 关键词搜索历史消息
-   * 在所有切片中搜索包含关键词的消息，用于提供给 Agent 上下文
+   * Keyword search over historical messages
+   * Searches all chunks for messages containing the keywords, for providing Agent context
    * 
-   * @param {string} sessionId - 会话 ID
-   * @param {string} query - 搜索关键词
-   * @param {number} limit - 最多返回的消息数
-   * @returns {Array} 匹配的消息（按相关性排序）
+   * @param {string} sessionId - Session ID
+   * @param {string} query - Search keywords
+   * @param {number} limit - Max messages to return
+   * @returns {Array} Matching messages (sorted by relevance)
    */
   searchMessages(sessionId, query, limit = 10) {
     const dir = getSessionDir(sessionId);
@@ -244,18 +244,18 @@ export class ChatStore {
       }
     }
 
-    // 按相关性排序，取 top N
+    // Sort by relevance and take the top N
     scoredMessages.sort((a, b) => b._relevanceScore - a._relevanceScore);
     return scoredMessages.slice(0, limit);
   }
 
   /**
-   * 搜索并返回匹配消息及其前后文（窗口上下文）
+   * Search and return matching messages with surrounding context (window context)
    * @param {string} sessionId 
    * @param {string} query 
-   * @param {number} limit - 返回的匹配组数
-   * @param {number} windowSize - 每个匹配点前后各取多少条消息
-   * @returns {Array} 消息上下文列表
+   * @param {number} limit - Number of match groups to return
+   * @param {number} windowSize - How many messages to include before/after each match
+   * @returns {Array} List of message contexts
    */
   searchWithContext(sessionId, query, limit = 5, windowSize = 2) {
     const dir = getSessionDir(sessionId);
@@ -264,7 +264,7 @@ export class ChatStore {
     const keywords = this._extractKeywords(query);
     if (keywords.length === 0) return [];
 
-    // 读取所有消息（带全局索引）
+    // Read all messages (with global index)
     const chunks = listChunkFiles(dir);
     const allMessages = [];
     for (const chunk of chunks) {
@@ -272,7 +272,7 @@ export class ChatStore {
       allMessages.push(...readChunkFile(chunkPath));
     }
 
-    // 找到匹配的消息索引和得分
+    // Find matching message indices and scores
     const matches = [];
     for (let i = 0; i < allMessages.length; i++) {
       const score = this._calculateRelevance(allMessages[i], keywords);
@@ -281,17 +281,17 @@ export class ChatStore {
       }
     }
 
-    // 按得分排序
+    // Sort by score
     matches.sort((a, b) => b.score - a.score);
 
-    // 取 top N 个匹配点，返回窗口上下文
+    // Take the top N matches and return their window context
     const contexts = [];
     const usedIndices = new Set();
     for (const match of matches.slice(0, limit)) {
       const start = Math.max(0, match.index - windowSize);
       const end = Math.min(allMessages.length - 1, match.index + windowSize);
       
-      // 去重
+      // Deduplicate
       if (usedIndices.has(match.index)) continue;
       
       const contextMessages = [];
@@ -310,8 +310,8 @@ export class ChatStore {
   }
 
   /**
-   * 列出所有会话
-   * @returns {Array} 会话列表
+   * List all sessions
+   * @returns {Array} Session list
    */
   listSessions() {
     if (!fs.existsSync(CHATS_DIR)) return [];
@@ -333,7 +333,7 @@ export class ChatStore {
   }
 
   /**
-   * 标记会话为已读（更新 bossLastReadAt）
+   * Mark a session as read (updates bossLastReadAt)
    * @param {string} sessionId
    */
   markSessionRead(sessionId) {
@@ -350,7 +350,7 @@ export class ChatStore {
   }
 
   /**
-   * 获取会话元信息
+   * Get session metadata
    * @param {string} sessionId
    * @returns {object|null}
    */
@@ -366,7 +366,7 @@ export class ChatStore {
   }
 
   /**
-   * 删除会话
+   * Delete a session
    * @param {string} sessionId 
    */
   deleteSession(sessionId) {
@@ -374,20 +374,20 @@ export class ChatStore {
     if (fs.existsSync(dir)) {
       fs.rmSync(dir, { recursive: true, force: true });
       this._cache.delete(sessionId);
-      console.log(`🗑️ 已删除会话记录: ${sessionId}`);
+      console.log(`🗑️ Deleted session record: ${sessionId}`);
     }
   }
 
   /**
-   * 从旧版 chatHistory 数组迁移到文件存储
-   * @param {string} sessionId - 会话 ID
-   * @param {Array} chatHistory - 旧版聊天记录数组
+   * Migrate from a legacy chatHistory array to file storage
+   * @param {string} sessionId - Session ID
+   * @param {Array} chatHistory - Legacy chat history array
    */
   migrateFromArray(sessionId, chatHistory) {
     if (!chatHistory || chatHistory.length === 0) return;
     
     this.createSession(sessionId, {
-      title: '迁移的会话',
+      title: 'Migrated session',
       type: 'boss-secretary',
     });
 
@@ -399,15 +399,15 @@ export class ChatStore {
         time: msg.time,
       });
     }
-    console.log(`📦 已迁移 ${chatHistory.length} 条聊天记录到文件存储`);
+    console.log(`📦 Migrated ${chatHistory.length} chat messages to file storage`);
   }
 
   // ========================================================================
-  // 内部方法
+  // Internal Methods
   // ========================================================================
 
   /**
-   * 获取或初始化缓存条目
+   * Get or initialize a cache entry
    */
   _getOrInitCache(sessionId, dir) {
     if (this._cache.has(sessionId)) {
@@ -419,13 +419,13 @@ export class ChatStore {
     let currentChunkCount = 0;
 
     if (chunks.length > 0) {
-      // 取最后一个切片
+      // Take the last chunk
       const lastChunk = chunks[chunks.length - 1];
       const match = lastChunk.match(/chunk-(\d+)\.jsonl/);
       if (match) {
         currentChunkIndex = parseInt(match[1], 10);
         currentChunkCount = countMessagesInChunk(path.join(dir, lastChunk));
-        // 如果已满，移到下一个
+        // If full, advance to the next
         if (currentChunkCount >= MESSAGES_PER_CHUNK) {
           currentChunkIndex++;
           currentChunkCount = 0;
@@ -439,7 +439,7 @@ export class ChatStore {
   }
 
   /**
-   * 更新会话元信息
+   * Update session metadata
    */
   _updateMeta(sessionId, dir) {
     const metaPath = path.join(dir, 'meta.json');
@@ -452,29 +452,29 @@ export class ChatStore {
       meta.totalMessages = this.getMessageCount(sessionId);
       fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), 'utf-8');
     } catch (e) {
-      // 元信息更新失败不影响主流程
+      // Metadata update failure does not affect the main flow
     }
   }
 
   /**
-   * 提取搜索关键词
-   * 分词处理（支持中英文混合）
+   * Extract search keywords
+   * Tokenization (supports mixed Chinese/English)
    */
   _extractKeywords(query) {
     if (!query || !query.trim()) return [];
     
     const text = query.toLowerCase().trim();
     
-    // 英文单词分词
+    // English word tokenization
     const englishWords = text.match(/[a-zA-Z0-9]+/g) || [];
     
-    // 中文字符提取（每 2-3 个字符为一组，也保留单字）
+    // Chinese character extraction (groups of 2-3 chars, also keep single chars)
     const chineseChars = text.match(/[\u4e00-\u9fff]+/g) || [];
     const chineseTokens = [];
     for (const segment of chineseChars) {
-      // 保留完整中文片段作为关键词
+      // Keep the full Chinese segment as a keyword
       chineseTokens.push(segment);
-      // 如果片段较长，也按 2 字切分
+      // If the segment is long, also split into 2-char tokens
       if (segment.length > 2) {
         for (let i = 0; i < segment.length - 1; i++) {
           chineseTokens.push(segment.slice(i, i + 2));
@@ -482,7 +482,7 @@ export class ChatStore {
       }
     }
 
-    // 过滤停用词
+    // Filter stop words
     const stopWords = new Set(['the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been',
       'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
       'should', 'may', 'might', 'can', 'shall', 'to', 'of', 'in', 'for', 'on', 'with',
@@ -495,13 +495,13 @@ export class ChatStore {
     const allTokens = [...englishWords, ...chineseTokens]
       .filter(w => w.length > 0 && !stopWords.has(w));
     
-    // 去重
+    // Deduplicate
     return [...new Set(allTokens)];
   }
 
   /**
-   * 计算消息与关键词的相关性得分
-   * 简单 BM25 风格的得分
+   * Calculate relevance score between a message and keywords
+   * Simple BM25-style scoring
    */
   _calculateRelevance(message, keywords) {
     if (!message.content) return 0;
@@ -510,27 +510,27 @@ export class ChatStore {
     let score = 0;
 
     for (const keyword of keywords) {
-      // 精确匹配计数
+      // Exact match count
       const regex = new RegExp(keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
       const matches = content.match(regex);
       if (matches) {
-        // TF（词频）—— 出现次数越多得分越高，但有衰减
+        // TF (term frequency) — more occurrences = higher score, with decay
         const tf = Math.log(1 + matches.length);
-        // 关键词长度加权（长关键词更有意义）
+        // Length weighting (longer keywords are more meaningful)
         const lengthBonus = Math.min(keyword.length / 3, 2);
         score += tf * lengthBonus;
       }
     }
 
-    // 角色加权：boss 的消息更重要（因为包含指令/偏好）
+    // Role weighting: boss messages are more important (contain instructions/preferences)
     if (message.role === 'boss') {
       score *= 1.2;
     }
 
-    // 时间衰减（可选：更近的消息略有加分）
+    // Time decay (optional: more recent messages get a slight boost)
     if (message.time) {
       const ageHours = (Date.now() - new Date(message.time).getTime()) / (1000 * 60 * 60);
-      const freshness = Math.max(0.5, 1 - ageHours / (24 * 30)); // 30 天内线性衰减到 0.5
+      const freshness = Math.max(0.5, 1 - ageHours / (24 * 30)); // Linear decay to 0.5 over 30 days
       score *= freshness;
     }
 
@@ -538,5 +538,5 @@ export class ChatStore {
   }
 }
 
-// 全局单例
+// Global singleton
 export const chatStore = new ChatStore();

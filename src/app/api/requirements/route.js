@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getCompany } from '@/lib/store';
+import { getApiT } from '@/lib/api-i18n';
 
 /**
  * Requirements Management API
@@ -8,9 +9,10 @@ import { getCompany } from '@/lib/store';
  * GET  /api/requirements?departmentId=xxx - Get department's requirements list
  */
 export async function GET(request) {
+  const t = getApiT(request);
   const company = getCompany();
   if (!company) {
-    return NextResponse.json({ error: 'Please create a company first' }, { status: 400 });
+    return NextResponse.json({ error: t('api.noCompany') }, { status: 400 });
   }
 
   const url = new URL(request.url);
@@ -20,11 +22,11 @@ export async function GET(request) {
   if (id) {
     const req = company.requirementManager.get(id);
     if (!req) {
-      return NextResponse.json({ error: 'Requirement not found' }, { status: 404 });
+      return NextResponse.json({ error: t('api.requirementNotFound') }, { status: 404 });
     }
     const data = req.serialize();
 
-    // 附加部门成员列表（群员列表）
+    // Attach department member list (group member list)
     const dept = company.findDepartment(req.departmentId);
     if (dept) {
       data.members = dept.getMembers().map(a => ({
@@ -36,7 +38,7 @@ export async function GET(request) {
       }));
     }
 
-    // 计算当前流程卡点：找出所有正在 running/reviewing/revision 的节点及其执行者
+    // Calculate current blocking: find all running/reviewing/revision nodes and their assignees
     if (data.workflow?.nodes) {
       data.blockingInfo = data.workflow.nodes
         .filter(n => ['running', 'reviewing', 'revision'].includes(n.status))
@@ -90,20 +92,21 @@ export async function GET(request) {
  * DELETE /api/requirements?id=xxx - Delete requirement
  */
 export async function DELETE(request) {
+  const t = getApiT(request);
   const company = getCompany();
   if (!company) {
-    return NextResponse.json({ error: 'Please create a company first' }, { status: 400 });
+    return NextResponse.json({ error: t('api.noCompany') }, { status: 400 });
   }
 
   const url = new URL(request.url);
   const id = url.searchParams.get('id');
   if (!id) {
-    return NextResponse.json({ error: 'Requirement ID is required' }, { status: 400 });
+    return NextResponse.json({ error: t('api.requirementIdRequired') }, { status: 400 });
   }
 
   const req = company.requirementManager.get(id);
   if (!req) {
-    return NextResponse.json({ error: 'Requirement not found' }, { status: 404 });
+    return NextResponse.json({ error: t('api.requirementNotFound') }, { status: 404 });
   }
 
   // Delete from requirement manager
@@ -118,9 +121,10 @@ export async function DELETE(request) {
  * body: { action: 'restart', id: 'xxx' }
  */
 export async function POST(request) {
+  const t = getApiT(request);
   const company = getCompany();
   if (!company) {
-    return NextResponse.json({ error: 'Please create a company first' }, { status: 400 });
+    return NextResponse.json({ error: t('api.noCompany') }, { status: 400 });
   }
 
   const body = await request.json();
@@ -130,12 +134,12 @@ export async function POST(request) {
   if (action === 'create') {
     const { departmentId, title, description, workspaceDir } = body;
     if (!departmentId || !title) {
-      return NextResponse.json({ error: 'departmentId and title are required' }, { status: 400 });
+      return NextResponse.json({ error: t('api.requirementDeptTitleRequired') }, { status: 400 });
     }
 
     const dept = company.findDepartment(departmentId);
     if (!dept) {
-      return NextResponse.json({ error: 'Department not found' }, { status: 404 });
+      return NextResponse.json({ error: t('api.deptNotFound') }, { status: 404 });
     }
 
     // If custom workspaceDir provided, override department workspace
@@ -178,7 +182,7 @@ export async function POST(request) {
   if (action === 'boss_message') {
     const { id: reqId, message: bossMsg } = body;
     if (!reqId || !bossMsg) {
-      return NextResponse.json({ error: 'Requirement ID and message are required' }, { status: 400 });
+      return NextResponse.json({ error: t('api.requirementIdMessageRequired') }, { status: 400 });
     }
     try {
       const result = await company.sendBossGroupMessage(reqId, bossMsg);
@@ -190,12 +194,12 @@ export async function POST(request) {
 
   if (action === 'restart') {
     if (!id) {
-      return NextResponse.json({ error: 'Requirement ID is required' }, { status: 400 });
+      return NextResponse.json({ error: t('api.requirementIdRequired') }, { status: 400 });
     }
 
     const req = company.requirementManager.get(id);
     if (!req) {
-      return NextResponse.json({ error: 'Requirement not found' }, { status: 404 });
+      return NextResponse.json({ error: t('api.requirementNotFound') }, { status: 404 });
     }
 
     // Preserve original info, reset execution state
@@ -207,7 +211,7 @@ export async function POST(request) {
     // Re-assign task to department (async execution, don't wait for completion)
     const dept = company.findDepartment(departmentId);
     if (!dept) {
-      return NextResponse.json({ error: 'Department not found, cannot restart' }, { status: 400 });
+      return NextResponse.json({ error: t('api.deptNotFoundRestart') }, { status: 400 });
     }
 
     // Async task execution, return immediately
@@ -227,10 +231,10 @@ export async function POST(request) {
         success: true, 
         oldId: id, 
         newId: newReq?.id || null,
-        message: 'Requirement has been restarted' 
+        message: t('api.requirementRestarted'),
       } 
     });
   }
 
-  return NextResponse.json({ error: 'Unknown operation' }, { status: 400 });
+  return NextResponse.json({ error: t('api.unknownOperation') }, { status: 400 });
 }

@@ -481,7 +481,7 @@ content: `⚠️ ${t('mailbox.sendFailed')}: ${err.message}`,
                   firstMsg.type === 'monologue' ? (
                     <div className="rounded-2xl rounded-tl-sm px-3 py-2 text-sm inline-block max-w-[min(85%,600px)] bg-purple-900/10 border border-purple-500/15 border-dashed opacity-75">
                       <div className="flex items-center gap-1 mb-1">
-                        <span className="text-[10px] text-purple-400">🧠 内心独白</span>
+                        <span className="text-[10px] text-purple-400">{t('systemSettings.monologue')}</span>
                       </div>
                       <div className="break-words text-sm leading-relaxed italic text-purple-200/80 whitespace-pre-wrap">
                         {cleanMessageContent(firstMsg.content)}
@@ -635,7 +635,7 @@ content: `⚠️ ${t('mailbox.sendFailed')}: ${err.message}`,
                     {monologueThoughtMsgs.slice().reverse().map((msg, i) => (
                       <div key={msg.id || i} className="bg-purple-900/20 border border-purple-500/10 rounded-xl p-3">
                         <div className="flex items-center justify-between mb-1">
-                          <span className="text-xs text-purple-400">🧠 内心独白</span>
+                          <span className="text-xs text-purple-400">{t('systemSettings.monologue')}</span>
                           <span className="text-xs text-[var(--muted)]">
                             {new Date(msg.time).toLocaleTimeString('zh')}
                           </span>
@@ -650,7 +650,7 @@ content: `⚠️ ${t('mailbox.sendFailed')}: ${err.message}`,
                   <div className="text-center py-8">
                     <div className="text-3xl mb-2">😴</div>
                     <p className="text-sm text-[var(--muted)]">{t('reqDetail.flowPeek.noMonologue')}</p>
-                    <p className="text-xs text-[var(--muted)] mt-1">该员工还没有产生内心独白</p>
+                    <p className="text-xs text-[var(--muted)] mt-1">{t('systemSettings.noMonologueYet')}</p>
                   </div>
                 )
               ) : monologueTab === 'flow' ? (
@@ -701,11 +701,11 @@ content: `⚠️ ${t('mailbox.sendFailed')}: ${err.message}`,
                           {m.decision === 'spoke' ? t('reqDetail.flowPeek.spoke') : t('reqDetail.flowPeek.keptSilent')}
                         </span>
                       </div>
-                      {m.thoughts?.map((t, ti) => (
-                        <div key={t.id || ti} className="text-sm text-[var(--muted)] bg-black/20 rounded-lg p-2">
-                          {t.content.startsWith('[发送到群聊]')
-                            ? <span className="text-green-400">{t.content}</span>
-                            : <span className="italic">{t.content}</span>
+                      {m.thoughts?.map((thought, ti) => (
+                        <div key={thought.id || ti} className="text-sm text-[var(--muted)] bg-black/20 rounded-lg p-2">
+                          {thought.content.startsWith('[发送到群聊]') || thought.content.startsWith('[Send to group chat]') || thought.content.startsWith(t('systemSettings.sendToGroupChat'))
+                            ? <span className="text-green-400">{thought.content}</span>
+                            : <span className="italic">{thought.content}</span>
                           }
                         </div>
                       ))}

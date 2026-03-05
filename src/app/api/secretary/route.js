@@ -1,15 +1,17 @@
 import { NextResponse } from 'next/server';
 import { getCompany } from '@/lib/store';
+import { getApiT } from '@/lib/api-i18n';
 
 export const dynamic = 'force-dynamic';
 
 /**
  * GET /api/secretary - Get current secretary settings
  */
-export async function GET() {
+export async function GET(request) {
+  const t = getApiT(request);
   const company = getCompany();
   if (!company) {
-    return NextResponse.json({ error: 'Please create a company first' }, { status: 400 });
+    return NextResponse.json({ error: t('api.noCompany') }, { status: 400 });
   }
 
   const agent = company.secretary.agent;
@@ -32,9 +34,10 @@ export async function GET() {
  * Body: { name?, avatar?, prompt?, signature? }
  */
 export async function PUT(request) {
+  const t = getApiT(request);
   const company = getCompany();
   if (!company) {
-    return NextResponse.json({ error: 'Please create a company first' }, { status: 400 });
+    return NextResponse.json({ error: t('api.noCompany') }, { status: 400 });
   }
 
   try {
@@ -47,7 +50,7 @@ export async function PUT(request) {
     if (body.providerId) settings.providerId = body.providerId;
 
     if (Object.keys(settings).length === 0) {
-      return NextResponse.json({ error: 'Please provide at least one setting to modify' }, { status: 400 });
+      return NextResponse.json({ error: t('api.secretarySettingRequired') }, { status: 400 });
     }
 
     const result = company.updateSecretarySettings(settings);

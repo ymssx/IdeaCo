@@ -82,15 +82,15 @@ export class Requirement {
 
   /**
    * Add group chat message
-   * @param {object} from - 发送者信息
-   * @param {string} content - 消息内容
-   * @param {string} type - 消息类型: message | system | tool_call | output
-   * @param {string} visibility - 可见性: 'group'（广播到群聊）| 'flow'（心流，仅自己和老板可见）
-   *   - tool_call 类型默认为 'flow'（心流，干活过程不刷屏群聊）
-   *   - 其他类型默认为 'group'（广播到群聊）
+   * @param {object} from - Sender info
+   * @param {string} content - Message content
+   * @param {string} type - Message type: message | system | tool_call | output
+   * @param {string} visibility - Visibility: 'group' (broadcast to group chat) | 'flow' (flow log, only visible to self and boss)
+   *   - tool_call type defaults to 'flow' (flow log, work process doesn't flood the group chat)
+   *   - Other types default to 'group' (broadcast to group chat)
    */
   addGroupMessage(from, content, type = 'message', visibility = null) {
-    // 自动推断 visibility：tool_call 和 output 类型默认心流，其他默认群聊
+    // Auto-infer visibility: tool_call and output types default to 'flow', others default to 'group'
     const resolvedVisibility = visibility || (type === 'tool_call' || type === 'output' ? 'flow' : 'group');
     this.groupChat.push({
       id: uuidv4(),
@@ -317,8 +317,8 @@ Requirements:
         reviewerId: node.reviewerId && memberIds.has(node.reviewerId) ? node.reviewerId : null,
         reviewerName: node.reviewerName || null,
         reviewCriteria: node.reviewCriteria || null,
-        reviewRounds: 0,       // 审核迭代轮次计数
-        maxReviewRounds: 3,    // 最大审核迭代次数（防止无限循环）
+        reviewRounds: 0,       // Review iteration round counter
+        maxReviewRounds: 3,    // Max review iterations (prevents infinite loops)
         result: null,
         startedAt: null,
         completedAt: null,
@@ -750,7 +750,7 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
                   );
                   this._recordAgentChat(reviewer, agent, `✅ Review APPROVED: ${reviewResult.comment || 'Good work!'}`);
                 } else {
-                  // Review rejected — 进入博弈环节
+                  // Review rejected — enter negotiation phase
                   node.status = TaskNodeStatus.REVISION;
                   requirement.addGroupMessage(
                     reviewer,
@@ -768,13 +768,13 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
                       'system'
                     );
                   } else {
-                    // === 博弈环节：被审核人可以选择接受修改或反驳 ===
+                    // === Negotiation phase: reviewee can accept or contest the feedback ===
                     const rebuttalResult = await this._assigneeRebuttal(
                       agent, reviewer, node, currentOutput, reviewResult.feedback, requirement, node.reviewRounds
                     );
 
                     if (rebuttalResult.accept) {
-                      // 被审核人接受意见，进行修改
+                      // Reviewee accepts feedback, making revisions
                       node.status = TaskNodeStatus.RUNNING;
                       requirement.updateLiveStatus({
                         currentNodeId: node.id,
@@ -825,7 +825,7 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
                         );
                       }
                     } else {
-                      // 被审核人反驳！进入对峙环节
+                      // Reviewee contests! Entering confrontation phase
                       requirement.addGroupMessage(
                         agent,
                         `💬 @[${reviewer.id}] ${rebuttalResult.message}`,
@@ -833,13 +833,13 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
                       );
                       this._recordAgentChat(agent, reviewer, `💬 Rebuttal: ${rebuttalResult.message}`);
 
-                      // 审核人重新评估
+                      // Reviewer re-evaluates
                       const reEvalResult = await this._reviewerReEvaluate(
                         reviewer, agent, node, currentOutput, reviewResult.feedback, rebuttalResult.message, requirement, node.reviewRounds
                       );
 
                       if (reEvalResult.convinced) {
-                        // 审核人被说服了！
+                        // Reviewer was persuaded!
                         approved = true;
                         requirement.addGroupMessage(
                           reviewer,
@@ -848,7 +848,7 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
                         );
                         this._recordAgentChat(reviewer, agent, `✅ Convinced by rebuttal, approved: ${reEvalResult.message}`);
                       } else {
-                        // 审核人坚持意见
+                        // Reviewer stands firm
                         requirement.addGroupMessage(
                           reviewer,
                           `🤔 @[${agent.id}] ${reEvalResult.message || `I understand your point, but I still think the issues need to be addressed.`}`,
@@ -856,7 +856,7 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
                         );
                         this._recordAgentChat(reviewer, agent, `🤔 Not convinced: ${reEvalResult.message}`);
 
-                        // 被审核人最终还是要修改
+                        // Reviewee ultimately must revise
                         node.status = TaskNodeStatus.RUNNING;
                         requirement.updateLiveStatus({
                           currentNodeId: node.id,
@@ -909,7 +909,7 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
                       }
                     }
 
-                    // 博弈/修改完成后，通知审核人重新审核（如果没有在博弈中被批准）
+                    // After negotiation/revision, notify reviewer to re-review (if not approved during negotiation)
                     if (!approved) {
                       requirement.addGroupMessage(
                         agent,

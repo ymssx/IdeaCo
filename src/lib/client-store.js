@@ -7,10 +7,30 @@ import { normalizeAvatarUrl } from '@/lib/avatar';
 
 const API_BASE = '/api';
 
+/**
+ * Get the current user language for API requests.
+ * Reads from localStorage (set by the i18n provider).
+ */
+function getCurrentLang() {
+  try {
+    return (typeof localStorage !== 'undefined' && localStorage.getItem('idea-unlimited-lang')) || 'en';
+  } catch {
+    return 'en';
+  }
+}
+
 async function apiCall(url, options = {}) {
+  const lang = getCurrentLang();
+  // Destructure headers out of options so we can merge them without
+  // accidentally overwriting Content-Type or X-App-Lang.
+  const { headers: callerHeaders, ...restOptions } = options;
   const res = await fetch(`${API_BASE}${url}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      'X-App-Lang': lang,
+      ...callerHeaders,
+    },
+    ...restOptions,
   });
   let data;
   try {
@@ -633,10 +653,10 @@ chatMinimized: false,
   markAgentChatRead: async (agentId) => {
     try {
       await apiCall(`/agents/${agentId}/chat`, { method: 'PUT' });
-      // 刷新 company 状态以获取最新的 unread 状态
+      // Refresh company state to get latest unread status
       await get().fetchCompany();
     } catch (e) {
-      // 标记已读失败不影响使用
+      // Failure to mark as read does not affect usage
     }
   },
 
@@ -653,7 +673,7 @@ chatMinimized: false,
   fetchAgentConversationHistory: async (agentId, sessionId, limit = 50) => {
     try {
       const data = await apiCall(`/agents/${agentId}/conversations?sessionId=${encodeURIComponent(sessionId)}&limit=${limit}`);
-      // 新格式返回 { messages, participants }，兼容旧格式（直接返回数组）
+      // New format returns { messages, participants }, compatible with old format (direct array)
       const result = data.data || {};
       if (Array.isArray(result)) {
         return { messages: result, participants: [] };
@@ -762,7 +782,7 @@ chatMinimized: false,
     }
   },
 
-  // 部门群聊：发送消息
+  // Department group chat: send message
   sendDeptGroupChatMessage: async (departmentId, message) => {
     try {
       const data = await apiCall('/departments?action=boss_message', {
@@ -776,7 +796,7 @@ chatMinimized: false,
     }
   },
 
-  // 部门群聊：获取消息列表
+  // Department group chat: get message list
   fetchDeptGroupChat: async (departmentId) => {
     try {
       const data = await apiCall('/departments?action=dept_chat', {

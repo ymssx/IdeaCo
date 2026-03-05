@@ -228,9 +228,9 @@ export class LLMClient {
           args = JSON.parse(argsStr);
         } catch (parseErr) {
           console.warn(`  ⚠️ [Tool Call] Failed to parse arguments for ${name}: ${argsStr?.slice(0, 200)}`);
-          // 尝试修复常见的 JSON 格式问题（LLM 有时会返回不规范的 JSON）
+          // Try to fix common JSON format issues (LLMs sometimes return malformed JSON)
           try {
-            // 移除可能的尾部逗号、修复单引号等
+            // Remove trailing commas, fix single quotes, etc.
             const cleaned = (argsStr || '{}').replace(/,\s*}/g, '}').replace(/,\s*]/g, ']').replace(/'/g, '"');
             args = JSON.parse(cleaned);
           } catch {

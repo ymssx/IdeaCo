@@ -1,19 +1,21 @@
 import { NextResponse } from 'next/server';
 import { getCompany } from '@/lib/store';
 import { groupChatLoop } from '@/core/group-chat-loop.js';
+import { getApiT } from '@/lib/api-i18n';
 
 /**
- * 群聊心流 API - 让老板偷看员工在群聊中的内心独白
- * 
- * GET /api/group-chat-loop?agentId=xxx&groupId=xxx          - 获取某员工在某群的当前心流
- * GET /api/group-chat-loop?agentId=xxx&groupId=xxx&history=1 - 获取某员工在某群的历史心流
- * GET /api/group-chat-loop?active=1                          - 获取所有正在思考的员工
- * GET /api/group-chat-loop?status=1                          - 获取群聊循环引擎状态
+ * Group Chat Flow API - lets the boss peek at employees' inner monologues in group chats
+ *
+ * GET /api/group-chat-loop?agentId=xxx&groupId=xxx           - Get an employee's current flow in a group
+ * GET /api/group-chat-loop?agentId=xxx&groupId=xxx&history=1 - Get an employee's flow history in a group
+ * GET /api/group-chat-loop?active=1                          - Get all currently thinking employees
+ * GET /api/group-chat-loop?status=1                          - Get group chat loop engine status
  */
 export async function GET(request) {
+  const t = getApiT(request);
   const company = getCompany();
   if (!company) {
-    return NextResponse.json({ error: '请先创建公司' }, { status: 400 });
+    return NextResponse.json({ error: t('api.noCompany') }, { status: 400 });
   }
 
   const url = new URL(request.url);
@@ -23,7 +25,7 @@ export async function GET(request) {
   const active = url.searchParams.get('active');
   const status = url.searchParams.get('status');
 
-  // 获取引擎状态
+  // Get engine status
   if (status) {
     return NextResponse.json({
       data: {
@@ -35,19 +37,19 @@ export async function GET(request) {
     });
   }
 
-  // 获取所有正在思考的员工
+  // Get all currently thinking employees
   if (active) {
     const thinkingAgents = groupChatLoop.getActiveThinkingAgents();
     return NextResponse.json({ data: thinkingAgents });
   }
 
-  // 获取某员工在某群的心流
+  // Get an employee's flow in a specific group
   if (agentId && groupId) {
-    // 获取某员工在某群的心流消息（工作过程中的 flow 消息）
+    // Get flow messages (work process) for an employee in a group
     const flowMessages = url.searchParams.get('flowMessages');
     const monologueMessages = url.searchParams.get('monologueMessages');
     if (flowMessages || monologueMessages) {
-      // 支持需求群聊和部门群聊的 flow 消息查询
+      // Support both requirement group chats and department group chats
       let chatMessages = [];
       if (groupId.startsWith('dept-')) {
         const deptId = groupId.replace('dept-', '');
@@ -59,14 +61,14 @@ export async function GET(request) {
       }
 
       if (monologueMessages) {
-        // 返回该员工在此群的所有内心独白消息（type === 'monologue'）
+        // Return all inner monologue messages for this employee in this group (type === 'monologue')
         const agentMonologueMsgs = chatMessages
           .filter(m => m.type === 'monologue' && m.from?.id === agentId)
           .slice(-50);
         return NextResponse.json({ data: agentMonologueMsgs });
       }
 
-      // 返回该员工在此群的工作日志（flow 可见性，排除 monologue）
+      // Return work logs for this employee in this group (flow visibility, excluding monologue)
       const agentFlowMsgs = chatMessages
         .filter(m => m.visibility === 'flow' && m.type !== 'monologue' && m.from?.id === agentId)
         .slice(-50);
@@ -74,13 +76,13 @@ export async function GET(request) {
     }
 
     if (history) {
-      // 历史心流
+      // Historical flow
       const monologues = groupChatLoop.getMonologueHistory(agentId, groupId);
       return NextResponse.json({
         data: monologues.map(m => m.toJSON()),
       });
     } else {
-      // 当前心流
+      // Current flow
       const current = groupChatLoop.getActiveMonologue(agentId, groupId);
       return NextResponse.json({
         data: current ? current.toJSON() : null,
@@ -88,5 +90,5 @@ export async function GET(request) {
     }
   }
 
-  return NextResponse.json({ error: '缺少必要参数' }, { status: 400 });
+  return NextResponse.json({ error: t('api.missingField', { field: 'agentId and groupId' }) }, { status: 400 });
 }

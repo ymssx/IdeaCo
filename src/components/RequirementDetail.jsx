@@ -1077,7 +1077,7 @@ function FlowPeekModal({ agentId, agentName, loading, tab, onTabChange, flowMsgs
                 {monologueThoughtMsgs.slice().reverse().map((msg, i) => (
                   <div key={msg.id || i} className="bg-purple-900/20 border border-purple-500/10 rounded-xl p-3">
                     <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs text-purple-400">🧠 内心独白</span>
+                      <span className="text-xs text-purple-400">{t('systemSettings.monologue')}</span>
                       <span className="text-xs text-[var(--muted)]">
                         {msg.time ? new Date(msg.time).toLocaleTimeString() : ''}
                       </span>
@@ -1092,7 +1092,7 @@ function FlowPeekModal({ agentId, agentName, loading, tab, onTabChange, flowMsgs
               <div className="text-center py-8">
                 <div className="text-3xl mb-2">😴</div>
                 <p className="text-sm text-[var(--muted)]">{t('reqDetail.flowPeek.noMonologue')}</p>
-                <p className="text-xs text-[var(--muted)] mt-1">该员工还没有产生内心独白</p>
+                <p className="text-xs text-[var(--muted)] mt-1">{t('systemSettings.noMonologueYet')}</p>
               </div>
             )
           ) : (
@@ -1206,7 +1206,7 @@ function MembersAndBlockingPanel({ members, blockingInfo, workflow, status, onPe
                       ? 'bg-yellow-900/10 border-yellow-500/20'
                       : 'bg-white/[0.02] border-white/[0.06] hover:bg-white/[0.04]'
                   }`}
-                  title={tasks.length > 0 ? `任务: ${tasks.map(t => `${t.title}(${t.status})`).join(', ')}` : '暂无分配任务'}
+                  title={tasks.length > 0 ? t('reqDetail.members.taskTooltip', { tasks: tasks.map(task => `${task.title}(${task.status})`).join(', ') }) : t('reqDetail.members.noTask')}
                 >
                   {/* 头像区域：上方🧠偷看心流，点击头像看卡片 */}
                   <div className="relative group/avatar flex flex-col items-center">

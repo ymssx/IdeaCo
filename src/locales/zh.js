@@ -58,6 +58,11 @@ const zh = {
     footer: '❤️ 别担心，AI员工不会抱怨加班，因为它们根本没有下班时间',
     defaultCompany: '金点子无限公司',
     defaultSecretary: '小秘',
+    cliAgentLocal: 'CLI Agent（本地）',
+    cliAvailable: '已检测',
+    cliNotFound: '未找到',
+    localCli: '本地 CLI',
+    freeLocal: '免费（本地）',
     defaultPrompt: `你是企业老板的专属秘书，负责理解老板的业务需求，分析所需的团队构成，
 设计组织架构（谁负责什么、谁向谁汇报、如何协作），并协调HR进行人才招聘。
 你需要根据项目需求，合理规划不同岗位的数量和类型，确保团队能高效完成目标。
@@ -148,6 +153,12 @@ const zh = {
     groupChatInput: '在群聊中发言，负责人会看到并做出响应...',
     sendFailed: '发送失败',
     thinkingReply: '正在思考回复...',
+    membersCount: '{n} 人',
+    groupMembers: '👥 群聊成员 ({n})',
+    deptGroup: '{name} 部门群',
+    deptGroupInfo: '👥 {count} 人 · {msgs} 条消息',
+    deptGroupChat: '部门群聊',
+    taskTooltip: '任务: {tasks}',
   },
   dept: {
     title: '🏢 公司架构',
@@ -247,6 +258,14 @@ const zh = {
     talentMarket: {
       btn: '人才市场',
     },
+    unknown: '未知',
+    apiKeyLabel: 'API Key',
+    pluginsCount: '{n} 个插件',
+    toolsCount: '🔧 {n} 个工具',
+    hooksCount: '🪝 {n} 个钩子',
+    skillsCount: '{n} 个技能',
+    cloudApiModels: '云端 API 模型',
+    noCliDetected: '未检测到 CLI Agent',
   },
   requirements: {
     title: '📋 需求看板',
@@ -311,6 +330,7 @@ const zh = {
     spyMsgCount: '条消息',
     spyLoading: '正在解密通信内容...',
     spyReadonly: '只读监控模式 — 你的员工不知道你在看',
+    highPerformer: '高绩效员工',
   },
   orgTree: {
     title: '🌳 压迫链', subtitle: '谁压迫谁，一目了然。点击任意节点查看详情。',
@@ -380,6 +400,7 @@ const zh = {
       goalLabel: '迭代目标',
       goalPlaceholder: '描述这次迭代要完成什么...',
       createBtn: '🚀 创建迭代',
+      viewRequirement: '📋 查看需求',
     },
   },
 
@@ -451,6 +472,7 @@ const zh = {
       noTask: '暂无任务',
       peekFlow: '偷看心流',
       viewProfile: '查看资料',
+      taskTooltip: '任务: {tasks}',
     },
     flowPeek: {
       title: '偷看 {name} 的心流',
@@ -576,6 +598,123 @@ const zh = {
         nvmNodeHint: '不需要则留空',
       },
     },
+    kbEntryTypes: {
+      note: '📝 笔记',
+      fact: '📌 事实',
+      decision: '⚖️ 决策',
+      procedure: '📋 流程',
+      reference: '📖 参考',
+      faq: '❓ 常见问题',
+    },
+    cronJobActions: {
+      pause: '暂停',
+      resume: '恢复',
+      retry: '重试',
+      runNow: '立即执行',
+      delete: '删除',
+    },
+    agentChanges: '⚡ Agent 变更',
+    monologue: '🧠 内心独白',
+    noMonologueYet: '该员工还没有产生内心独白',
+    sendToGroupChat: '[发送到群聊]',
+  },
+
+  // === API 响应消息 ===
+  api: {
+    // 通用
+    noCompany: '请先创建公司',
+    internalError: '服务器内部错误',
+    unknownAction: '未知操作',
+    unknownOperation: '未知操作',
+
+    // 验证
+    missingField: '{field} 是必填项',
+    missingFields: '缺少必填字段：{fields}',
+
+    // 公司
+    companyNameRequired: '请输入公司名称',
+    companyDissolved: '公司已解散，所有数据已清除',
+
+    // 部门
+    deptNameMissionRequired: '部门名称和使命是必填项',
+    deptIdRequired: '部门 ID 是必填项',
+    deptIdAdjustGoalRequired: '部门 ID 和调整目标是必填项',
+    deptIdMessageRequired: '部门 ID 和消息是必填项',
+    adjustPlanIdRequired: '调整计划 ID 是必填项',
+    planIdRequired: '计划 ID 是必填项',
+    deptNotFound: '部门未找到',
+    deptNotFoundRestart: '部门未找到，无法重启',
+
+    // 员工 / Agent
+    agentNotFound: '员工未找到',
+    agentConfigUpdated: 'Agent 配置已更新',
+    messageRequired: '请输入消息',
+
+    // 需求
+    requirementNotFound: '需求未找到',
+    requirementIdRequired: '需求 ID 是必填项',
+    requirementDeptTitleRequired: 'departmentId 和 title 是必填项',
+    requirementRestarted: '需求已重新启动',
+    requirementIdMessageRequired: '需求 ID 和消息是必填项',
+
+    // 团队
+    teamNotFound: '团队未找到',
+    teamIdRequired: 'teamId 是必填项',
+    teamCreateRequired: 'departmentId、name、memberIds 和 leaderId 是必填项',
+    leaderNotFound: '部门中未找到负责人',
+    memberNotFound: '部门中未找到成员 {id}',
+    sprintNotFound: '迭代未找到',
+    sprintCreateRequired: 'teamId、title 和 goal 是必填项',
+    sprintDiscussRequired: 'teamId 和 sprintId 是必填项',
+    sprintNotDraft: '迭代不是草稿状态',
+    sprintNotPendingApproval: '迭代不处于待审批状态',
+    sprintMessageRequired: 'teamId、sprintId 和 message 是必填项',
+    teamDeleteIdRequired: '团队 ID 是必填项',
+
+    // 人才市场
+    targetDeptRequired: '请选择目标部门',
+
+    // 秘书
+    secretarySettingRequired: '请至少提供一项要修改的设置',
+
+    // 供应商
+    providerNotFound: '供应商未找到',
+
+    // 邮箱
+    companyNotFound: '公司未找到',
+    mailNotFound: '邮件未找到',
+
+    // 知识库
+    kbNotFound: '知识库未找到',
+    kbUnknownAction: '未知操作：{action}',
+
+    // 定时任务
+    cronMissingFields: '缺少必填字段：name、cronExpression、agentId、taskPrompt',
+    agentNotFoundId: 'Agent 未找到：{id}',
+
+    // 插件 & 技能
+    missingPluginId: '缺少 pluginId',
+    missingSkillId: '缺少 skillId',
+    pluginUnknownAction: '未知操作：{action}',
+
+    // CLI 后端
+    missingBackendId: '缺少 backendId',
+    cliConfigRequired: '配置至少需要 id 和 execCommand',
+
+    // 工作区 / 文件
+    filePathRequired: '文件路径是必填项（查询参数：path）',
+    fileNotFound: '文件未找到',
+    pathNotExist: '路径不存在',
+    pathNotDirectory: '路径不是目录',
+
+    // Sprint group chat system messages (user-visible)
+    sprintCreated: '📋 Sprint「{title}」已创建。目标：{goal}',
+    sprintDiscussionOpening: '📢 各位，我们来讨论 Sprint「{title}」的方案。\n\n🎯 迭代目标：{goal}\n\n请各位结合自己的专长给出建议，我会汇总形成最终方案。',
+    sprintDiscussionComplete: '✅ 讨论完成！计划已根据团队反馈进行了修订，等待老板审批。',
+    sprintDiscussionError: '⚠️ 讨论过程中出现错误：{error}。正在提交当前计划以供审批。',
+    sprintApproved: '✅ 已批准！计划被接受，正在为团队创建需求任务。',
+    sprintRequirementCreated: '📋 需求「{title}」已创建并开始执行。您可在需求看板查看详情。',
+    sprintRequirementFailed: '❌ 创建或执行需求失败：{error}',
   },
 };
 

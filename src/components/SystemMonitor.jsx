@@ -444,7 +444,7 @@ export default function SystemMonitor({ embedded = false }) {
                   <p className="text-xs text-[var(--muted)]">{configTarget.description}</p>
                 )}
                 <div>
-                  <label className="block text-sm mb-1 text-[var(--muted)]">API Key</label>
+                  <label className="block text-sm mb-1 text-[var(--muted)]">{t('providers.apiKeyLabel')}</label>
                   <input
                     type="password"
                     className="input w-full"
@@ -563,16 +563,16 @@ export default function SystemMonitor({ embedded = false }) {
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
                     {job.status === 'active' && (
-                      <button onClick={() => handleJobAction('pause', job.id)} className="btn-ghost text-[10px]" title="Pause">⏸</button>
+                      <button onClick={() => handleJobAction('pause', job.id)} className="btn-ghost text-[10px]" title={t('systemSettings.cronJobActions.pause')}>⏸</button>
                     )}
                     {job.status === 'paused' && (
-                      <button onClick={() => handleJobAction('resume', job.id)} className="btn-ghost text-[10px]" title="Resume">▶️</button>
+                      <button onClick={() => handleJobAction('resume', job.id)} className="btn-ghost text-[10px]" title={t('systemSettings.cronJobActions.resume')}>▶️</button>
                     )}
                     {job.status === 'error' && (
-                      <button onClick={() => handleJobAction('resume', job.id)} className="btn-ghost text-[10px]" title="Retry">🔁</button>
+                      <button onClick={() => handleJobAction('resume', job.id)} className="btn-ghost text-[10px]" title={t('systemSettings.cronJobActions.retry')}>🔁</button>
                     )}
-                    <button onClick={() => handleJobAction('trigger', job.id)} className="btn-ghost text-[10px]" title="Run now">🚀</button>
-                    <button onClick={() => handleJobAction('delete', job.id)} className="btn-ghost text-[10px] text-red-400" title="Delete">🗑</button>
+                    <button onClick={() => handleJobAction('trigger', job.id)} className="btn-ghost text-[10px]" title={t('systemSettings.cronJobActions.runNow')}>🚀</button>
+                    <button onClick={() => handleJobAction('delete', job.id)} className="btn-ghost text-[10px] text-red-400" title={t('systemSettings.cronJobActions.delete')}>🗑</button>
                   </div>
                 </div>
               ))}
@@ -609,7 +609,7 @@ export default function SystemMonitor({ embedded = false }) {
                   <div className="flex items-center gap-2 mb-3">
                     <span className="text-lg">{PLUGIN_CATEGORY_ICONS[category] || '🧩'}</span>
                     <h3 className="text-sm font-semibold">{category}</h3>
-                    <span className="text-[10px] text-[var(--muted)]">{catPlugins.length} plugin(s)</span>
+                    <span className="text-[10px] text-[var(--muted)]">{t('providers.pluginsCount', { n: catPlugins.length })}</span>
                   </div>
                   <div className="space-y-2">
                     {catPlugins.map(plugin => (
@@ -624,8 +624,8 @@ export default function SystemMonitor({ embedded = false }) {
                           </div>
                           <div className="text-[10px] text-[var(--muted)] mt-0.5">
                             {plugin.description}
-                            {plugin.toolCount > 0 && <span className="ml-2">🔧 {plugin.toolCount} tool(s)</span>}
-                            {plugin.hookCount > 0 && <span className="ml-2">🪝 {plugin.hookCount} hook(s)</span>}
+                            {plugin.toolCount > 0 && <span className="ml-2">{t('providers.toolsCount', { n: plugin.toolCount })}</span>}
+                            {plugin.hookCount > 0 && <span className="ml-2">{t('providers.hooksCount', { n: plugin.hookCount })}</span>}
                           </div>
                         </div>
                         <button
@@ -636,7 +636,7 @@ export default function SystemMonitor({ embedded = false }) {
                               : 'bg-white/10 text-[var(--muted)] hover:bg-green-900/30 hover:text-green-400'
                           }`}
                         >
-                          {plugin.state === 'enabled' ? t('common.enable') : t('common.disable')}
+                          {plugin.state === 'enabled' ? t('common.disable') : t('common.enable')}
                         </button>
                       </div>
                     ))}
@@ -674,7 +674,7 @@ export default function SystemMonitor({ embedded = false }) {
               <div className="flex items-center gap-2 mb-3">
                 <span className="text-lg">{SKILL_CATEGORY_ICONS[category] || '⚡'}</span>
                 <h3 className="text-sm font-semibold capitalize">{category}</h3>
-                <span className="text-[10px] text-[var(--muted)]">{catSkills.length} {t('systemSettings.skillStats.total').toLowerCase()}</span>
+                <span className="text-[10px] text-[var(--muted)]">{t('providers.skillsCount', { n: catSkills.length })}</span>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
                 {catSkills.map(skill => (
@@ -696,7 +696,7 @@ export default function SystemMonitor({ embedded = false }) {
                             : 'bg-white/10 text-[var(--muted)] hover:bg-green-900/30 hover:text-green-400'
                         }`}
                       >
-                        {skill.state === 'enabled' ? t('common.enable') : t('common.disable')}
+                        {skill.state === 'enabled' ? t('common.disable') : t('common.enable')}
                       </button>
                     </div>
                     <p className="text-[10px] text-[var(--muted)] line-clamp-2">{skill.description}</p>
@@ -855,12 +855,12 @@ export default function SystemMonitor({ embedded = false }) {
                           value={newEntry.entryType}
                           onChange={e => setNewEntry({ ...newEntry, entryType: e.target.value })}
                         >
-                          <option value="note">📝 Note</option>
-                          <option value="fact">📌 Fact</option>
-                          <option value="decision">⚖️ Decision</option>
-                          <option value="procedure">📋 Procedure</option>
-                          <option value="reference">📖 Reference</option>
-                          <option value="faq">❓ FAQ</option>
+                          <option value="note">{t('systemSettings.kbEntryTypes.note')}</option>
+                          <option value="fact">{t('systemSettings.kbEntryTypes.fact')}</option>
+                          <option value="decision">{t('systemSettings.kbEntryTypes.decision')}</option>
+                          <option value="procedure">{t('systemSettings.kbEntryTypes.procedure')}</option>
+                          <option value="reference">{t('systemSettings.kbEntryTypes.reference')}</option>
+                          <option value="faq">{t('systemSettings.kbEntryTypes.faq')}</option>
                         </select>
                         <input
                           className="input text-sm flex-1"

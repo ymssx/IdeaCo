@@ -87,7 +87,7 @@ export default function ProvidersBoard() {
               <div>
                 <h3 className="font-semibold">{categoryLabels[category] || category}</h3>
                 <div className="text-xs text-[var(--muted)]">
-                  {info.enabled}/{info.total} {t('providers.enabled', { n: info.enabled, total: info.total })}
+                  {t('providers.enabled', { n: info.enabled, total: info.total })}
                 </div>
               </div>
             </div>
@@ -253,7 +253,7 @@ export default function ProvidersBoard() {
               <p className="text-xs text-[var(--muted)]">{configTarget.description}</p>
             )}
             <div>
-              <label className="block text-sm mb-1 text-[var(--muted)]">API Key</label>
+              <label className="block text-sm mb-1 text-[var(--muted)]">{t('providers.apiKeyLabel')}</label>
               <input
                 type="password"
                 className="input w-full"

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getCompany } from '@/lib/store';
 import { cronScheduler } from '@/core/cron.js';
+import { getApiT } from '@/lib/api-i18n';
 
 /**
  * GET /api/system/cron - List all cron jobs
@@ -29,9 +30,10 @@ export async function GET() {
  * - delete: { jobId }
  */
 export async function POST(request) {
+  const t = getApiT(request);
   const company = getCompany();
   if (!company) {
-    return NextResponse.json({ error: 'Please create a company first' }, { status: 400 });
+    return NextResponse.json({ error: t('api.noCompany') }, { status: 400 });
   }
 
   try {
@@ -43,7 +45,7 @@ export async function POST(request) {
         const { name, cronExpression, agentId, taskPrompt, description } = body;
         if (!name || !cronExpression || !agentId || !taskPrompt) {
           return NextResponse.json(
-            { error: 'Missing required fields: name, cronExpression, agentId, taskPrompt' },
+            { error: t('api.cronMissingFields') },
             { status: 400 }
           );
         }
@@ -57,7 +59,7 @@ export async function POST(request) {
           }
         }
         if (!agentFound) {
-          return NextResponse.json({ error: `Agent not found: ${agentId}` }, { status: 404 });
+          return NextResponse.json({ error: t('api.agentNotFoundId', { id: agentId }) }, { status: 404 });
         }
 
         const job = cronScheduler.addJob({
@@ -100,7 +102,7 @@ export async function POST(request) {
       }
 
       default:
-        return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 });
+        return NextResponse.json({ error: t('api.pluginUnknownAction', { action }) }, { status: 400 });
     }
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

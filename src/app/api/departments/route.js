@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getCompany } from '@/lib/store';
+import { getApiT } from '@/lib/api-i18n';
 
 /**
  * POST /api/departments - Department operations
@@ -10,8 +11,9 @@ import { getCompany } from '@/lib/store';
  * action=disband: Disband department
  */
 export async function POST(request) {
+  const t = getApiT(request);
   const company = getCompany();
-  if (!company) return NextResponse.json({ error: 'Company not created yet, please register first' }, { status: 400 });
+  if (!company) return NextResponse.json({ error: t('api.noCompany') }, { status: 400 });
 
   try {
     const url = new URL(request.url);
@@ -21,7 +23,7 @@ export async function POST(request) {
       // Confirm recruitment plan
       const { planId } = await request.json();
       if (!planId) {
-        return NextResponse.json({ error: 'Plan ID is required' }, { status: 400 });
+        return NextResponse.json({ error: t('api.planIdRequired') }, { status: 400 });
       }
       const dept = await company.confirmPlan(planId);
       return NextResponse.json({ success: true, data: company.getFullState() });
@@ -30,7 +32,7 @@ export async function POST(request) {
       // Generate adjustment plan
       const { departmentId, adjustGoal } = await request.json();
       if (!departmentId || !adjustGoal) {
-        return NextResponse.json({ error: 'Department ID and adjustment goal are required' }, { status: 400 });
+        return NextResponse.json({ error: t('api.deptIdAdjustGoalRequired') }, { status: 400 });
       }
       const plan = await company.planAdjustment(departmentId, adjustGoal);
       return NextResponse.json({ success: true, data: plan });
@@ -39,7 +41,7 @@ export async function POST(request) {
       // Confirm adjustment plan
       const { planId } = await request.json();
       if (!planId) {
-        return NextResponse.json({ error: 'Adjustment plan ID is required' }, { status: 400 });
+        return NextResponse.json({ error: t('api.adjustPlanIdRequired') }, { status: 400 });
       }
       await company.confirmAdjustment(planId);
       return NextResponse.json({ success: true, data: company.getFullState() });
@@ -48,7 +50,7 @@ export async function POST(request) {
       // Disband department
       const { departmentId, reason } = await request.json();
       if (!departmentId) {
-        return NextResponse.json({ error: 'Department ID is required' }, { status: 400 });
+        return NextResponse.json({ error: t('api.deptIdRequired') }, { status: 400 });
       }
       const result = company.disbandDepartment(departmentId, reason || 'Boss decision');
       return NextResponse.json({ success: true, data: company.getFullState(), result });
@@ -57,7 +59,7 @@ export async function POST(request) {
       // Boss sends message to department group chat
       const { departmentId, message } = await request.json();
       if (!departmentId || !message) {
-        return NextResponse.json({ error: 'Department ID and message are required' }, { status: 400 });
+        return NextResponse.json({ error: t('api.deptIdMessageRequired') }, { status: 400 });
       }
       const result = company.sendBossDeptGroupMessage(departmentId, message);
       return NextResponse.json({ success: true, data: result });
@@ -66,11 +68,11 @@ export async function POST(request) {
       // Get department group chat messages
       const { departmentId } = await request.json();
       if (!departmentId) {
-        return NextResponse.json({ error: 'Department ID is required' }, { status: 400 });
+        return NextResponse.json({ error: t('api.deptIdRequired') }, { status: 400 });
       }
       const dept = company.findDepartment(departmentId);
       if (!dept) {
-        return NextResponse.json({ error: 'Department not found' }, { status: 404 });
+        return NextResponse.json({ error: t('api.deptNotFound') }, { status: 404 });
       }
       return NextResponse.json({ success: true, data: { groupChat: dept.groupChat || [] } });
 
@@ -78,7 +80,7 @@ export async function POST(request) {
       // Generate recruitment plan
       const { name, mission } = await request.json();
       if (!name || !mission) {
-        return NextResponse.json({ error: 'Department name and mission are required' }, { status: 400 });
+        return NextResponse.json({ error: t('api.deptNameMissionRequired') }, { status: 400 });
       }
       const plan = await company.planDepartment(name, mission);
       return NextResponse.json({ success: true, data: plan });

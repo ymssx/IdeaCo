@@ -1,8 +1,8 @@
 /**
- * Claude Code CLI 后端配置
+ * Claude Code CLI backend configuration
  * Anthropic Claude Code - AI coding assistant CLI
  * 
- * @see ./README.md 查看完整使用文档
+ * @see ./README.md for full documentation
  */
 export const claudeCodeConfig = {
   id: 'claude-code',

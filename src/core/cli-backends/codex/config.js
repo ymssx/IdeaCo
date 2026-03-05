@@ -1,8 +1,8 @@
 /**
- * Codex (OpenAI) CLI 后端配置
+ * Codex (OpenAI) CLI backend configuration
  * OpenAI Codex CLI - AI coding assistant
  * 
- * @see ./README.md 查看完整使用文档
+ * @see ./README.md for full documentation
  */
 export const codexConfig = {
   id: 'codex',

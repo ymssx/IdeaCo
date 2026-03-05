@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server';
 import { getCompany } from '@/lib/store';
+import { getApiT } from '@/lib/api-i18n';
 
 export async function DELETE(request, { params }) {
+  const t = getApiT(request);
   const company = getCompany();
-  if (!company) return NextResponse.json({ error: 'Please create a company first' }, { status: 400 });
+  if (!company) return NextResponse.json({ error: t('api.noCompany') }, { status: 400 });
 
   try {
     const { profileId } = await params;

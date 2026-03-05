@@ -1,67 +1,67 @@
 /**
- * 统一头像 URL 生成工具
- * 全部使用 DiceBear Micah 风格
+ * Unified avatar URL generator
+ * All avatars use DiceBear Micah style
  * 
- * 核心逻辑：通过性别+年龄控制 Micah 头像的具体外观参数（发型、胡子、耳环等）
- * 每个头像 = 性别参数 + 年龄参数 + 随机种子 → 唯一外观
- * 不再用"同一名字 = 同一头像"，而是随机生成后记录在 Agent 个人信息中
+ * Core logic: controls Micah avatar appearance parameters (hair, beard, earrings, etc.) via gender+age
+ * Each avatar = gender params + age params + random seed → unique appearance
+ * No longer uses "same name = same avatar"; instead generates randomly and stores in Agent profile
  */
 
 // ========================
-// Micah 风格可用参数选项
+// Micah style available parameter options
 // ========================
 
-// 发型（长短、形状）
-// DiceBear 7.x Micah 有效发型: fonze, mrT, dougFunny, mrClean, dannyPhantom, full, pixie
-// fonze: 复古后梳（偏男性）, mrT: 莫西干（男性）, dougFunny: 短发（中性）, mrClean: 光头（男性）
-// dannyPhantom: 中长尖发（中性）, full: 蓬松长发（女性）, pixie: 精灵短发（女性）
+// Hairstyles (length, shape)
+// DiceBear 7.x Micah valid hairstyles: fonze, mrT, dougFunny, mrClean, dannyPhantom, full, pixie
+// fonze: retro pompadour (male), mrT: mohawk (male), dougFunny: short (neutral), mrClean: bald (male)
+// dannyPhantom: medium-long spiky (neutral), full: voluminous long hair (female), pixie: elf short hair (female)
 const HAIR_STYLES = {
-  female: ['full', 'full', 'pixie', 'pixie', 'dannyPhantom', 'dougFunny'],  // 女性：长发和精灵短发权重更高，绝对无光头/莫西干/复古
-  male: ['fonze', 'mrT', 'dougFunny', 'mrClean', 'dannyPhantom', 'full'],  // 男性：各种发型
+  female: ['full', 'full', 'pixie', 'pixie', 'dannyPhantom', 'dougFunny'],  // Female: longer hair and pixie weighted higher, absolutely no bald/mohawk/pompadour
+  male: ['fonze', 'mrT', 'dougFunny', 'mrClean', 'dannyPhantom', 'full'],  // Male: various hairstyles
 };
 
-// 面部毛发（仅男性）
-// DiceBear 7.x Micah 有效值: beard, scruff
-// 重要：DiceBear 默认会随机画胡子，女性必须通过 facialHairProbability=0 显式禁止
+// Facial hair (male only)
+// DiceBear 7.x Micah valid values: beard, scruff
+// Important: DiceBear randomly draws facial hair by default; females must explicitly disable via facialHairProbability=0
 const FACIAL_HAIR = {
-  female: [], // 女性绝对无胡子（通过 facialHairProbability=0 强制禁止）
-  male: ['beard', 'scruff'], // 男性可选胡型
+  female: [], // Female absolutely no beard (forced disabled via facialHairProbability=0)
+  male: ['beard', 'scruff'], // Male optional beard types
 };
 
-// 耳环
+// Earrings
 const EARRINGS = {
   female: ['', 'hoop', 'stud'],
-  male: ['', 'stud'], // 男性少量耳环
+  male: ['', 'stud'], // Male minimal earrings
 };
 
-// 眼镜
+// Glasses
 const GLASSES = ['', 'round', 'square'];
 
-// 嘴型
+// Mouth shape
 const MOUTH = ['smile', 'laughing', 'nervous', 'pucker', 'sad', 'smirk', 'surprised', 'frown'];
 
-// 眼睛
-// DiceBear 7.x Micah 有效值: eyes, round, smiling, eyesShadow（wink 无效！）
+// Eyes
+// DiceBear 7.x Micah valid values: eyes, round, smiling, eyesShadow (wink is invalid!)
 const EYES = ['eyes', 'round', 'smiling', 'eyesShadow'];
 
-// 眉毛
+// Eyebrows
 const EYEBROWS = ['up', 'down', 'eyelashesUp', 'eyelashesDown'];
 
-// 衬衫颜色
+// Shirt color
 const SHIRT_COLORS = ['6bd9e9', '9287ff', 'fc909f', 'fc6681', 'ffeba4', 'ffc6a0', '77311d'];
 
-// 头发颜色
+// Hair color
 const HAIR_COLORS = {
   young: ['000000', '77311d', 'fc909f', 'ffc6a0', 'cabfad', 'd2eff3', '6bd9e9', '9287ff'],
   middle: ['000000', '77311d', 'cabfad', 'ffc6a0', 'fc909f'],
   older: ['000000', '77311d', 'cabfad', 'ffc6a0'],
 };
 
-// 基础肤色
+// Base skin tones
 const BASE_COLORS = ['ac6651', 'd9b191', 'e0ddff', 'f4d150', 'ffeba4', 'ffedef'];
 
 /**
- * 根据性别和年龄的范围分类
+ * Categorize by gender and age range
  */
 function getAgeGroup(age) {
   if (age <= 25) return 'young';
@@ -70,7 +70,7 @@ function getAgeGroup(age) {
 }
 
 /**
- * 伪随机数生成器（基于种子，确保同一种子总是产生相同结果）
+ * Pseudo-random number generator (seed-based, same seed always produces same result)
  */
 function seededRandom(seed) {
   let s = 0;
@@ -84,7 +84,7 @@ function seededRandom(seed) {
 }
 
 /**
- * 从数组中随机选一个
+ * Randomly select one from an array
  */
 function pick(arr, rng) {
   if (!arr || arr.length === 0) return '';
@@ -92,34 +92,34 @@ function pick(arr, rng) {
 }
 
 /**
- * 根据性别、年龄和随机种子，生成 Micah 头像的参数对象
+ * Generate Micah avatar parameter object based on gender, age and random seed
  * @param {'male'|'female'} gender
  * @param {number} age
- * @param {string} randomSeed - 随机种子字符串
- * @returns {object} Micah 参数对象
+ * @param {string} randomSeed - Random seed string
+ * @returns {object} Micah parameter object
  */
 export function generateAvatarParams(gender, age, randomSeed) {
   const g = gender === 'female' ? 'female' : 'male';
   const ageGroup = getAgeGroup(age || 25);
   const rng = seededRandom(randomSeed || Math.random().toString());
 
-  // 发型
+  // Hairstyle
   const hair = pick(HAIR_STYLES[g], rng);
-  // 头发颜色（年轻人更多彩）
+  // Hair color (younger people have more colorful options)
   const hairColor = pick(HAIR_COLORS[ageGroup], rng);
-  // 面部毛发
+  // Facial hair
   let facialHair = '';
-  let facialHairProbability = 0; // 默认禁止胡子（女性）
+  let facialHairProbability = 0; // Default: disable beard (female)
   if (g === 'male') {
-    // 年龄越大越可能有胡子
+    // Older age = more likely to have beard
     const beardChance = ageGroup === 'young' ? 0.15 : ageGroup === 'middle' ? 0.4 : 0.6;
     if (rng() < beardChance) {
       facialHair = pick(FACIAL_HAIR.male, rng);
-      facialHairProbability = 100; // 确定有胡子
+      facialHairProbability = 100; // Definitely has beard
     }
-    // 男性不要胡子时也需要显式设为 0，防止 DiceBear 默认随机生成
+    // Even when male has no beard, explicitly set to 0 to prevent DiceBear from randomly generating one
   }
-  // 耳环（通过 probability 控制有无）
+  // Earrings (controlled via probability)
   let earrings = '';
   let earringsProbability = 0;
   const earringChance = g === 'female' ? 0.6 : 0.15;
@@ -127,7 +127,7 @@ export function generateAvatarParams(gender, age, randomSeed) {
     earrings = pick(EARRINGS[g].filter(x => x), rng);
     earringsProbability = 100;
   }
-  // 眼镜（年龄越大越可能戴眼镜，通过 probability 控制）
+  // Glasses (older age = more likely, controlled via probability)
   let glasses = '';
   let glassesProbability = 0;
   const glassesChance = ageGroup === 'young' ? 0.15 : ageGroup === 'middle' ? 0.3 : 0.5;
@@ -135,13 +135,13 @@ export function generateAvatarParams(gender, age, randomSeed) {
     glasses = pick(GLASSES.filter(x => x), rng);
     glassesProbability = 100;
   }
-  // 表情
+  // Expression
   const mouth = pick(MOUTH, rng);
   const eyes = pick(EYES, rng);
   const eyebrows = pick(EYEBROWS, rng);
-  // 衣服
+  // Clothes
   const shirtColor = pick(SHIRT_COLORS, rng);
-  // 肤色
+  // Skin color
   const baseColor = pick(BASE_COLORS, rng);
 
   return {
@@ -158,7 +158,7 @@ export function generateAvatarParams(gender, age, randomSeed) {
     eyebrows,
     shirtColor,
     baseColor,
-    // 保存原始参数，方便序列化
+    // Save original params for serialization
     _gender: g,
     _age: age,
     _seed: randomSeed,
@@ -166,19 +166,19 @@ export function generateAvatarParams(gender, age, randomSeed) {
 }
 
 /**
- * 将参数对象转换为 DiceBear URL query string
+ * Convert parameter object to DiceBear URL query string
  */
 function paramsToQuery(params) {
   const parts = [];
   if (params.hair) parts.push(`hair=${params.hair}`);
   if (params.hairColor) parts.push(`hairColor=${params.hairColor}`);
-  // 胡子：必须始终传 facialHairProbability 来控制有无（DiceBear 默认会随机画胡子）
+  // Beard: must always pass facialHairProbability to control presence (DiceBear randomly draws by default)
   if (params.facialHair) parts.push(`facialHair=${params.facialHair}`);
   parts.push(`facialHairProbability=${params.facialHairProbability ?? 0}`);
-  // 耳环：通过 probability 控制
+  // Earrings: controlled via probability
   if (params.earrings) parts.push(`earrings=${params.earrings}`);
   parts.push(`earringsProbability=${params.earringsProbability ?? 0}`);
-  // 眼镜：通过 probability 控制
+  // Glasses: controlled via probability
   if (params.glasses) parts.push(`glasses=${params.glasses}`);
   parts.push(`glassesProbability=${params.glassesProbability ?? 0}`);
   if (params.mouth) parts.push(`mouth=${params.mouth}`);
@@ -190,33 +190,33 @@ function paramsToQuery(params) {
 }
 
 /**
- * 生成头像 URL（本地代理）
- * @param {object} params - 由 generateAvatarParams 生成的参数对象
+ * Generate avatar URL (local proxy)
+ * @param {object} params - Parameter object generated by generateAvatarParams
  * @returns {string} URL
  */
 export function getAvatarUrlFromParams(params) {
-  // 使用种子 + 参数组合，确保唯一性
+  // Use seed + params combination to ensure uniqueness
   const seed = params._seed || 'default';
   const query = paramsToQuery(params);
   return `/api/avatar?style=micah&seed=${encodeURIComponent(seed)}${query ? '&' + query : ''}`;
 }
 
 /**
- * 简单的 getAvatarUrl（向后兼容，传入 seed 和可选的 style）
- * 新版推荐使用 getAvatarUrlFromParams
+ * Simple getAvatarUrl (backward-compatible, takes seed and optional style)
+ * New version recommends using getAvatarUrlFromParams
  */
 export function getAvatarUrl(seed, style) {
   return `/api/avatar?style=micah&seed=${encodeURIComponent(seed || 'default')}`;
 }
 
 /**
- * 为新 Agent 生成完整的头像信息
+ * Generate complete avatar info for a new Agent
  * @param {'male'|'female'} gender
  * @param {number} age
  * @returns {{ url: string, params: object }}
  */
 export function generateAgentAvatar(gender, age) {
-  // 随机种子：确保每次调用都不同
+  // Random seed: ensures different result each call
   const randomSeed = `${gender}-${age}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const params = generateAvatarParams(gender, age, randomSeed);
   return {
@@ -226,10 +226,10 @@ export function generateAgentAvatar(gender, age) {
 }
 
 /**
- * 获取一批供选择的头像
- * @param {number} count - 数量
- * @param {'male'|'female'} gender - 性别
- * @param {number} age - 年龄
+ * Get a batch of avatars to choose from
+ * @param {number} count - Count
+ * @param {'male'|'female'} gender - Gender
+ * @param {number} age - Age
  * @returns {Array<{url: string, params: object, id: string}>}
  */
 export function getAvatarChoices(count = 16, gender = 'female', age = 25) {
@@ -247,13 +247,13 @@ export function getAvatarChoices(count = 16, gender = 'female', age = 25) {
 }
 
 /**
- * 从已有的头像 URL 中还原参数（有限度的）
- * 主要用于向后兼容旧数据
+ * Restore parameters from an existing avatar URL (limited)
+ * Mainly for backward compatibility with old data
  */
 export function normalizeAvatarUrl(url) {
   if (!url) return getAvatarUrl('default');
   if (url.startsWith('/api/avatar')) return url;
-  // 外部 DiceBear URL → 转换为本地代理
+  // External DiceBear URL → convert to local proxy
   const match = url.match(/dicebear\.com\/\d+\.x\/([^/]+)\/svg\?seed=(.+)/);
   if (match) {
     return getAvatarUrl(decodeURIComponent(match[2]));
@@ -261,7 +261,7 @@ export function normalizeAvatarUrl(url) {
   return url;
 }
 
-// 向后兼容导出
+// Backward-compatible exports
 const AVATAR_STYLE = 'micah';
 const AVATAR_STYLES = ['micah'];
 

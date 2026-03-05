@@ -1,19 +1,21 @@
 import { NextResponse } from 'next/server';
 import { getCompany } from '@/lib/store';
 import { chatStore } from '@/core/chat-store.js';
+import { getApiT } from '@/lib/api-i18n';
 
 // Store running task states
 const runningTasks = new Map();
 
 export async function POST(request) {
+  const t = getApiT(request);
   const company = getCompany();
   if (!company) {
-    return NextResponse.json({ error: 'Please create a company first' }, { status: 400 });
+    return NextResponse.json({ error: t('api.noCompany') }, { status: 400 });
   }
   try {
     const { message } = await request.json();
     if (!message) {
-      return NextResponse.json({ error: 'Please enter a message' }, { status: 400 });
+      return NextResponse.json({ error: t('api.messageRequired') }, { status: 400 });
     }
     const reply = await company.chatWithSecretary(message);
 
@@ -169,7 +171,7 @@ export async function POST(request) {
 
           const errMsg = {
             role: 'secretary',
-content: `😥 Encountered a problem while handling the task: ${err.message}\n\nWant me to try again?`,
+            content: `😥 Encountered a problem while handling the task: ${err.message}\n\nWant me to try again?`,
             time: new Date(),
           };
           company.chatHistory.push(errMsg);
@@ -236,9 +238,10 @@ content: `😥 Encountered a problem while handling the task: ${err.message}\n\n
 }
 
 export async function GET(request) {
+  const t = getApiT(request);
   const company = getCompany();
   if (!company) {
-    return NextResponse.json({ error: 'Please create a company first' }, { status: 400 });
+    return NextResponse.json({ error: t('api.noCompany') }, { status: 400 });
   }
 
   // Support task status queries

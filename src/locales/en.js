@@ -67,6 +67,11 @@ const en = {
     footer: "❤️ Don't worry, AI employees won't complain about overtime — they never clock out",
     defaultCompany: 'Idea Unlimited',
     defaultSecretary: 'Alice',
+    cliAgentLocal: 'CLI Agent (Local)',
+    cliAvailable: 'Available',
+    cliNotFound: 'Not found',
+    localCli: 'Local CLI',
+    freeLocal: 'Free (local)',
     defaultPrompt: `You are the boss's personal secretary, responsible for understanding business requirements, analyzing team composition needs,
 designing organizational structures (who does what, who reports to whom, how to collaborate), and coordinating with HR for talent recruitment.
 You need to plan the right number and types of positions based on project requirements to ensure the team can efficiently achieve its goals.
@@ -203,6 +208,12 @@ When the boss communicates with you, you need to:
     groupChatInput: 'Send a message in the group chat. The leader will see it and respond...',
     sendFailed: 'Failed to send',
     thinkingReply: 'is thinking about a reply...',
+    membersCount: '{n} members',
+    groupMembers: '👥 Group Members ({n})',
+    deptGroup: '{name} Dept Group',
+    deptGroupInfo: '👥 {count} members · {msgs} messages',
+    deptGroupChat: 'Department Group Chat',
+    taskTooltip: 'Tasks: {tasks}',
   },
 
   // === Department View ===
@@ -349,6 +360,14 @@ When the boss communicates with you, you need to:
     talentMarket: {
       btn: 'Talent Market',
     },
+    unknown: 'Unknown',
+    apiKeyLabel: 'API Key',
+    pluginsCount: '{n} plugin(s)',
+    toolsCount: '🔧 {n} tool(s)',
+    hooksCount: '🪝 {n} hook(s)',
+    skillsCount: '{n} skill(s)',
+    cloudApiModels: 'Cloud API Models',
+    noCliDetected: 'No CLI agents detected',
   },
 
   // === Requirements Board ===
@@ -456,6 +475,7 @@ When the boss communicates with you, you need to:
     spyMsgCount: 'messages',
     spyLoading: 'Decrypting communications...',
     spyReadonly: 'Read-only surveillance mode — your agents don\'t know you\'re watching',
+    highPerformer: 'High Performer',
   },
 
   // === Org Tree ===
@@ -532,6 +552,7 @@ When the boss communicates with you, you need to:
       goalLabel: 'Sprint Goal',
       goalPlaceholder: 'Describe what this sprint should accomplish...',
       createBtn: '🚀 Create Sprint',
+      viewRequirement: '📋 View Requirement',
     },
   },
 
@@ -671,6 +692,7 @@ When the boss communicates with you, you need to:
       noTask: 'No task',
       peekFlow: 'Peek flow',
       viewProfile: 'View profile',
+      taskTooltip: 'Tasks: {tasks}',
     },
     flowPeek: {
       title: 'Peeking {name}\'s flow',
@@ -698,6 +720,104 @@ When the boss communicates with you, you need to:
     justNow: 'just now',
     minutesAgo: '{n}m ago',
     sun: 'Sun', mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat',
+  },
+
+  // === API Response Messages ===
+  api: {
+    // Generic
+    noCompany: 'Please create a company first',
+    internalError: 'Internal server error',
+    unknownAction: 'Unknown action',
+    unknownOperation: 'Unknown operation',
+
+    // Validation
+    missingField: '{field} is required',
+    missingFields: 'Missing required fields: {fields}',
+
+    // Company
+    companyNameRequired: 'Please enter company name',
+    companyDissolved: 'Company dissolved, all data cleared',
+
+    // Department
+    deptNameMissionRequired: 'Department name and mission are required',
+    deptIdRequired: 'Department ID is required',
+    deptIdAdjustGoalRequired: 'Department ID and adjustment goal are required',
+    deptIdMessageRequired: 'Department ID and message are required',
+    adjustPlanIdRequired: 'Adjustment plan ID is required',
+    planIdRequired: 'Plan ID is required',
+    deptNotFound: 'Department not found',
+    deptNotFoundRestart: 'Department not found, cannot restart',
+
+    // Agent / Employee
+    agentNotFound: 'Employee not found',
+    agentConfigUpdated: 'Agent configuration updated',
+    messageRequired: 'Please enter a message',
+
+    // Requirement
+    requirementNotFound: 'Requirement not found',
+    requirementIdRequired: 'Requirement ID is required',
+    requirementDeptTitleRequired: 'departmentId and title are required',
+    requirementRestarted: 'Requirement has been restarted',
+    requirementIdMessageRequired: 'Requirement ID and message are required',
+
+    // Team
+    teamNotFound: 'Team not found',
+    teamIdRequired: 'teamId is required',
+    teamCreateRequired: 'departmentId, name, memberIds, and leaderId are required',
+    leaderNotFound: 'Leader not found in department',
+    memberNotFound: 'Member {id} not found in department',
+    sprintNotFound: 'Sprint not found',
+    sprintCreateRequired: 'teamId, title, and goal are required',
+    sprintDiscussRequired: 'teamId and sprintId are required',
+    sprintNotDraft: 'Sprint is not in draft status',
+    sprintNotPendingApproval: 'Sprint is not pending approval',
+    sprintMessageRequired: 'teamId, sprintId, and message are required',
+    teamDeleteIdRequired: 'Team ID is required',
+
+    // Talent market
+    targetDeptRequired: 'Please select a target department',
+
+    // Secretary
+    secretarySettingRequired: 'Please provide at least one setting to modify',
+
+    // Provider
+    providerNotFound: 'Provider not found',
+
+    // Mailbox
+    companyNotFound: 'Company not found',
+    mailNotFound: 'Mail not found',
+
+    // Knowledge base
+    kbNotFound: 'Knowledge base not found',
+    kbUnknownAction: 'Unknown action: {action}',
+
+    // Cron
+    cronMissingFields: 'Missing required fields: name, cronExpression, agentId, taskPrompt',
+    agentNotFoundId: 'Agent not found: {id}',
+
+    // Plugins & Skills
+    missingPluginId: 'Missing pluginId',
+    missingSkillId: 'Missing skillId',
+    pluginUnknownAction: 'Unknown action: {action}',
+
+    // CLI Backends
+    missingBackendId: 'Missing backendId',
+    cliConfigRequired: 'Config requires at least id and execCommand',
+
+    // Workspace / File
+    filePathRequired: 'File path is required (query param: path)',
+    fileNotFound: 'File not found',
+    pathNotExist: 'Path does not exist',
+    pathNotDirectory: 'Path is not a directory',
+
+    // Sprint group chat system messages (user-visible)
+    sprintCreated: '📋 Sprint "{title}" created. Goal: {goal}',
+    sprintDiscussionOpening: '📢 Team, let\'s discuss the sprint plan for "{title}".\n\n🎯 Sprint goal: {goal}\n\nPlease share your suggestions based on your expertise, and I\'ll consolidate them into the final plan.',
+    sprintDiscussionComplete: '✅ Discussion complete! The plan has been revised based on team feedback and is awaiting Boss approval.',
+    sprintDiscussionError: '⚠️ Error during discussion: {error}. Submitting current plan for approval.',
+    sprintApproved: '✅ Approved! The plan is accepted and a requirement is being created for the team to execute.',
+    sprintRequirementCreated: '📋 Requirement "{title}" has been created and started. You can view details on the requirements board.',
+    sprintRequirementFailed: '❌ Failed to create or execute requirement: {error}',
   },
 
   // === System Settings ===
@@ -799,6 +919,25 @@ When the boss communicates with you, you need to:
         nvmNodeHint: 'Leave empty if not needed',
       },
     },
+    kbEntryTypes: {
+      note: '📝 Note',
+      fact: '📌 Fact',
+      decision: '⚖️ Decision',
+      procedure: '📋 Procedure',
+      reference: '📖 Reference',
+      faq: '❓ FAQ',
+    },
+    cronJobActions: {
+      pause: 'Pause',
+      resume: 'Resume',
+      retry: 'Retry',
+      runNow: 'Run now',
+      delete: 'Delete',
+    },
+    agentChanges: '⚡ Agent Changes',
+    monologue: '🧠 Monologue',
+    noMonologueYet: 'This agent has not produced any monologue yet',
+    sendToGroupChat: '[Send to group chat]',
   },
 };
 

@@ -170,7 +170,7 @@ export class AgentToolKit {
       toolName: name, args, agentId: this.agentId, agentName: this.agentName,
     });
 
-    // 参数名兼容处理：LLM 有时会使用 filePath、file_path 等替代 path
+    // Parameter name compatibility: LLMs sometimes use filePath, file_path, etc. instead of path
     const resolvePath = (a) => a.path || a.filePath || a.file_path || a.filename || a.fileName || null;
 
     let result;
@@ -347,8 +347,8 @@ export class AgentToolKit {
       type: type || 'task',
     });
 
-    // chatStore 记录由 requirement.js messageHandler 中的 _recordAgentChat 统一处理
-    // 避免双重记录
+    // chatStore recording is handled centrally by _recordAgentChat in requirement.js messageHandler
+    // Avoid double recording
 
     return `Message sent to ${targetAgentId}`;
   }

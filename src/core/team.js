@@ -4,30 +4,30 @@ import { v4 as uuidv4 } from 'uuid';
  * Sprint status enum
  */
 export const SprintStatus = {
-  DRAFT: 'draft',             // 迭代草案，还未开始
-  DISCUSSING: 'discussing',   // 负责人拉群讨论迭代方案
-  PENDING_APPROVAL: 'pending_approval', // 方案讨论完毕，等待 Boss 审批
-  IN_PROGRESS: 'in_progress', // Boss 同意，迭代进行中
-  COMPLETED: 'completed',     // 迭代完成
-  FAILED: 'failed',           // 迭代失败
+  DRAFT: 'draft',             // Sprint draft, not started yet
+  DISCUSSING: 'discussing',   // Leader initiates group discussion on sprint plan
+  PENDING_APPROVAL: 'pending_approval', // Discussion complete, waiting for Boss approval
+  IN_PROGRESS: 'in_progress', // Boss approved, sprint in progress
+  COMPLETED: 'completed',     // Sprint completed
+  FAILED: 'failed',           // Sprint failed
 };
 
 /**
- * Sprint（迭代）—— 类似 Requirement，一次冲刺
+ * Sprint — similar to a Requirement, one iteration cycle
  */
 export class Sprint {
   constructor({ title, goal, teamId, teamName }) {
     this.id = uuidv4();
     this.title = title;
-    this.goal = goal;                // 迭代目标
+    this.goal = goal;                // Sprint goal
     this.teamId = teamId;
     this.teamName = teamName;
     this.status = SprintStatus.DRAFT;
-    this.plan = null;                // 讨论后形成的迭代方案
-    this.requirementId = null;       // 审批通过后创建的标准需求 ID
-    this.workflow = null;            // (deprecated) 工作流由关联需求管理
-    this.groupChat = [];             // 迭代群聊
-    this.outputs = [];               // 产出
+    this.plan = null;                // Sprint plan formed after discussion
+    this.requirementId = null;       // Standard requirement ID created after approval
+    this.workflow = null;            // (deprecated) workflow is managed by the associated requirement
+    this.groupChat = [];             // Sprint group chat
+    this.outputs = [];               // Outputs
     this.createdAt = new Date();
     this.startedAt = null;
     this.completedAt = null;
@@ -133,7 +133,7 @@ export class Sprint {
 }
 
 /**
- * Team（小组）—— 部门内的专项小组
+ * Team — a specialized subgroup within a department
  */
 export class Team {
   constructor({ name, departmentId, departmentName, memberIds, leaderId, leaderName, description }) {
@@ -141,13 +141,13 @@ export class Team {
     this.name = name;
     this.departmentId = departmentId;
     this.departmentName = departmentName;
-    this.memberIds = memberIds || [];      // 小组成员 ID 列表
-    this.leaderId = leaderId;              // 负责人 ID
+    this.memberIds = memberIds || [];      // Team member ID list
+    this.leaderId = leaderId;              // Leader ID
     this.leaderName = leaderName;
     this.description = description || '';
-    this.skills = [];                       // 小组技能列表
-    this.workspacePath = null;              // 专属工作目录
-    this.sprints = new Map();              // 迭代列表 (sprintId => Sprint)
+    this.skills = [];                       // Team skill list
+    this.workspacePath = null;              // Dedicated workspace directory
+    this.sprints = new Map();              // Sprint list (sprintId => Sprint)
     this.createdAt = new Date();
     this.status = 'active';                // active | archived
   }
@@ -210,7 +210,7 @@ export class Team {
 }
 
 /**
- * TeamManager —— 管理所有小组
+ * TeamManager — manages all teams
  */
 export class TeamManager {
   constructor() {

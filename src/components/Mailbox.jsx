@@ -386,7 +386,7 @@ for (const agent of (dept.members || dept.agents || [])) {
       if (activeChat?.type === 'secretary') {
         setSecretaryHistory(prev => [...prev, {
           role: 'secretary',
-          content: `Sorry, error processing: ${e.message}`,
+          content: `${t('chat.errorPrefix')}${e.message}`,
           time: new Date().toISOString(),
         }]);
       }
@@ -798,7 +798,7 @@ for (const agent of (dept.members || dept.agents || [])) {
                             onClick={(e) => { e.stopPropagation(); setShowGroupMembers(true); }}
                             className="text-[10px] text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 px-1.5 py-0.5 rounded transition-colors"
                           >
-                            👥 {memberCount} 人
+                            {t('mailbox.membersCount', { n: memberCount })}
                           </button>
                         );
                       })()}
@@ -825,7 +825,7 @@ for (const agent of (dept.members || dept.agents || [])) {
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] !m-0" onClick={() => setShowGroupMembers(false)}>
                   <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl max-w-sm w-full mx-4 overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
                     <div className="px-4 py-3 border-b border-[var(--border)] flex items-center justify-between">
-                      <span className="text-sm font-semibold">👥 群聊成员 ({members.length})</span>
+                      <span className="text-sm font-semibold">{t('mailbox.groupMembers', { n: members.length })}</span>
                       <button onClick={() => setShowGroupMembers(false)} className="text-[var(--muted)] hover:text-white text-lg">✕</button>
                     </div>
                     <div className="max-h-[50vh] overflow-auto py-2">
@@ -893,9 +893,9 @@ for (const agent of (dept.members || dept.agents || [])) {
                   </div>
                 )}
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-semibold">{deptChatDetail.name} 部门群</div>
+                  <div className="text-sm font-semibold">{t('mailbox.deptGroup', { name: deptChatDetail.name })}</div>
                   <div className="text-[10px] text-[var(--muted)] truncate">
-                    👥 {(deptChatDetail.members || []).length} 人 · {(deptChatDetail.groupChat || []).filter(m => m.visibility !== 'flow').length} 条消息
+                    {t('mailbox.deptGroupInfo', { count: (deptChatDetail.members || []).length, msgs: (deptChatDetail.groupChat || []).filter(m => m.visibility !== 'flow').length })}
                   </div>
                 </div>
               </div>
@@ -1097,8 +1097,8 @@ function buildConversations(secretary, secretaryHistory, requirements = [], t = 
       name: `🏢 ${dept.name}`,
       avatar: null,
       memberAvatars: (dept.members || []).slice(0, 9).map(m => m.avatar).filter(Boolean),
-      role: `${(dept.members || []).length} 人`,
-      lastMessage: lastMsg ? `${lastMsg.from?.name || ''}: ${(lastMsg.content || '').slice(0, 30)}` : '部门群聊',
+      role: t('mailbox.membersCount', { n: (dept.members || []).length }),
+      lastMessage: lastMsg ? `${lastMsg.from?.name || ''}: ${(lastMsg.content || '').slice(0, 30)}` : t('mailbox.deptGroupChat'),
       lastTime: lastMsg?.time || dept.createdAt,
       unread: visibleMsgs.length > 0,
       pinned: true,

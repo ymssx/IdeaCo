@@ -1,41 +1,41 @@
 /**
- * Knowledge Base System - Agent 知识库管理
+ * Knowledge Base System - Agent knowledge base management
  * 
- * 蒸馏自 OpenClaw 的 Memory 系统 (vendor/openclaw/docs/concepts/memory.md)
- * 重新实现为「企业知识库」管理体系
+ * Distilled from OpenClaw's Memory system (vendor/openclaw/docs/concepts/memory.md)
+ * Re-implemented as an "enterprise knowledge base" management system
  *
- * 功能：
- * - 知识库创建与管理
- * - 文档/条目的增删改查
- * - 按 Agent 或全局分配知识库
- * - 基于关键词的知识检索
- * - 知识库统计与监控
+ * Features:
+ * - Knowledge base creation and management
+ * - Document/entry CRUD operations
+ * - Per-agent or global knowledge base assignment
+ * - Keyword-based knowledge retrieval
+ * - Knowledge base statistics and monitoring
  */
 import { v4 as uuidv4 } from 'uuid';
 
 /**
- * 知识库类型
+ * Knowledge base types
  */
 export const KnowledgeType = {
-  GLOBAL: 'global',       // 全局知识库（所有 Agent 可访问）
-  DEPARTMENT: 'department', // 部门级知识库
-  AGENT: 'agent',         // Agent 个人知识库
+  GLOBAL: 'global',       // Global knowledge base (accessible to all Agents)
+  DEPARTMENT: 'department', // Department-level knowledge base
+  AGENT: 'agent',         // Agent personal knowledge base
 };
 
 /**
- * 条目类型
+ * Entry types
  */
 export const EntryType = {
-  FACT: 'fact',           // 事实信息
-  DECISION: 'decision',   // 决策记录
-  PROCEDURE: 'procedure', // 流程/操作步骤
-  REFERENCE: 'reference', // 参考文档
-  FAQ: 'faq',             // 常见问答
-  NOTE: 'note',           // 备忘录
+  FACT: 'fact',           // Factual information
+  DECISION: 'decision',   // Decision records
+  PROCEDURE: 'procedure', // Process/operation steps
+  REFERENCE: 'reference', // Reference documents
+  FAQ: 'faq',             // Frequently asked questions
+  NOTE: 'note',           // Notes/memos
 };
 
 /**
- * 知识条目
+ * Knowledge entry
  */
 class KnowledgeEntry {
   constructor(config) {
@@ -44,8 +44,8 @@ class KnowledgeEntry {
     this.content = config.content;
     this.type = config.type || EntryType.NOTE;
     this.tags = config.tags || [];
-    this.source = config.source || null;      // 来源（文件路径、URL等）
-    this.importance = config.importance || 0.5; // 重要性 0-1
+    this.source = config.source || null;      // Source (file path, URL, etc.)
+    this.importance = config.importance || 0.5; // Importance score 0-1
     this.createdAt = config.createdAt || new Date();
     this.updatedAt = config.updatedAt || new Date();
     this.createdBy = config.createdBy || null; // Agent ID
@@ -53,7 +53,7 @@ class KnowledgeEntry {
 }
 
 /**
- * 知识库
+ * Knowledge base
  */
 class KnowledgeBase {
   constructor(config) {
@@ -61,7 +61,7 @@ class KnowledgeBase {
     this.name = config.name;
     this.description = config.description || '';
     this.type = config.type || KnowledgeType.GLOBAL;
-    this.ownerId = config.ownerId || null;  // Agent ID 或 Department ID
+    this.ownerId = config.ownerId || null;  // Agent ID or Department ID
     this.entries = new Map();
     this.createdAt = new Date();
     this.enabled = true;
@@ -89,7 +89,7 @@ class KnowledgeBase {
   }
 
   /**
-   * 关键词搜索条目
+   * Keyword search entries
    */
   search(query, limit = 10) {
     const q = query.toLowerCase();
@@ -100,7 +100,7 @@ class KnowledgeBase {
       const tagMatch = entry.tags.some(t => t.toLowerCase().includes(q));
 
       if (titleMatch || contentMatch || tagMatch) {
-        // 简单评分：标题匹配权重最高
+        // Simple scoring: title match has highest weight
         let score = 0;
         if (titleMatch) score += 3;
         if (contentMatch) score += 1;
@@ -119,7 +119,7 @@ class KnowledgeBase {
   }
 
   /**
-   * 获取统计信息
+   * Get statistics
    */
   getStats() {
     const entries = [...this.entries.values()];
@@ -147,7 +147,7 @@ class KnowledgeBase {
 }
 
 /**
- * 知识库管理器 - 管理所有知识库
+ * Knowledge manager - manages all knowledge bases
  */
 export class KnowledgeManager {
   constructor() {
@@ -156,7 +156,7 @@ export class KnowledgeManager {
   }
 
   /**
-   * 创建知识库
+   * Create a knowledge base
    */
   create(config) {
     const kb = new KnowledgeBase(config);
@@ -166,21 +166,21 @@ export class KnowledgeManager {
   }
 
   /**
-   * 获取知识库
+   * Get a knowledge base
    */
   get(kbId) {
     return this.bases.get(kbId) || null;
   }
 
   /**
-   * 删除知识库
+   * Delete a knowledge base
    */
   delete(kbId) {
     return this.bases.delete(kbId);
   }
 
   /**
-   * 列出所有知识库
+   * List all knowledge bases
    */
   list() {
     return [...this.bases.values()].map(kb => ({
@@ -197,7 +197,7 @@ export class KnowledgeManager {
   }
 
   /**
-   * 获取指定 Agent 可访问的所有知识库
+   * Get all knowledge bases accessible to a specific Agent
    * @param {string} agentId
    * @param {string} departmentId
    */
@@ -212,7 +212,7 @@ export class KnowledgeManager {
   }
 
   /**
-   * 跨知识库搜索
+   * Search across knowledge bases
    */
   search(query, options = {}) {
     const { agentId, departmentId, limit = 10 } = options;
@@ -231,7 +231,7 @@ export class KnowledgeManager {
   }
 
   /**
-   * 向知识库添加条目
+   * Add an entry to a knowledge base
    */
   addEntry(kbId, entryConfig) {
     const kb = this.bases.get(kbId);
@@ -240,7 +240,7 @@ export class KnowledgeManager {
   }
 
   /**
-   * 从知识库删除条目
+   * Remove an entry from a knowledge base
    */
   removeEntry(kbId, entryId) {
     const kb = this.bases.get(kbId);
@@ -249,7 +249,7 @@ export class KnowledgeManager {
   }
 
   /**
-   * 构建知识库 prompt（注入到 Agent 系统提示词）
+   * Build knowledge base prompt (injected into Agent system prompt)
    * @param {string} agentId
    * @param {string} departmentId
    * @returns {string}
@@ -272,7 +272,7 @@ export class KnowledgeManager {
   }
 
   /**
-   * 获取汇总统计
+   * Get overall statistics
    */
   getOverallStats() {
     const bases = [...this.bases.values()];
@@ -291,17 +291,17 @@ export class KnowledgeManager {
   }
 }
 
-// 全局单例
+// Global singleton
 export const knowledgeManager = new KnowledgeManager();
 
-// 创建默认全局知识库
+// Create default global knowledge base
 const globalKb = knowledgeManager.create({
   name: 'Company Knowledge Base',
   description: 'Shared knowledge base for all agents in the company',
   type: KnowledgeType.GLOBAL,
 });
 
-// 添加一些示例条目
+// Add some example entries
 globalKb.addEntry({
   title: 'Code Review Standards',
   content: 'All code must pass code review before merging. Reviews should check: correctness, readability, security, performance, and test coverage.',

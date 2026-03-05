@@ -298,8 +298,8 @@ export default function SetupWizard() {
             {/* CLI Agent Section */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <label className="text-sm font-medium text-emerald-400">🖥️ CLI Agent (Local)</label>
-                {cliDetecting && <span className="text-[10px] text-[var(--muted)] animate-pulse">Detecting...</span>}
+                <label className="text-sm font-medium text-emerald-400">🖥️ {t('setup.cliAgentLocal')}</label>
+                {cliDetecting && <span className="text-[10px] text-[var(--muted)] animate-pulse">{t('systemSettings.cliBackends.detecting')}</span>}
               </div>
               {cliBackends.length > 0 ? (
                 cliBackends.map((cli) => {
@@ -328,9 +328,9 @@ export default function SetupWizard() {
                         <div className="flex items-center gap-2">
                           <span className="font-medium">{cli.name || cli.id}</span>
                           {isAvailable ? (
-                            <span className="text-[10px] bg-emerald-900/30 text-emerald-400 px-1.5 py-0.5 rounded">✓ Available</span>
+                            <span className="text-[10px] bg-emerald-900/30 text-emerald-400 px-1.5 py-0.5 rounded">✓ {t('setup.cliAvailable')}</span>
                           ) : (
-                            <span className="text-[10px] bg-red-900/30 text-red-400 px-1.5 py-0.5 rounded">Not found</span>
+                            <span className="text-[10px] bg-red-900/30 text-red-400 px-1.5 py-0.5 rounded">{t('setup.cliNotFound')}</span>
                           )}
                           {cli.rating && (
                             <span className="text-xs bg-yellow-900/30 text-yellow-400 px-1.5 py-0.5 rounded">
@@ -339,22 +339,22 @@ export default function SetupWizard() {
                           )}
                         </div>
                         <div className="flex items-center gap-3 mt-0.5">
-                          <span className="text-xs text-[var(--muted)]">Local CLI</span>
-                          <span className="text-xs text-green-400">Free (local)</span>
+                          <span className="text-xs text-[var(--muted)]">{t('setup.localCli')}</span>
+                          <span className="text-xs text-green-400">{t('setup.freeLocal')}</span>
                         </div>
                       </div>
                     </label>
                   );
                 })
               ) : !cliDetecting ? (
-                <p className="text-xs text-[var(--muted)] px-1">No CLI agents detected</p>
+                <p className="text-xs text-[var(--muted)] px-1">{t('providers.noCliDetected')}</p>
               ) : null}
             </div>
 
             {/* Divider */}
             <div className="flex items-center gap-3 text-xs text-[var(--muted)]">
               <div className="flex-1 h-px bg-[var(--border)]" />
-              <span>Cloud API Models</span>
+              <span>{t('providers.cloudApiModels')}</span>
               <div className="flex-1 h-px bg-[var(--border)]" />
             </div>
 

@@ -46,9 +46,9 @@ export class Company {
     this.hr = new HRSystem(this.providerRegistry, this.talentMarket);
     this.logs = [];
     // Chat history with secretary
-    // chatHistory 保留为内存缓存（供前端 UI 快速访问），同时写入 chatStore 文件持久化
+    // chatHistory kept as in-memory cache (for fast frontend UI access), also written to chatStore for persistence
     this.chatHistory = [];
-    // 聊天会话 ID（用于 chatStore 文件存储）
+    // Chat session ID (used for chatStore file storage)
     this.chatSessionId = `boss-secretary-${this.id}`;
     chatStore.createSession(this.chatSessionId, {
       title: `${bossName} & Secretary`,
@@ -74,7 +74,7 @@ export class Company {
     // Team manager
     this.teamManager = new TeamManager();
 
-    // 群聊循环引擎
+    // Group chat loop engine
     this.groupChatLoop = groupChatLoop;
 
     // Configure provider for secretary
@@ -101,7 +101,7 @@ export class Company {
       secretaryAge: secretaryConfig?.secretaryAge || 18,
     });
 
-    // 如果秘书使用的是 CLI provider，自动设置 CLI 后端
+    // If secretary uses a CLI provider, automatically set the CLI backend
     if (secretaryProviderConfig.isCLI && secretaryProviderConfig.cliBackendId) {
       this.secretary.agent.setCLIBackend(secretaryProviderConfig.cliBackendId);
       this.secretary.agent.cliProvider = secretaryProviderConfig;
@@ -130,22 +130,22 @@ export class Company {
       time: new Date(),
     };
     this.chatHistory.push(bossMsg);
-    // 持久化到文件存储
+    // Persist to file storage
     chatStore.appendMessage(this.chatSessionId, bossMsg);
 
     const secretaryAgent = this.secretary.agent;
     let reply;
 
-    // 如果秘书配置了 CLI 后端，聊天也走 CLI（要求返回 JSON 格式，与 LLM 路径一致）
+    // If secretary has CLI backend configured, chat also goes through CLI (requires JSON format, consistent with LLM path)
     if (secretaryAgent.cliBackend) {
       try {
-        // 获取最近聊天上下文
+        // Get recent chat context
         const recentMessages = chatStore.getRecentMessages(this.chatSessionId, 10);
         const chatContext = recentMessages.slice(-6).map(m =>
           `${m.role === 'boss' ? 'Boss' : secretaryAgent.name}: ${m.content}`
         ).join('\n');
 
-        // 构建公司上下文（精简版，让 CLI 也能正确判断 action）
+        // Build company context (simplified version for CLI to correctly determine action)
         const departments = [...this.departments.values()].map(d => ({
           name: d.name, id: d.id, mission: d.mission, status: d.status,
           memberCount: d.agents.size,
@@ -155,7 +155,7 @@ export class Company {
           ? departments.map(d => `  🏢 ${d.name} [id:${d.id}] - Mission: ${d.mission} | ${d.memberCount} people | Leader: ${d.leader}`).join('\n')
           : 'No departments yet.';
 
-        // 构建 CLI prompt：要求返回与 LLM 一致的 JSON 格式
+        // Build CLI prompt: require JSON format consistent with LLM path
         const cliPrompt = `You are "${secretaryAgent.name}", the personal secretary of "${this.bossName}".
 ${secretaryAgent.prompt ? `Your persona: ${secretaryAgent.prompt}\n` : ''}
 Current company "${this.name}" status:
@@ -200,19 +200,19 @@ Rules:
         );
         const rawOutput = cliResult.output || cliResult.errorOutput || '...';
 
-        // 尝试从 CLI 输出中解析 JSON（复用与 LLM 相同的解析逻辑）
+        // Try to parse JSON from CLI output (reuse same parsing logic as LLM)
         reply = this._parseSecretaryJSON(rawOutput, message);
       } catch (cliErr) {
-        // CLI 失败时尝试回退到 LLM（仅当有可用的 LLM provider 时）
+        // On CLI failure, attempt fallback to LLM (only when LLM provider available)
         const hasLLM = secretaryAgent.provider && secretaryAgent.provider.enabled && secretaryAgent.provider.apiKey && !secretaryAgent.provider.apiKey.startsWith('cli');
         if (hasLLM) {
           console.warn(`  ⚠️ [Secretary] CLI chat failed, falling back to LLM: ${cliErr.message || cliErr.error}`);
           reply = await this.secretary.handleBossMessage(message, this);
         } else {
-          // 没有可用的 LLM provider，返回 CLI 错误信息
+          // No available LLM provider, return CLI error message
           console.error(`  ❌ [Secretary] CLI chat failed, no LLM fallback available: ${cliErr.message || cliErr.error}`);
           reply = {
-            content: `⚠️ CLI 执行出错：${cliErr.message || '未知错误'}。请检查 CodeBuddy CLI 是否正常运行。`,
+            content: `⚠️ CLI execution error: ${cliErr.message || 'Unknown error'}. Please check if CodeBuddy CLI is running properly.`,
             action: null,
           };
         }
@@ -229,10 +229,10 @@ Rules:
       time: new Date(),
     };
     this.chatHistory.push(secretaryMsg);
-    // 持久化到文件存储
+    // Persist to file storage
     chatStore.appendMessage(this.chatSessionId, secretaryMsg);
 
-    // 内存中只保留最近 50 条（前端缓存用）
+    // Keep only the latest 50 messages in memory (for frontend cache)
     if (this.chatHistory.length > 50) {
       this.chatHistory = this.chatHistory.slice(-50);
     }
@@ -242,18 +242,18 @@ Rules:
   }
 
   /**
-   * 解析秘书返回的 JSON（CLI 和 LLM 共用）
-   * 从原始文本中提取 { content, action } 结构
+   * Parse secretary's returned JSON (shared by CLI and LLM)
+   * Extracts { content, action } structure from raw text
    */
   _parseSecretaryJSON(rawOutput, originalMessage) {
     try {
       let jsonStr = rawOutput.trim();
-      // 去除 markdown 代码块包裹
+      // Remove markdown code block wrapping
       const fenceMatch = jsonStr.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
       if (fenceMatch) {
         jsonStr = fenceMatch[1].trim();
       }
-      // 提取第一个 JSON 对象
+      // Extract first JSON object
       const jsonObjMatch = jsonStr.match(/\{[\s\S]*\}/);
       if (jsonObjMatch) {
         jsonStr = jsonObjMatch[0];
@@ -264,11 +264,11 @@ Rules:
         action: parsed.action || null,
       };
 
-      // 验证 task_assigned 的 departmentId
+      // Validate task_assigned departmentId
       if (result.action?.type === 'task_assigned' && result.action.departmentId) {
         const deptById = this.departments.get(result.action.departmentId);
         if (!deptById) {
-          // departmentId 无效，尝试按名字匹配
+          // departmentId invalid, try matching by name
           const deptIdValue = result.action.departmentId;
           const deptNameValue = result.action.departmentName || deptIdValue;
           let foundDept = null;
@@ -294,7 +294,7 @@ Rules:
       return result;
     } catch (parseError) {
       console.warn('⚠️ [Secretary-CLI] JSON parse failed, using raw output:', parseError.message);
-      // JSON 解析失败时，尝试提取 content 字段
+      // JSON parse failed, try to extract content field
       let displayContent = rawOutput;
       const contentFieldMatch = rawOutput.match(/"content"\s*:\s*"((?:[^"\\]|\\.)*)"/);
       if (contentFieldMatch) {
@@ -305,7 +305,7 @@ Rules:
         }
       }
 
-      // 尝试从原始输出中提取 action
+      // Try to extract action from raw output
       let action = null;
       const actionTypeMatch = rawOutput.match(/"type"\s*:\s*"(task_assigned|need_new_department|create_department|progress_report|secretary_handle)"/);
       if (actionTypeMatch) {
@@ -414,16 +414,16 @@ Rules:
     // Add current message
     messages.push({ role: 'user', content: message });
 
-    // 如果是 CLI agent，通过 CLI 后端执行聊天
+    // If this is a CLI agent, execute chat via CLI backend
     let replyContent;
     const chatEngine = targetAgent.cliProvider
       ? { engine: 'cli', cliName: targetAgent.cliProvider.name }
       : { engine: 'llm', llmName: targetAgent.provider.name };
 
     if (targetAgent.cliBackend) {
-      // CLI agent 聊天也走 CLI 后端
+      // CLI agent chat also goes through CLI backend
       try {
-        // 构建更自然的聊天 prompt（不使用 _buildTaskPrompt 的任务格式）
+        // Build a more natural chat prompt (not using _buildTaskPrompt task format)
         const chatContext = recentMessages.slice(-6).map(m =>
           `${m.role === 'boss' ? 'Boss' : targetAgent.name}: ${m.content}`
         ).join('\n');
@@ -437,11 +437,11 @@ Rules:
           },
           targetAgent.toolKit?.workspaceDir || process.cwd(),
           {},
-          { timeout: 60000 }  // 聊天场景 60 秒超时（而非默认 5 分钟）
+          { timeout: 60000 }  // Chat scenario 60 second timeout (vs default 5 minutes)
         );
         replyContent = cliResult.output || cliResult.errorOutput || '...';
       } catch (cliErr) {
-        // CLI 失败时尝试回退到 LLM（仅当有可用的 LLM provider 时）
+        // On CLI failure, attempt fallback to LLM (only when LLM provider available)
         const hasLLM = targetAgent.provider && targetAgent.provider.enabled && targetAgent.provider.apiKey && !targetAgent.provider.apiKey.startsWith('cli');
         if (hasLLM) {
           console.warn(`  ⚠️ [${targetAgent.name}] CLI chat failed, falling back to LLM: ${cliErr.message || cliErr.error}`);
@@ -457,11 +457,11 @@ Rules:
           }
         } else {
           console.error(`  ❌ [${targetAgent.name}] CLI chat failed, no LLM fallback: ${cliErr.message || cliErr.error}`);
-          replyContent = `⚠️ CLI 执行出错：${cliErr.message || '未知错误'}。请检查 CLI 是否正常运行。`;
+          replyContent = `⚠️ CLI execution error: ${cliErr.message || 'Unknown error'}. Please check if CLI is running properly.`;
         }
       }
     } else {
-      // 普通 LLM agent
+      // Regular LLM agent
       try {
         const response = await llmClient.chat(targetAgent.provider, messages, {
           temperature: 0.8,
@@ -507,7 +507,7 @@ Rules:
   }
 
   /**
-   * 标记与 agent 的聊天为已读
+   * Mark chat with agent as read
    */
   markAgentChatRead(agentId) {
     const sessionId = `boss-agent-${agentId}`;
@@ -515,18 +515,18 @@ Rules:
   }
 
   /**
-   * 获取所有 boss-agent 私聊会话的摘要信息
-   * 用于在 Mailbox 中显示私聊会话列表
+   * Get summary info for all boss-agent private chat sessions
+   * Used to display private chat session list in Mailbox
    */
   _getAgentChatSessions() {
     const sessions = chatStore.listSessions();
     const agentSessions = sessions.filter(s => s.type === 'boss-agent');
     
     return agentSessions.map(session => {
-      // 从 sessionId 中提取 agentId: "boss-agent-{agentId}"
+      // Extract agentId from sessionId: "boss-agent-{agentId}"
       const agentId = session.sessionId.replace('boss-agent-', '');
       
-      // 查找对应的 agent 信息
+      // Find corresponding agent info
       let agent = null;
       let deptName = null;
       for (const dept of this.departments.values()) {
@@ -538,15 +538,15 @@ Rules:
         }
       }
 
-      // 获取最近一条消息作为预览
+      // Get latest message as preview
       const recentMessages = chatStore.getRecentMessages(session.sessionId, 1);
       const lastMsg = recentMessages.length > 0 ? recentMessages[recentMessages.length - 1] : null;
 
-      // 获取已读时间戳，判断是否有未读消息
+      // Get read timestamp to determine if there are unread messages
       const meta = chatStore.getSessionMeta(session.sessionId);
       const bossLastReadAt = meta?.bossLastReadAt || null;
       const lastTime = lastMsg?.time || session.lastActiveAt || session.createdAt;
-      // 如果从未标记已读，或最新消息时间晚于已读时间，则为未读
+      // If never marked as read, or latest message time is after read time, it is unread
       const unread = !bossLastReadAt || (lastTime && new Date(lastTime) > new Date(bossLastReadAt));
 
       return {
@@ -563,26 +563,26 @@ Rules:
         totalMessages: session.totalMessages || 0,
         unread,
       };
-    }).filter(s => s.totalMessages > 0 && s.agentName !== 'Unknown' && s.agentAvatar !== null) // 只返回有消息的会话，且过滤掉已被开除（找不到agent）的员工
-      .sort((a, b) => new Date(b.lastTime) - new Date(a.lastTime)); // 按时间倒序
+    }).filter(s => s.totalMessages > 0 && s.agentName !== 'Unknown' && s.agentAvatar !== null) // Only return sessions with messages, filter out dismissed agents (cannot find agent)
+      .sort((a, b) => new Date(b.lastTime) - new Date(a.lastTime)); // Sort by time descending
   }
 
   /**
-   * 获取某个 agent 的所有 agent-to-agent 聊天会话
-   * 用于"查看该员工与其他人的聊天记录"
-   * @param {string} agentId - 目标 agent ID
-   * @returns {Array} 聊天会话列表
+   * Get all agent-to-agent chat sessions for a given agent
+   * Used to "view chat records between this agent and others"
+   * @param {string} agentId - Target agent ID
+   * @returns {Array} Chat session list
    */
   getAgentConversations(agentId) {
     const sessions = chatStore.listSessions();
-    // 找出所有包含该 agent 的 agent-agent 会话
+    // Find all agent-agent sessions that include this agent
     const agentSessions = sessions.filter(s => {
       if (s.type !== 'agent-agent') return false;
-      // sessionId 格式: agent-agent-{id1}-{id2}
+      // sessionId format: agent-agent-{id1}-{id2}
       return s.sessionId.includes(agentId);
     });
 
-    // 也包含 boss-agent 的聊天
+    // Also include boss-agent chats
     const bossSessions = sessions.filter(s => 
       s.type === 'boss-agent' && s.sessionId === `boss-agent-${agentId}`
     );
@@ -590,12 +590,12 @@ Rules:
     const conversations = [];
 
     for (const session of agentSessions) {
-      // 使用 participants 找出对方 ID（比从 sessionId 解析更可靠）
+      // Use participants to find the other party ID (more reliable than parsing sessionId)
       const participants = session.participants || [];
       const peerId = participants.find(p => p !== agentId) || null;
       if (!peerId) continue;
 
-      // 查找对方 agent 信息
+      // Find the other agent info
       let peerAgent = null;
       let peerDeptName = null;
       for (const dept of this.departments.values()) {
@@ -624,7 +624,7 @@ Rules:
       });
     }
 
-    // Boss 聊天
+    // Boss chat
     for (const session of bossSessions) {
       const recentMessages = chatStore.getRecentMessages(session.sessionId, 1);
       const lastMsg = recentMessages.length > 0 ? recentMessages[recentMessages.length - 1] : null;
@@ -643,7 +643,7 @@ Rules:
       });
     }
 
-    // 按时间倒序
+    // Sort by time descending
     conversations.sort((a, b) => {
       if (!a.lastTime) return 1;
       if (!b.lastTime) return -1;
@@ -654,14 +654,14 @@ Rules:
   }
 
   /**
-   * 获取某个 agent-agent 会话的聊天记录
-   * @param {string} sessionId - 会话 ID
-   * @param {number} limit - 最大消息数
-   * @returns {Array} 消息列表
+   * Get chat messages for an agent-agent session
+   * @param {string} sessionId - Session ID
+   * @param {number} limit - Max message count
+   * @returns {Array} Message list
    */
   getAgentAgentChatHistory(sessionId, limit = 50) {
     const messages = chatStore.getRecentMessages(sessionId, limit);
-    // 同时返回 session 的 participants 信息，方便前端判断消息方向
+    // Also return session participants info, for frontend to determine message direction
     const meta = chatStore.getSessionMeta(sessionId);
     return {
       messages,
@@ -689,10 +689,10 @@ Rules:
       agent.provider = newProvider;
       // Sync update HR assistant's provider
       this.secretary.hrAssistant.agent.provider = newProvider;
-      // 如果是 CLI provider，设置秘书的 CLI 后端；否则清除
+      // If this is a CLI provider, set secretary CLI backend; otherwise clear it
       if (newProvider.isCLI && newProvider.cliBackendId) {
         agent.setCLIBackend(newProvider.cliBackendId);
-        // CLI provider 存储引用，用于前端显示
+        // Store CLI provider reference for frontend display
         agent.cliProvider = newProvider;
         this._log('Secretary settings', `Secretary CLI backend set to: ${newProvider.name} (${newProvider.cliBackendId})`);
       } else {
@@ -773,7 +773,7 @@ Rules:
 
     // 6. Start group chat loop engine
     groupChatLoop.start(this);
-    // 为所有已存在的 Agent 启动群聊循环
+    // Start group chat loop for all existing agents
     for (const dept of this.departments.values()) {
       for (const agent of dept.getMembers()) {
         groupChatLoop.startAgentLoop(agent);
@@ -819,7 +819,7 @@ Rules:
       mission,
       reasoning: teamPlan.reasoning || null,
       members: teamPlan.members.map(m => {
-        // 查找该岗位的 job template，获取 category 和 requiredCapabilities
+        // Find job template for this position, get category and requiredCapabilities
         const template = this.hr.getTemplate(m.templateId);
         let providerName = null;
         let providerModel = null;
@@ -840,8 +840,8 @@ Rules:
           isLeader: m.isLeader,
           reportsTo: m.reportsTo !== null ? teamPlan.members[m.reportsTo]?.name : null,
           reason: m.reason || null,
-          providerName,   // 推荐的供应商名称（模型名）
-          providerModel,  // 推荐的供应商模型
+          providerName,   // Recommended provider name (model name)
+          providerModel,  // Recommended provider model
         };
       }),
       collaborationRules: teamPlan.collaborationRules,
@@ -899,7 +899,7 @@ Rules:
     // Background async: Agent self-intro + onboarding email + broadcast
     this._onboardAgents(agents, dept).catch(e => console.error('Onboarding process error:', e));
 
-    // 启动新员工的群聊循环
+    // Start group chat loop for new employee
     for (const agent of agents) {
       groupChatLoop.startAgentLoop(agent);
     }
@@ -984,7 +984,7 @@ const dept = this.findDepartment(departmentId);
       agent.initToolKit(dept.workspacePath, this.messageBus);
     }
 
-    // 启动群聊循环
+    // Start group chat loop
     groupChatLoop.startAgentLoop(agent);
 
     return agent;
@@ -1006,7 +1006,7 @@ const dept = this.findDepartment(departmentId);
       agent.initToolKit(dept.workspacePath, this.messageBus);
     }
 
-    // 启动召回员工的群聊循环
+    // Start group chat loop for recalled employee
     groupChatLoop.startAgentLoop(agent);
 
     console.log(`  🔄 [${agent.name}] Recalled from talent market, joined "${dept.name}" department`);
@@ -1022,7 +1022,7 @@ const dept = this.findDepartment(departmentId);
 
     agent.status = 'dismissed';
 
-    // 停止群聊循环
+    // Stop group chat loop
     groupChatLoop.stopAgentLoop(agentId);
 
     // Fire hook: agent dismissed
@@ -1119,7 +1119,7 @@ const dept = this.findDepartment(departmentId);
       reasoning: adjustPlan.reasoning,
       fires: adjustPlan.fires,
       hires: adjustPlan.hires.map(h => {
-        // 查找推荐的 provider 信息
+        // Find recommended provider info
         const template = this.hr.getTemplate(h.templateId);
         let providerName = null;
         let providerModel = null;
@@ -1192,7 +1192,7 @@ const dept = this.findDepartment(departmentId);
         this._log('Adjustment hire', `"${plan.departmentName}": hired ${newAgents.length} new employees`);
         // Background async onboarding
         this._onboardAgents(newAgents, dept).catch(e => console.error('Onboarding process error:', e));
-        // 启动新员工的群聊循环
+        // Start group chat loop for new employee
         for (const agent of newAgents) {
           groupChatLoop.startAgentLoop(agent);
         }
@@ -1318,7 +1318,7 @@ const dept = this.findDepartment(departmentId);
 
   configureProvider(providerId, apiKey) {
     const provider = this.providerRegistry.configure(providerId, apiKey);
-    // 清除 LLM 客户端缓存，确保下次调用使用新的 apiKey
+    // Clear LLM client cache to ensure next call uses new apiKey
     llmClient.clearClient(providerId);
     this._log('Configure provider', `${provider.name} has been ${apiKey ? 'enabled' : 'disabled'}`);
     return provider;
@@ -1368,7 +1368,7 @@ const dept = this.findDepartment(departmentId);
     // 2. Leader decomposes workflow
     const leader = dept.getLeader() || members[0];
 
-    // 更新 liveStatus：planning 阶段记录 leader 信息
+    // Update liveStatus: record leader info during planning phase
     requirement.updateLiveStatus({
       currentAgent: leader.name,
       currentAgentId: leader.id,
@@ -1490,7 +1490,7 @@ const dept = this.findDepartment(departmentId);
 
     // Build task description from sprint plan + goal
     const taskDescription = sprint.plan
-      ? `# 迭代目标\n${sprint.goal}\n\n# 实施方案\n${sprint.plan}`
+      ? `# Sprint Goal\n${sprint.goal}\n\n# Implementation Plan\n${sprint.plan}`
       : sprint.goal;
     const title = sprint.title;
 
@@ -1597,7 +1597,7 @@ const dept = this.findDepartment(departmentId);
     const leader = dept.getLeader() || dept.getMembers()[0];
     if (!leader) throw new Error('No leader found in department');
 
-    // 1. 将 Boss 消息加入群聊
+    // 1. Add Boss message to group chat
     requirement.addGroupMessage(
       {
         id: 'boss',
@@ -1610,26 +1610,26 @@ const dept = this.findDepartment(departmentId);
     );
     this.save();
 
-    // 1.5 触发群聊循环：通知所有群成员有新消息（老板消息，每个人都应该关注）
+    // 1.5 Trigger group chat loop: notify all members of new message (Boss message, everyone should pay attention)
     const allMembers = dept.getMembers();
     for (const member of allMembers) {
-      // 延迟触发，避免所有人同时处理
+      // Delayed trigger to avoid everyone processing at the same time
       setTimeout(() => {
         groupChatLoop.triggerImmediate(member.id, requirementId, { from: { id: 'boss' }, content: message }).catch(() => {});
       }, 500 + Math.random() * 2000);
     }
 
-    // 2. Leader 异步处理 Boss 消息（用 LLM 判断是否需要调整）
+    // 2. Leader asynchronously handles Boss message (use LLM to decide if adjustment needed)
     const leaderResponse = await this._leaderHandleBossMessage(leader, requirement, dept, message);
 
-    // 3. Leader 的回复加入群聊
+    // 3. Add Leader reply to group chat
     if (leaderResponse.reply) {
       requirement.addGroupMessage(leader, leaderResponse.reply, 'message');
     }
 
-    // 4. 根据 Leader 的决策执行操作
+    // 4. Execute operations based on Leader decision
     if (leaderResponse.action === 'stop') {
-      // 停止项目
+      // Stop project
       requirement.status = 'failed';
       requirement.completedAt = new Date();
       requirement.updateLiveStatus({
@@ -1638,46 +1638,46 @@ const dept = this.findDepartment(departmentId);
       });
       requirement.addGroupMessage(
         { name: 'System', role: 'system' },
-        `⏹️ 项目已被老板要求停止`,
+        `⏹️ Project stopped by Boss request`,
         'system'
       );
     } else if (leaderResponse.action === 'restart') {
-      // 重新开始项目（标记为失败，前端可以用 restart 按钮）
+      // Restart project (mark as failed, frontend can use restart button)
       requirement.addGroupMessage(
         { name: 'System', role: 'system' },
-        `🔄 老板要求重新开始项目，正在重新规划...`,
+        `🔄 Boss requested project restart, replanning...`,
         'system'
       );
-      // 异步重新执行，不阻塞
+      // Async re-execute, non-blocking
       const title = requirement.title;
       const description = requirement.description;
       const deptId = requirement.departmentId;
-      // 删除旧需求
+      // Delete old requirement
       this.requirementManager.requirements.delete(requirementId);
-      // 重新派发
+      // Re-dispatch
       this.assignTaskToDepartment(deptId, description, title).catch(e => {
         console.error('Restart requirement failed:', e.message);
       });
     } else if (leaderResponse.action === 'adjust' && leaderResponse.adjustments) {
-      // 调整方案：leader 已在回复中说明了调整内容，触发实际的 workflow 修改
+      // Adjust plan: leader has explained the adjustment in reply, trigger actual workflow modification
       requirement.addGroupMessage(
         { name: 'System', role: 'system' },
-        `📝 ${leader.name} 正在根据老板指示调整方案...`,
+        `📝 ${leader.name} is adjusting the plan based on Boss instructions...`,
         'system'
       );
 
-      // 记录旧 workflow 用于参考
+      // Record old workflow for reference
       const previousWorkflow = requirement.workflow?.nodes?.map(n =>
         `- [${n.status}] ${n.title} → ${n.assigneeName || 'unknown'}${n.dependencies?.length ? ` (deps: ${n.dependencies.join(', ')})` : ''}`
       ).join('\n') || 'No previous workflow';
 
-      // 记录已有的产出文件（调整时保留，不删除）
+      // Record existing output files (preserved during adjustment, not deleted)
       const existingOutputs = requirement.outputs || [];
 
-      // 重置 requirement 状态（保留 outputs，不删除已有文件）
+      // Reset requirement status (preserve outputs, do not delete existing files)
       requirement.status = RequirementStatus.PLANNING;
       requirement.workflow = null;
-      // 注意：不清空 outputs，在原有基础上修改/补充
+      // Note: do not clear outputs, modify/supplement on top of existing results
       requirement.summary = null;
       requirement.completedAt = null;
       requirement.updateLiveStatus({
@@ -1690,7 +1690,7 @@ const dept = this.findDepartment(departmentId);
       });
       this.save();
 
-      // 异步重新规划 + 执行（不阻塞 API 返回）
+      // Async replan + execute (non-blocking API return)
       const members = dept.getMembers();
       const adjustmentContext = {
         bossMessage: message,
@@ -1706,20 +1706,20 @@ const dept = this.findDepartment(departmentId);
           );
           this.save();
 
-          // 重新执行调整后的 workflow
+          // Re-execute adjusted workflow
           await this.requirementManager.executeWorkflow(
             requirement, dept, this.performanceSystem
           );
           this.save();
 
-          // 完成后 leader 发送汇报邮件
+          // After completion, leader sends report email
           if (leader) {
             const summary = requirement.summary || {};
-            let reportContent = `需求 "${requirement.title}" 调整后已重新完成！\n\n`;
-            reportContent += `📊 执行结果：\n`;
-            reportContent += `- 完成任务: ${summary.successTasks || 0}/${summary.totalTasks || 0}\n`;
-            reportContent += `- 总耗时: ${Math.round((summary.totalDuration || 0) / 1000)}s\n\n`;
-            reportContent += `📝 调整原因: ${message}\n`;
+            let reportContent = `Requirement "${requirement.title}" has been re-completed after adjustment!\n\n`;
+            reportContent += `📊 Execution Results:\n`;
+            reportContent += `- Completed tasks: ${summary.successTasks || 0}/${summary.totalTasks || 0}\n`;
+            reportContent += `- Total duration: ${Math.round((summary.totalDuration || 0) / 1000)}s\n\n`;
+            reportContent += `📝 Adjustment reason: ${message}\n`;
             leader.sendMailToBoss(`📋 Adjusted Requirement Report: ${requirement.title}`, reportContent, this);
           }
         } catch (e) {
@@ -1728,14 +1728,14 @@ const dept = this.findDepartment(departmentId);
           requirement.completedAt = new Date();
           requirement.addGroupMessage(
             { name: 'System', role: 'system' },
-            `❌ 调整方案执行失败: ${e.message}`,
+            `❌ Adjustment plan execution failed: ${e.message}`,
             'system'
           );
           this.save();
         }
       })();
     }
-    // action === 'continue' → 无需特殊处理，照常继续
+    // action === 'continue' → No special handling needed, continue as normal
 
     this.save();
 
@@ -1748,15 +1748,15 @@ const dept = this.findDepartment(departmentId);
   }
 
   /**
-   * Boss 在部门群聊中发消息
-   * @param {string} departmentId - 部门 ID
-   * @param {string} message - 消息内容
+   * Boss sends a message in department group chat
+   * @param {string} departmentId - Department ID
+   * @param {string} message - Message content
    */
   sendBossDeptGroupMessage(departmentId, message) {
     const dept = this.findDepartment(departmentId);
     if (!dept) throw new Error('Department not found');
 
-    // 1. 将 Boss 消息加入部门群聊
+    // 1. Add Boss message to department group chat
     dept.addGroupMessage(
       {
         id: 'boss',
@@ -1769,10 +1769,10 @@ const dept = this.findDepartment(departmentId);
     );
     this.save();
 
-    // 2. 触发群聊循环：通知所有部门成员有新消息
+    // 2. Trigger group chat loop: notify all department members of new message
     const allMembers = dept.getMembers();
     for (const member of allMembers) {
-      // 延迟触发，避免所有人同时处理
+      // Delayed trigger to avoid everyone processing at the same time
       setTimeout(() => {
         groupChatLoop.triggerImmediate(member.id, `dept-${dept.id}`, { from: { id: 'boss' }, content: message }).catch(() => {});
       }, 500 + Math.random() * 2000);
@@ -1782,26 +1782,26 @@ const dept = this.findDepartment(departmentId);
   }
 
   /**
-   * Leader 使用 LLM 处理 Boss 在群聊中的消息
+   * Leader uses LLM to handle Boss message in group chat
    * @private
    */
   async _leaderHandleBossMessage(leader, requirement, department, bossMessage) {
     if (!leader.provider?.enabled || !leader.provider?.apiKey) {
       return {
-        reply: `收到老板的指示！我会认真执行。`,
+        reply: `Received Boss instructions! I will execute them diligently.`,
         action: 'continue',
       };
     }
 
     try {
-      // 构建群聊历史上下文（最近20条）
+      // Build group chat history context (latest 20 messages)
       const recentChat = (requirement.groupChat || []).slice(-20).map(m => {
         const sender = m.from?.name || 'Unknown';
         const role = m.from?.role ? `(${m.from.role})` : '';
         return `[${sender}${role}]: ${m.content}`;
       }).join('\n');
 
-      // 构建 workflow 状态
+      // Build workflow status
       const workflowStatus = requirement.workflow?.nodes?.map(n => {
         const agent = department.agents.get(n.assigneeId);
         return `- [${n.status}] ${n.title} (assigned to: ${agent?.name || n.assigneeName || 'unknown'})`;
@@ -1829,16 +1829,16 @@ The Boss (your employer) just sent a message in the group chat. You need to:
 
 You MUST reply in JSON format:
 {
-  "reply": "Your natural reply to the Boss (addressing them as Boss/老板, speaking in your personality style, explaining what you'll do)",
+  "reply": "Your natural reply to the Boss (addressing them as Boss, speaking in your personality style, explaining what you'll do)",
   "action": "continue|adjust|stop|restart",
   "adjustments": "If action is 'adjust', briefly describe what changes you'll make to the plan"
 }
 
 Action rules:
 - "continue": Boss is just commenting/encouraging, no changes needed. Or giving minor feedback that doesn't change the plan.
-- "adjust": Boss wants to modify, supplement, or revise the current plan. IMPORTANT: This means working on top of existing results — existing files and outputs will be PRESERVED, only new/modified content will be added. Use this when Boss says things like "add more", "revise", "change X to Y", "also include", "补充", "修改", "调整" etc.
+- "adjust": Boss wants to modify, supplement, or revise the current plan. IMPORTANT: This means working on top of existing results — existing files and outputs will be PRESERVED, only new/modified content will be added. Use this when Boss says things like "add more", "revise", "change X to Y", "also include", "supplement", "modify", "adjust" etc.
 - "stop": Boss explicitly says to stop, halt, or cancel the project.
-- "restart": Boss EXPLICITLY wants to start over completely from scratch, redo everything, or completely restart. Use ONLY when Boss clearly says "从头开始", "start over", "重新来", "redo from scratch" etc. All existing files will be DELETED.
+- "restart": Boss EXPLICITLY wants to start over completely from scratch, redo everything, or completely restart. Use ONLY when Boss clearly says "start over", "redo from scratch", "start fresh" etc. All existing files will be DELETED.
 
 Reply in the same language the Boss used. Be concise but warm.`
         },
@@ -1850,7 +1850,7 @@ Reply in the same language the Boss used. Be concise but warm.`
 
       leader._trackUsage(response.usage);
 
-      // 解析 JSON
+      // Parse JSON
       const tick = String.fromCharCode(96);
       const fence = tick + tick + tick;
       let jsonStr = response.content
@@ -1866,7 +1866,7 @@ Reply in the same language the Boss used. Be concise but warm.`
           adjustments: parsed.adjustments || null,
         };
       } catch {
-        // JSON 解析失败，用原始回复
+        // JSON parse failed, use raw reply
         return {
           reply: response.content?.trim() || 'Understood, Boss!',
           action: 'continue',
@@ -1875,7 +1875,7 @@ Reply in the same language the Boss used. Be concise but warm.`
     } catch (e) {
       console.error(`Leader ${leader.name} failed to handle boss message:`, e.message);
       return {
-        reply: `收到老板的指示，我会尽快处理！`,
+        reply: `Received Boss instructions, I will handle it promptly!`,
         action: 'continue',
       };
     }
@@ -1898,7 +1898,7 @@ Reply in the same language the Boss used. Be concise but warm.`
         const usage = a.tokenUsage || { totalTokens: 0, totalCost: 0, promptTokens: 0, completionTokens: 0, callCount: 0 };
         deptTokens += usage.totalTokens;
         deptCost += usage.totalCost;
-        // CLI agent 展示 cliProvider 信息（实际的 CLI 工具），而非 fallback general provider
+        // CLI agent shows cliProvider info (actual CLI tool), not fallback general provider
         const displayProvider = a.cliProvider
           ? { id: a.cliProvider.id, name: a.cliProvider.name, provider: a.cliProvider.provider || 'Local CLI' }
           : { id: a.provider.id, name: a.provider.name, provider: a.provider.provider };
@@ -1914,7 +1914,7 @@ Reply in the same language the Boss used. Be concise but warm.`
         status: a.status,
         provider: displayProvider,
         cliBackend: a.cliBackend || null,
-        // CLI agent 的聊天引擎（fallback LLM provider 名称）
+        // CLI agent chat engine (fallback LLM provider name)
         fallbackProvider: a.cliProvider ? a.provider.name : null,
         skills: a.skills,
         reportsTo: a.reportsTo,
@@ -2041,7 +2041,7 @@ Reply in the same language the Boss used. Be concise but warm.`
       })),
       providerDashboard: this.providerRegistry.getStats(),
       messageBusStats: this.messageBus.getStats(),
-      // Boss-Agent 私聊会话列表
+      // Boss-Agent private chat session list
       agentChatSessions: this._getAgentChatSessions(),
       requirements: this.requirementManager.listAll().map(r => r.serialize()),
       teams: this.teamManager.listAll().map(t => t.serialize()),
@@ -2189,7 +2189,7 @@ const dept = this.findDepartment(departmentId);
     if (!data || !data.name) throw new Error('Invalid company state data');
 
     // Create shell company (don't trigger full initialization)
-    // 从 providerConfigs 中获取秘书对应 provider 的真实 apiKey
+    // Get the real apiKey for the secretary's provider from providerConfigs
     const secretaryProviderId = data.secretary?.providerId || 'deepseek-v3';
     const secretaryApiKey = data.providerConfigs?.[secretaryProviderId]?.apiKey || 'sk-restored';
     const company = new Company(data.name, data.bossName, {
@@ -2212,7 +2212,7 @@ const dept = this.findDepartment(departmentId);
       for (const [pid, cfg] of Object.entries(data.providerConfigs)) {
         try {
           company.providerRegistry.configure(pid, cfg.apiKey);
-          // 清除旧的 LLM 客户端缓存，确保使用恢复后的真实 apiKey
+          // Clear old LLM client cache to ensure the restored real apiKey is used
           llmClient.clearClient(pid);
         } catch (e) { /* ignore non-existent providers */ }
       }
@@ -2233,10 +2233,10 @@ const dept = this.findDepartment(departmentId);
     if (data.secretary?.signature) {
       company.secretary.agent.signature = data.secretary.signature;
     }
-    // 恢复秘书的 CLI 后端配置
+    // Restore secretary CLI backend configuration
     if (data.secretary?.cliBackend) {
       company.secretary.agent.setCLIBackend(data.secretary.cliBackend);
-      // 同时设置 cliProvider 引用（用于前端显示）
+      // Also set cliProvider reference (for frontend display)
       const cliProvider = company.providerRegistry.getById(data.secretary.providerId);
       if (cliProvider && cliProvider.isCLI) {
         company.secretary.agent.cliProvider = cliProvider;
@@ -2298,11 +2298,11 @@ const dept = this.findDepartment(departmentId);
     // Restore mailbox, chat history, progress reports, logs
     company.mailbox = data.mailbox || [];
     company.chatHistory = data.chatHistory || [];
-    // 恢复聊天会话 ID
+    // Restore chat session ID
     if (data.chatSessionId) {
       company.chatSessionId = data.chatSessionId;
     }
-    // 如果有旧版 chatHistory 数据且文件存储为空，则迁移
+    // If there is old chatHistory data and file storage is empty, migrate it
     if (company.chatHistory.length > 0 && chatStore.getMessageCount(company.chatSessionId) === 0) {
       chatStore.migrateFromArray(company.chatSessionId, company.chatHistory);
     }

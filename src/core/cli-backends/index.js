@@ -1,27 +1,27 @@
 /**
- * CLI Backends 模块入口
+ * CLI Backends module entry point
  * 
- * 每个 CLI 模型有独立的文件夹，包含各自的配置（config.js）和使用文档（README.md）。
+ * Each CLI model has its own folder containing configuration (config.js) and documentation (README.md).
  * 
- * 目录结构：
+ * Directory structure:
  * cli-backends/
- * ├── index.js           - 本文件，模块入口
- * ├── registry.js        - CLIBackendRegistry 核心类 + 通用工具函数
+ * ├── index.js           - This file, module entry point
+ * ├── registry.js        - CLIBackendRegistry core class + utility functions
  * ├── codebuddy/
- * │   ├── config.js      - CodeBuddy Code 配置
- * │   └── README.md      - CodeBuddy Code 使用文档
+ * │   ├── config.js      - CodeBuddy Code configuration
+ * │   └── README.md      - CodeBuddy Code documentation
  * ├── claude-code/
- * │   ├── config.js      - Claude Code 配置
- * │   └── README.md      - Claude Code 使用文档
+ * │   ├── config.js      - Claude Code configuration
+ * │   └── README.md      - Claude Code documentation
  * └── codex/
- *     ├── config.js      - Codex (OpenAI) 配置
- *     └── README.md      - Codex 使用文档
+ *     ├── config.js      - Codex (OpenAI) configuration
+ *     └── README.md      - Codex documentation
  */
 
-// 核心导出：Registry 类、全局单例、状态枚举
+// Core exports: Registry class, global singleton, state enums
 export { CLIBackendRegistry, cliBackendRegistry, CLIBackendState, buildAgentMemoryContent } from './registry.js';
 
-// 各 CLI 配置导出（方便外部直接访问单个配置）
+// Individual CLI config exports (for direct external access to specific configs)
 export { codebuddyConfig } from './codebuddy/config.js';
 export { claudeCodeConfig } from './claude-code/config.js';
 export { codexConfig } from './codex/config.js';

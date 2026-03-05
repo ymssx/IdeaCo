@@ -2,24 +2,26 @@ import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { getApiT } from '@/lib/api-i18n';
 
 /**
- * GET /api/browse-dir?path=xxx - 列出指定路径下的子目录
- * 不传 path 则返回用户 home 目录下的子目录
+ * GET /api/browse-dir?path=xxx - List subdirectories at the given path
+ * Without a path param, returns subdirectories in the user's home directory
  */
 export async function GET(request) {
+  const t = getApiT(request);
   try {
     const { searchParams } = new URL(request.url);
     const dirPath = searchParams.get('path') || os.homedir();
 
-    // 安全检查：确保路径存在且是目录
+    // Safety check: ensure path exists and is a directory
     const resolved = path.resolve(dirPath);
     if (!fs.existsSync(resolved)) {
-      return NextResponse.json({ error: 'Path does not exist' }, { status: 400 });
+      return NextResponse.json({ error: t('api.pathNotExist') }, { status: 400 });
     }
     const stat = fs.statSync(resolved);
     if (!stat.isDirectory()) {
-      return NextResponse.json({ error: 'Path is not a directory' }, { status: 400 });
+      return NextResponse.json({ error: t('api.pathNotDirectory') }, { status: 400 });
     }
 
     const entries = fs.readdirSync(resolved, { withFileTypes: true });

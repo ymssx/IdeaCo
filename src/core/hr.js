@@ -298,7 +298,7 @@ export class HRSystem {
     // If this is a CLI provider, attach the cliBackend id so the Agent uses local CLI
     if (provider.isCLI && provider.cliBackendId) {
       result.cliBackend = provider.cliBackendId;
-      // 保存原始 CLI provider 信息，供前端展示使用
+      // Save original CLI provider info for frontend display
       result.cliProvider = { ...provider };
       // CLI agents still need a general provider for fallback (LLM chat, intro generation, etc.)
       // Try to find a general provider as fallback
@@ -361,7 +361,7 @@ export class HRSystem {
       skills: [...profile.skills, ...profile.acquiredSkills],
       provider: profile.provider,
       templateId: null, // Recalled employees are not from templates
-      // 保留原始头像和个人属性
+      // Retain original avatar and personal attributes
       avatar: profile.avatar,
       avatarParams: profile.avatarParams,
       gender: profile.gender,

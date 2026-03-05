@@ -1,43 +1,43 @@
 /**
- * Skills System - 技能管理框架
+ * Skills System - Skill management framework
  * 
- * 蒸馏自 OpenClaw 的 Skills 系统 (vendor/openclaw/src/config/types.skills.ts)
- * 重新实现为「员工培训认证」体系
+ * Distilled from OpenClaw's Skills system (vendor/openclaw/src/config/types.skills.ts)
+ * Re-implemented as an "employee training & certification" system
  *
- * 功能：
- * - 技能注册与发现
- * - 技能安装/启用/禁用
- * - 按 Agent 分配技能
- * - 技能分类与搜索
- * - 技能配置与环境变量
+ * Features:
+ * - Skill registration and discovery
+ * - Skill installation/enabling/disabling
+ * - Per-agent skill assignment
+ * - Skill categorization and search
+ * - Skill configuration and environment variables
  */
 
 /**
- * 技能状态
+ * Skill states
  */
 export const SkillState = {
-  AVAILABLE: 'available',   // 可用（未安装）
-  INSTALLED: 'installed',   // 已安装
-  ENABLED: 'enabled',       // 已启用
-  DISABLED: 'disabled',     // 已禁用
+  AVAILABLE: 'available',   // Available (not installed)
+  INSTALLED: 'installed',   // Installed
+  ENABLED: 'enabled',       // Enabled
+  DISABLED: 'disabled',     // Disabled
 };
 
 /**
- * 技能分类
+ * Skill categories
  */
 export const SkillCategory = {
-  CODING: 'coding',           // 编程开发
-  ANALYSIS: 'analysis',       // 数据分析
-  CREATIVE: 'creative',       // 创意内容
-  COMMUNICATION: 'communication', // 沟通协作
-  AUTOMATION: 'automation',   // 自动化
-  RESEARCH: 'research',       // 研究调查
-  DESIGN: 'design',           // 设计
-  DEVOPS: 'devops',           // 运维部署
+  CODING: 'coding',           // Programming/development
+  ANALYSIS: 'analysis',       // Data analysis
+  CREATIVE: 'creative',       // Creative content
+  COMMUNICATION: 'communication', // Communication/collaboration
+  AUTOMATION: 'automation',   // Automation
+  RESEARCH: 'research',       // Research/investigation
+  DESIGN: 'design',           // Design
+  DEVOPS: 'devops',           // DevOps/deployment
 };
 
 /**
- * 技能定义
+ * Skill definition
  */
 export class SkillDefinition {
   constructor(config) {
@@ -46,11 +46,11 @@ export class SkillDefinition {
     this.version = config.version || '1.0.0';
     this.category = config.category || SkillCategory.CODING;
     this.description = config.description || '';
-    this.instructions = config.instructions || '';  // Agent 使用技能的指引 (类似 SKILL.md)
-    this.requiredTools = config.requiredTools || []; // 依赖哪些工具
-    this.requiredPlugins = config.requiredPlugins || []; // 依赖哪些插件
+    this.instructions = config.instructions || '';  // Usage instructions for the Agent (like SKILL.md)
+    this.requiredTools = config.requiredTools || []; // Required tool dependencies
+    this.requiredPlugins = config.requiredPlugins || []; // Required plugin dependencies
     this.configSchema = config.configSchema || {};
-    this.env = config.env || {};  // 环境变量
+    this.env = config.env || {};  // Environment variables
     this.tags = config.tags || [];
     this.author = config.author || 'Built-in';
     this.icon = config.icon || '⚡';
@@ -58,7 +58,7 @@ export class SkillDefinition {
 }
 
 /**
- * 技能注册表 - 管理所有可用技能
+ * Skill registry - manages all available skills
  */
 export class SkillRegistry {
   constructor() {
@@ -67,7 +67,7 @@ export class SkillRegistry {
   }
 
   /**
-   * 注册技能
+   * Register a skill
    * @param {SkillDefinition} definition
    */
   register(definition) {
@@ -82,7 +82,7 @@ export class SkillRegistry {
   }
 
   /**
-   * 安装技能
+   * Install a skill
    */
   install(skillId, config = {}) {
     const skill = this.skills.get(skillId);
@@ -95,7 +95,7 @@ export class SkillRegistry {
   }
 
   /**
-   * 启用技能
+   * Enable a skill
    */
   enable(skillId) {
     const skill = this.skills.get(skillId);
@@ -108,7 +108,7 @@ export class SkillRegistry {
   }
 
   /**
-   * 禁用技能
+   * Disable a skill
    */
   disable(skillId) {
     const skill = this.skills.get(skillId);
@@ -117,14 +117,14 @@ export class SkillRegistry {
   }
 
   /**
-   * 获取技能
+   * Get a skill
    */
   get(skillId) {
     return this.skills.get(skillId) || null;
   }
 
   /**
-   * 获取所有启用的技能
+   * Get all enabled skills
    */
   getEnabledSkills() {
     return [...this.skills.values()]
@@ -133,8 +133,8 @@ export class SkillRegistry {
   }
 
   /**
-   * 为指定 Agent 解析可用技能（根据 Agent 的 skills 列表过滤）
-   * @param {string[]} agentSkillIds - Agent 配置的技能ID列表
+   * Resolve available skills for a specific Agent (filtered by Agent's skills list)
+   * @param {string[]} agentSkillIds - Skill ID list configured for the Agent
    * @returns {SkillDefinition[]}
    */
   resolveAgentSkills(agentSkillIds = []) {
@@ -148,7 +148,7 @@ export class SkillRegistry {
   }
 
   /**
-   * 构建技能 prompt 块（注入到 Agent 系统提示词）
+   * Build skills prompt block (injected into Agent system prompt)
    * @param {SkillDefinition[]} skills
    * @returns {string}
    */
@@ -161,7 +161,7 @@ export class SkillRegistry {
   }
 
   /**
-   * 按分类获取技能
+   * Get skills by category
    */
   getByCategory(category) {
     return [...this.skills.values()]
@@ -169,7 +169,7 @@ export class SkillRegistry {
   }
 
   /**
-   * 搜索技能
+   * Search skills
    */
   search(query) {
     const q = query.toLowerCase();
@@ -182,7 +182,7 @@ export class SkillRegistry {
   }
 
   /**
-   * 列出所有技能及其状态
+   * List all skills and their states
    */
   list() {
     return [...this.skills.values()].map(s => ({
@@ -202,7 +202,7 @@ export class SkillRegistry {
   }
 
   /**
-   * 配置技能
+   * Configure a skill
    */
   configure(skillId, config) {
     const skill = this.skills.get(skillId);
@@ -212,11 +212,11 @@ export class SkillRegistry {
 }
 
 // ====================================================================
-// 内置技能定义（对齐 OpenClaw 的 bundled skills）
+// Built-in skill definitions (aligned with OpenClaw bundled skills)
 // ====================================================================
 
 const builtinSkills = [
-  // === 编程开发 ===
+  // === Programming/Development ===
   new SkillDefinition({
     id: 'web-development',
     name: 'Web Development',
@@ -267,7 +267,7 @@ const builtinSkills = [
     tags: ['sql', 'mongodb', 'postgresql', 'mysql', 'redis'],
     icon: '🗄️',
   }),
-  // === 数据分析 ===
+  // === Data Analysis ===
   new SkillDefinition({
     id: 'data-analysis',
     name: 'Data Analysis',
@@ -290,7 +290,7 @@ const builtinSkills = [
     tags: ['research', 'web', 'search', 'information-gathering'],
     icon: '🔍',
   }),
-  // === 创意内容 ===
+  // === Creative Content ===
   new SkillDefinition({
     id: 'content-writing',
     name: 'Content Writing',
@@ -311,7 +311,7 @@ const builtinSkills = [
     tags: ['image', 'art', 'visual', 'generation'],
     icon: '🎨',
   }),
-  // === 沟通协作 ===
+  // === Communication/Collaboration ===
   new SkillDefinition({
     id: 'project-management',
     name: 'Project Management',
@@ -332,7 +332,7 @@ const builtinSkills = [
     tags: ['teamwork', 'review', 'feedback', 'communication'],
     icon: '🤝',
   }),
-  // === 自动化 ===
+  // === Automation ===
   new SkillDefinition({
     id: 'task-automation',
     name: 'Task Automation',
@@ -353,7 +353,7 @@ const builtinSkills = [
     tags: ['scraping', 'extraction', 'crawling'],
     icon: '🕷️',
   }),
-  // === 设计 ===
+  // === Design ===
   new SkillDefinition({
     id: 'ui-design',
     name: 'UI/UX Design',
@@ -364,7 +364,7 @@ const builtinSkills = [
     tags: ['ui', 'ux', 'wireframe', 'prototype', 'design-system'],
     icon: '🎨',
   }),
-  // === 运维 ===
+  // === DevOps ===
   new SkillDefinition({
     id: 'devops',
     name: 'DevOps & Deployment',
@@ -387,10 +387,10 @@ const builtinSkills = [
   }),
 ];
 
-// 全局单例
+// Global singleton
 export const skillRegistry = new SkillRegistry();
 
-// 注册所有内置技能并默认启用
+// Register all built-in skills and enable them by default
 builtinSkills.forEach(skill => {
   skillRegistry.register(skill);
   skillRegistry.install(skill.id);

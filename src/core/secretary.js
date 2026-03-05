@@ -837,11 +837,11 @@ Boss's adjustment goal: ${adjustGoal}`;
    * Analyze whether it's task assignment, progress inquiry, or casual conversation
    */
   async handleBossMessage(message, company) {
-    // 检查是否有可用的 LLM provider（CLI provider 不能用于 LLM 调用）
+    // Check if a valid LLM provider is available (CLI providers cannot be used for LLM calls)
     const hasValidLLM = this.agent.provider && this.agent.provider.enabled && this.agent.provider.apiKey && !this.agent.provider.isCLI;
     if (!hasValidLLM) {
       if (this.agent.cliBackend) {
-        // CLI 模式下不应该直接调用 handleBossMessage（应该由 chatWithSecretary 处理 CLI 路径）
+        // In CLI mode, handleBossMessage should not be called directly (chatWithSecretary handles the CLI path)
         throw new Error('Secretary is in CLI mode. Please use chatWithSecretary() which handles CLI path correctly.');
       }
       throw new Error('Secretary AI is not configured. Please configure a valid API Key for the secretary provider first.');
@@ -1297,7 +1297,7 @@ ${memoryContext}
 6. Sign off naturally as a secretary would`;
 
     try {
-      // 如果秘书配置了 CLI 后端，优先使用 CLI 执行任务
+      // If secretary has a CLI backend configured, prefer CLI for task execution
       if (this.agent.cliBackend) {
         try {
           console.log(`  🖥️ [Secretary] Executing task via CLI backend: ${this.agent.cliBackend}`);
@@ -1310,7 +1310,7 @@ ${memoryContext}
             },
             this.agent.toolKit?.workspaceDir || process.cwd(),
             {},
-            { timeout: 120000 }  // 秘书任务 2 分钟超时
+            { timeout: 120000 }  // Secretary task 2-minute timeout
           );
           const content = cliResult.output || cliResult.errorOutput || '...';
           console.log(`✅ [Secretary] CLI task completed, output ${content.length} chars`);
@@ -1325,21 +1325,21 @@ ${memoryContext}
             success: true,
           };
         } catch (cliErr) {
-          // CLI 失败时检查是否有可用的 LLM provider 可回退
+          // When CLI fails, check if there is an LLM provider to fall back to
           const hasLLM = this.agent.provider && this.agent.provider.enabled && this.agent.provider.apiKey && !this.agent.provider.isCLI;
           if (!hasLLM) {
             console.error(`  ❌ [Secretary] CLI task failed, no LLM fallback: ${cliErr.message || cliErr.error}`);
             return {
-              content: `⚠️ CLI 任务执行出错：${cliErr.message || '未知错误'}。请检查 CLI 是否正常运行。`,
+              content: `⚠️ CLI task execution error: ${cliErr.message || 'Unknown error'}. Please check that the CLI is running correctly.`,
               success: false,
             };
           }
           console.warn(`  ⚠️ [Secretary] CLI task failed, falling back to LLM: ${cliErr.message || cliErr.error}`);
-          // CLI 失败时回退到 LLM
+          // Fall back to LLM when CLI fails
         }
       }
 
-      // 使用 LLM + 工具执行任务
+      // Use LLM + tools to execute task
       const toolExecutor = this.agent.toolKit;
       let response;
 

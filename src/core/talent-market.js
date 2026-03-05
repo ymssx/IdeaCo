@@ -30,7 +30,7 @@ export class TalentMarket {
       // Skills potentially acquired while in the talent market
       acquiredSkills: [],
       provider: agent.provider,
-      // 保存头像和个人属性
+      // Save avatar and personal attributes
       avatar: agent.avatar,
       avatarParams: agent.avatarParams || null,
       gender: agent.gender,

@@ -1,19 +1,21 @@
 import { NextResponse } from 'next/server';
 import { getCompany } from '@/lib/store';
+import { getApiT } from '@/lib/api-i18n';
 
 /**
  * POST /api/agents/[agentId]/chat - Chat with an agent
  */
 export async function POST(request, { params }) {
+  const t = getApiT(request);
   const company = getCompany();
   if (!company) {
-    return NextResponse.json({ error: 'Please create a company first' }, { status: 400 });
+    return NextResponse.json({ error: t('api.noCompany') }, { status: 400 });
   }
   try {
     const { agentId } = await params;
     const { message } = await request.json();
     if (!message) {
-      return NextResponse.json({ error: 'Please enter a message' }, { status: 400 });
+      return NextResponse.json({ error: t('api.messageRequired') }, { status: 400 });
     }
     const result = await company.chatWithAgent(agentId, message);
     const history = company.getAgentChatHistory(agentId, 30);
@@ -33,9 +35,10 @@ export async function POST(request, { params }) {
  * GET /api/agents/[agentId]/chat - Get chat history with agent
  */
 export async function GET(request, { params }) {
+  const t = getApiT(request);
   const company = getCompany();
   if (!company) {
-    return NextResponse.json({ error: 'Please create a company first' }, { status: 400 });
+    return NextResponse.json({ error: t('api.noCompany') }, { status: 400 });
   }
   try {
     const { agentId } = await params;
@@ -52,9 +55,10 @@ export async function GET(request, { params }) {
  * PUT /api/agents/[agentId]/chat - Mark agent chat as read
  */
 export async function PUT(request, { params }) {
+  const t = getApiT(request);
   const company = getCompany();
   if (!company) {
-    return NextResponse.json({ error: 'Please create a company first' }, { status: 400 });
+    return NextResponse.json({ error: t('api.noCompany') }, { status: 400 });
   }
   try {
     const { agentId } = await params;

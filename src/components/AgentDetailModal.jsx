@@ -68,7 +68,7 @@ export default function AgentDetailModal({ agentId, onClose }) {
           <div className="relative shrink-0">
             <CachedAvatar src={agent.avatar} alt={agent.name} className="w-24 h-24 rounded-full bg-[var(--border)]" />
             {agent.avgScore >= 80 && (
-              <span className="absolute -top-1 -right-1 text-base animate-pulse drop-shadow-lg" title="高绩效员工">🌸</span>
+              <span className="absolute -top-1 -right-1 text-base animate-pulse drop-shadow-lg" title={t('agent.highPerformer')}>🌸</span>
             )}
           </div>
           <div className="flex-1">
@@ -253,7 +253,7 @@ export default function AgentDetailModal({ agentId, onClose }) {
                   <div className="flex-1">
                     <div className="font-medium">{t.task}</div>
                     <div className="text-xs text-[var(--muted)]">
-                      {t.toolsUsed > 0 && `🔧 ${t.toolsUsed} tool calls`}
+                      {t.toolsUsed > 0 && t('agent.toolCalls', { n: t.toolsUsed })}
                       {t.completedAt && ` · ${new Date(t.completedAt).toLocaleString()}`}
                     </div>
                   </div>
@@ -278,13 +278,13 @@ export default function AgentDetailModal({ agentId, onClose }) {
                   </div>
                 </div>
                 <div className="bg-[var(--background)] border border-[var(--border)] rounded-lg p-3">
-                  <div className="text-xs text-[var(--muted)] mb-1">Prompt Tokens</div>
+                  <div className="text-xs text-[var(--muted)] mb-1">{t('agent.promptTokens')}</div>
                   <div className="text-lg font-bold text-purple-400">
                     {(agent.tokenUsage?.promptTokens || 0).toLocaleString()}
                   </div>
                 </div>
                 <div className="bg-[var(--background)] border border-[var(--border)] rounded-lg p-3">
-                  <div className="text-xs text-[var(--muted)] mb-1">Completion Tokens</div>
+                  <div className="text-xs text-[var(--muted)] mb-1">{t('agent.completionTokens')}</div>
                   <div className="text-lg font-bold text-orange-400">
                     {(agent.tokenUsage?.completionTokens || 0).toLocaleString()}
                   </div>

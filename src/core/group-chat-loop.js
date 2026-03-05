@@ -23,18 +23,18 @@ const DEFAULT_CONFIG = {
   pollIntervalMaxMs: 300000,       // Max poll interval (5min)
   idleChatThresholdMs: 3600000,   // 1 hour of inactivity considered idle
   maxInnerMonologueLen: 5,        // Max 5 rounds of inner monologue per flow
-  maxGroupMessagesPerTurn: 1,     // Max 1 message per turn sent to group（防止刷屏）
+  maxGroupMessagesPerTurn: 1,     // Max 1 message per turn sent to group (prevents flooding)
   debounceMs: 3000,               // 3-second debounce after being @mentioned (wait for consecutive messages)
-  antiSpamWindowMs: 300000,       // 5-minute sliding window for anti-spam（需求群）
-  antiSpamMaxMessages: 2,         // Max messages per agent per group in the anti-spam window（需求群）
-  cooldownAfterSpeakMs: 60000,    // 60-second cooldown after speaking before speaking again（需求群）
+  antiSpamWindowMs: 300000,       // 5-minute sliding window for anti-spam (requirement groups)
+  antiSpamMaxMessages: 2,         // Max messages per agent per group in the anti-spam window (requirement groups)
+  cooldownAfterSpeakMs: 60000,    // 60-second cooldown after speaking before speaking again (requirement groups)
   selfCheckIntervalMs: 120000,    // 120-second interval for workflow self-check
   stuckThresholdMs: 180000,       // 3 minutes: task running longer than this triggers self-check nudge
-  // 部门闲聊群 — 稍宽松但仍有节制
+  // Department casual chat — slightly more relaxed but still controlled
   deptAntiSpamWindowMs: 600000,   // 10-minute sliding window
-  deptAntiSpamMaxMessages: 4,     // 10分钟内最多4条消息
+  deptAntiSpamMaxMessages: 4,     // Max 4 messages per 10 minutes
   deptCooldownAfterSpeakMs: 30000, // 30-second cooldown
-  deptIdleChatThresholdMs: 600000, // 10分钟空闲才主动发起话题
+  deptIdleChatThresholdMs: 600000, // 10-minute idle before proactively initiating a topic
   // Topic saturation threshold: if LLM reports topicSaturation >= this, force silence
   topicSaturationThreshold: 7,    // Score 7+ = topic is exhausted, don't speak
 };
@@ -149,7 +149,7 @@ export class GroupChatLoop extends EventEmitter {
     this._recentSpeaks.clear();
     this._lastSelfCheck.clear();
     this._lastProcessedVisible.clear();
-    // 注意：不清理 _agentMemory，因为记忆应该跨 stop/start 保留
+    // Note: do NOT clear _agentMemory, as memories should persist across stop/start
     console.log('⏹️ GroupChatLoop: Chat loop engine stopped');
     this.emit('stopped');
   }
@@ -164,7 +164,7 @@ export class GroupChatLoop extends EventEmitter {
     if (!this.running) return;
     if (this._pollTimers.has(agent.id)) return; // Already polling
 
-    // 使用随机间隔轮询，而非固定间隔，让行为更自然
+    // Use a random interval rather than fixed, to make behavior feel more natural
     const scheduleNext = () => {
       if (!this.running) return;
       const delay = this.config.pollIntervalMinMs + Math.random() * (this.config.pollIntervalMaxMs - this.config.pollIntervalMinMs);
@@ -195,8 +195,8 @@ export class GroupChatLoop extends EventEmitter {
   }
 
   /**
-   * 触发 Agent 处理群聊消息（被 @mention、boss 发消息等）
-   * 不再立即处理，而是随机延迟后通过正常的心流流程处理，让节奏更自然
+   * Trigger an Agent to process group messages (@mention, boss message, etc.)
+   * No longer processes immediately; instead uses a random delay through the normal flow process, to keep the rhythm more natural
    * 
    * @param {string} agentId - Agent ID
    * @param {string} groupId - Group chat ID (requirementId)
@@ -208,14 +208,14 @@ export class GroupChatLoop extends EventEmitter {
     const agent = this._findAgent(agentId);
     if (!agent) return;
 
-    // 随机延迟 10s-3min 后处理，和正常轮询节奏一致，不再立即响应
+    // Random delay of 10s-3min before processing, consistent with normal poll rhythm; no longer responds immediately
     const delay = this.config.pollIntervalMinMs + Math.random() * (this.config.pollIntervalMaxMs - this.config.pollIntervalMinMs);
     console.log(`  📨 [GroupChatLoop] ${agent.name} will check ${groupId} in ${Math.round(delay / 1000)}s`);
 
     setTimeout(async () => {
       try {
         if (!this.running) return;
-        await this._processGroupMessages(agent, groupId, false /* 不设置 isMentioned，让心流自行决定 */);
+        await this._processGroupMessages(agent, groupId, false /* do not set isMentioned, let the flow decide */);
       } catch (err) {
         console.error(`  ❌ [GroupChatLoop] ${agent.name} delayed trigger error:`, err.message);
       }
@@ -329,7 +329,7 @@ export class GroupChatLoop extends EventEmitter {
 
       groups.push({
         id: `dept-${dept.id}`,
-        title: `${dept.name} 部门群`,
+        title: `${dept.name} Department Chat`,
         departmentId: dept.id,
         type: 'chat',
         messages: dept.groupChat || [],
@@ -402,14 +402,14 @@ export class GroupChatLoop extends EventEmitter {
       const isDeptChat = groupId.startsWith('dept-');
       let dept, chatTarget, recentMessages, contextTitle;
 
-      // 获取所有非 flow 消息，并区分"已读上下文"和"未读新消息"
+      // Fetch all non-flow messages, distinguishing between "already-read context" and "new unread messages"
       let allVisibleMessages;
       if (isDeptChat) {
         const deptId = groupId.replace('dept-', '');
         dept = this.company.findDepartment(deptId);
         if (!dept) return;
         chatTarget = dept;  // addGroupMessage target
-        contextTitle = `${dept.name} 部门群`;
+        contextTitle = `${dept.name} Department Chat`;
         allVisibleMessages = (dept.groupChat || []).filter(m => m.visibility !== 'flow');
       } else {
         const requirement = this.company.requirementManager.get(groupId);
@@ -421,51 +421,51 @@ export class GroupChatLoop extends EventEmitter {
         allVisibleMessages = (requirement.groupChat || []).filter(m => m.visibility !== 'flow');
       }
 
-      // 用 lastReadIndex 区分已读和未读
-      // 注意：lastReadIndex 记录的是 groupChat 原始数组的 index（含 flow 消息）
-      // 这里我们使用上一次心流处理时的消息快照数量来区分
+      // Use lastReadIndex to distinguish read vs unread
+      // Note: lastReadIndex tracks the raw groupChat array index (including flow messages)
+      // Here we use the message snapshot count from the last flow processing to distinguish
       const contextKey = `${agent.id}:${groupId}:lastProcessed`;
       const lastProcessedCount = this._lastProcessedVisible.get(contextKey) || 0;
       
-      // 已读上下文：之前处理过的消息（最多保留最近10条作为上下文）
+      // Already-read context: previously processed messages (keep at most 10 for context)
       const readContext = allVisibleMessages.slice(0, lastProcessedCount).slice(-10);
-      // 未读新消息：自上次处理后的新消息
+      // New unread messages: messages since the last processing
       const unreadNew = allVisibleMessages.slice(lastProcessedCount);
       
-      // 更新已处理数量
+      // Update processed count
       this._lastProcessedVisible.set(contextKey, allVisibleMessages.length);
       
-      // 合并为最终的 recentMessages（带已读/未读标记）
+      // Merge into final recentMessages (with read/unread markers)
       recentMessages = [
         ...readContext.map(m => ({ ...m, _isRead: true })),
         ...unreadNew.map(m => ({ ...m, _isRead: false })),
       ];
       
-      // 如果没有未读新消息（例如 triggerImmediate 重复触发），跳过
+      // If no new unread messages (e.g. triggerImmediate called again), skip
       if (unreadNew.length === 0 && !isMentioned) {
         return;
       }
 
-      // 1.5 随机短暂等待（5-20秒），让不同 agent 错开处理时间
-      // 这样先处理的 agent 的回复会出现在后处理 agent 的上下文中
+      // 1.5 Short random wait (5-20s) to stagger processing times across different agents
+      // so that replies from agents processed first appear in the context of later ones
       const jitter = 5000 + Math.random() * 15000;
       await this._delay(jitter);
 
-      // 1.6 等待后重新拉取最新消息（可能已有其他 agent 回复了）
+      // 1.6 After waiting, re-fetch the latest messages (other agents may have replied)
       let freshVisibleMessages;
       if (isDeptChat) {
         freshVisibleMessages = (chatTarget.groupChat || []).filter(m => m.visibility !== 'flow');
       } else {
         freshVisibleMessages = (chatTarget.groupChat || []).filter(m => m.visibility !== 'flow');
       }
-      // 如果有新消息出现（其他 agent 先回复了），更新上下文
+      // If new messages appeared (another agent replied first), update context
       if (freshVisibleMessages.length > allVisibleMessages.length) {
         const extraMessages = freshVisibleMessages.slice(allVisibleMessages.length);
         recentMessages = [
           ...recentMessages,
           ...extraMessages.map(m => ({ ...m, _isRead: false })),
         ];
-        // 更新已处理计数
+        // Update the processed count
         this._lastProcessedVisible.set(contextKey, freshVisibleMessages.length);
       }
 
@@ -485,13 +485,13 @@ export class GroupChatLoop extends EventEmitter {
         agent, { id: groupId, title: contextTitle }, dept, recentMessages, isMentioned, monologue
       );
 
-      // 3.5. 如果独白为空（fallback 模式），用 reason 补充一条
+      // 3.5. If the monologue is empty (fallback mode), add a thought from reason
       if (monologue.thoughts.length === 0 && thinkingResult.reason) {
         monologue.addThought(thinkingResult.reason);
       }
 
-      // 3.6. 将内心独白写入群聊消息流（type='monologue', visibility='flow'）
-      //      前端通过 API 过滤 type==='monologue' 获取（老板偷看功能）
+      // 3.6. Write inner monologue into the group message stream (type='monologue', visibility='flow')
+      //      Frontend retrieves it via API filtering type==='monologue' (boss peek feature)
       const innerThoughtsContent = thinkingResult.innerThoughts || thinkingResult.reason || null;
       if (innerThoughtsContent) {
         chatTarget.addGroupMessage(
@@ -517,7 +517,7 @@ export class GroupChatLoop extends EventEmitter {
       monologue.addThought(getPromptLocale().prompt.monologue.topicSaturated(topicSaturation));
     }
 
-      // 4.1. Cooldown 检查：如果刚说过话，强制静默
+      // 4.1. Cooldown check: if agent spoke recently, force silence
       if (thinkingResult.shouldSpeak) {
         const spamRecheck = this._getSpamInfo(agent.id, groupId, isDeptChat);
         if (spamRecheck.isOnCooldown) {
@@ -553,12 +553,12 @@ export class GroupChatLoop extends EventEmitter {
           // Record this speak event for anti-spam tracking
           this._recordSpeak(agent.id, groupId);
 
-          // 触发同群所有其他员工的心流循环（包括被 @mention 的和未被 @mention 的）
-          // 全部走随机延迟，让不同员工在不同时间点看到消息，节奏更自然
+          // Trigger the flow loop for all other members in the group (both @mentioned and not)
+          // All use random delays so different members see the message at different times, for a natural rhythm
           const allGroupMembers = dept.getMembers();
           for (const member of allGroupMembers) {
-            if (member.id === agent.id) continue;  // 跳过自己
-            // 随机延迟 30s-5min，和正常轮询节奏一致，不要太快
+            if (member.id === agent.id) continue;  // Skip self
+            // Random delay of 30s-5min, consistent with normal poll rhythm, not too fast
             const nudgeDelay = this.config.pollIntervalMinMs + Math.random() * (this.config.pollIntervalMaxMs - this.config.pollIntervalMinMs);
             setTimeout(() => {
               this._nudgeAgentForGroup(member.id, groupId).catch(() => {});
@@ -588,13 +588,13 @@ export class GroupChatLoop extends EventEmitter {
       // Remove from active list
       this._activeMonologues.delete(key);
 
-      // 6. 保存 Agent 记忆（内心独白摘要，用于下次心流思考时的上下文）
+      // 6. Save Agent memory (inner monologue summary for context in the next flow thinking round)
       const memoryKey = `${agent.id}:${groupId}`;
       if (!this._agentMemory.has(memoryKey)) {
         this._agentMemory.set(memoryKey, []);
       }
       const memory = this._agentMemory.get(memoryKey);
-      // 取最后一条内心独白（不含 [Sent to group] 和 [Self-regulation] 前缀的）作为记忆
+      // Take the last inner thought (excluding [Sent to group] and [Self-regulation] prefix) as the memory
       const memoryThoughts = monologue.thoughts
         .filter(t => !t.content.startsWith('[Sent to group]') && !t.content.startsWith('[Self-regulation]'))
         .map(t => t.content);
@@ -602,7 +602,7 @@ export class GroupChatLoop extends EventEmitter {
         const summary = memoryThoughts[memoryThoughts.length - 1];
         const action = monologue.decision === 'spoke' ? '[spoke]' : '[silent]';
         memory.push(`${action} ${summary.slice(0, 200)}`);
-        // 只保留最近 10 条记忆
+        // Keep only the latest 10 memories
         if (memory.length > 10) {
           this._agentMemory.set(memoryKey, memory.slice(-10));
         }
@@ -643,7 +643,7 @@ export class GroupChatLoop extends EventEmitter {
       role: a.role,
     }));
 
-    // Build chat context — 区分已读上下文和未读新消息
+    // Build chat context — distinguish between already-read context and new unread messages
     const readMessages = recentMessages.filter(m => m._isRead);
     const unreadMessages = recentMessages.filter(m => !m._isRead);
     
@@ -655,7 +655,7 @@ export class GroupChatLoop extends EventEmitter {
       return `[${time}] ${senderName}${selfMark}: ${msg.content}`;
     };
 
-    // 检测是否有其他同事已经对同一批消息做了回复（防止重复回复）
+    // Detect if other colleagues have already replied to the same batch of messages (prevent duplicate replies)
     const loc = getPromptLocale();
     const colleagueReplies = unreadMessages.filter(m => 
       m.from?.id !== agent.id && m.from?.id !== 'boss' && members.some(mem => mem.id === m.from?.id)
@@ -667,7 +667,7 @@ export class GroupChatLoop extends EventEmitter {
         )
       : '';
 
-    // 为每个 agent 生成一个随机的"思考角度种子"，强制不同 agent 从不同角度切入
+    // Generate a random "thinking angle seed" per agent, forcing different agents to approach from different angles
     const angles = loc.prompt.angles;
     const myAngle = angles[Math.floor(Math.random() * angles.length)];
     const angleHint = loc.prompt.context.angleHint(myAngle);
@@ -687,7 +687,7 @@ export class GroupChatLoop extends EventEmitter {
     chatContext += dedupeWarning;
     chatContext += angleHint;
 
-    // Agent 记忆：之前的内心独白摘要（连续上下文）
+    // Agent memory: previous inner monologue summaries (continuous context)
     const memoryKey = `${agent.id}:${requirement.id}`;
     const agentMemory = this._agentMemory.get(memoryKey) || [];
     const memoryContext = agentMemory.length > 0
@@ -701,11 +701,11 @@ export class GroupChatLoop extends EventEmitter {
     const isDeptChat = groupId.startsWith('dept-');
     const spamInfo = this._getSpamInfo(agent.id, groupId, isDeptChat);
 
-    // 根据群类型构建不同的 prompt
+    // Build different prompts based on group type
     const systemPrompt = isDeptChat
       ? this._buildDeptChatPrompt(agent, p, requirement, members, memoryContext, spamInfo, isMentioned)
       : this._buildWorkChatPrompt(agent, p, requirement, members, memoryContext, spamInfo, isMentioned);
-    // 获取当前正在思考的其他 agent（让 LLM 知道不是只有自己在看这条消息）
+    // Get other agents currently thinking (lets the LLM know it's not the only one seeing this message)
     const thinkingPeers = [];
     for (const [mKey, mono] of this._activeMonologues) {
       if (mono.groupId === groupId && mono.agentId !== agent.id && mono.status === 'thinking') {
@@ -799,7 +799,7 @@ export class GroupChatLoop extends EventEmitter {
   }
 
   /**
-   * 构建部门闲聊群的 system prompt — 鼓励自然互动、放松限制
+   * Build the system prompt for department casual chat — encourages natural interaction, relaxed rules
    */
   _buildDeptChatPrompt(agent, p, requirement, members, memoryContext, spamInfo, isMentioned) {
     const loc = getPromptLocale();
@@ -835,7 +835,8 @@ ${pt.antiAIWarning(agent.age)}`;
   }
 
   /**
-   * 构建需求工作群的 system prompt   */
+   * Build the system prompt for a requirement work group
+   */
   _buildWorkChatPrompt(agent, p, requirement, members, memoryContext, spamInfo, isMentioned) {
     const loc = getPromptLocale();
     const genderLabel = loc.prompt.genderLabel[agent.gender] || loc.prompt.genderLabel.male;
@@ -872,21 +873,21 @@ ${pt.antiAIWarning(agent.age)}`;
   }
 
   /**
-   * 根据年龄返回对应的说话风格描述 — delegates to prompt-locale
+   * Get speaking style based on age — delegates to prompt-locale
    */
   _getAgeStyle(age) {
     return getAgeStyle(age);
   }
 
   /**
-   * 根据性格类型返回第一人称的角色锚定文本 — delegates to prompt-locale
+   * Return first-person role-anchoring text based on personality type — delegates to prompt-locale
    */
   _getTraitStyle(trait) {
     return getTraitStyle(trait);
   }
 
   /**
-   * 根据性格类型返回场景化的 few-shot 示例 — delegates to prompt-locale
+   * Return scenario-based few-shot examples based on personality type — delegates to prompt-locale
    */
   _getFewShotExamples(trait) {
     return getFewShotExamples(trait);
@@ -895,7 +896,7 @@ ${pt.antiAIWarning(agent.age)}`;
   /**
    * Fallback flow logic when LLM is unavailable
    * @param {object} agent
-   * @param {string} groupId - 群聊 ID
+   * @param {string} groupId - Group chat ID
    * @param {boolean} isMentioned
    * @param {Array} recentMessages
    */
@@ -912,11 +913,11 @@ ${pt.antiAIWarning(agent.age)}`;
       };
     }
 
-    // 根据性格选取不同的 fallback 回复 — from prompt-locale
+    // Select different fallback replies based on personality — from prompt-locale
     const trait = agent.personality?.trait || '';
     const replies = getFallbackReplies(trait);
 
-    // 部门闲聊群：fallback 模式下也更主动回复
+    // Department casual group: also more proactive in fallback mode
     if (isDeptChat) {
       const lastMsg = recentMessages[recentMessages.length - 1];
       if (lastMsg && lastMsg.from?.id !== agent.id) {
@@ -955,8 +956,8 @@ ${pt.antiAIWarning(agent.age)}`;
   }
 
   /**
-   * 柔和地触发 agent 检查某个群聊的新消息（不设置 isMentioned，让 agent 自己决定是否回复）
-   * 与 triggerImmediate 的区别：这里不设置 isMentioned，紧跟性更低
+   * Gently nudge an agent to check a group chat for new messages (without setting isMentioned, letting the agent decide whether to reply)
+   * Difference from triggerImmediate: isMentioned is not set here, so urgency is lower
    */
   async _nudgeAgentForGroup(agentId, groupId) {
     if (!this.running || !this.company) return;
@@ -982,7 +983,7 @@ ${pt.antiAIWarning(agent.age)}`;
 
   /**
    * Get anti-spam info for an agent in a group
-   * @param {boolean} isDeptChat - 是否部门闲聊群（使用更宽松的限制）
+   * @param {boolean} isDeptChat - Whether this is a department casual group (uses more relaxed limits)
    * @returns {{ recentCount: number, isOnCooldown: boolean }}
    */
   _getSpamInfo(agentId, groupId, isDeptChat = false) {
@@ -1096,7 +1097,7 @@ ${pt.antiAIWarning(agent.age)}`;
     if (!lastActivity) return;
 
     const idleMs = Date.now() - lastActivity.getTime();
-    // 部门群使用更短的闲置阈值
+    // Department chat group: use shorter idle threshold
     const threshold = group.type === 'chat' ? this.config.deptIdleChatThresholdMs : this.config.idleChatThresholdMs;
     if (idleMs < threshold) return;
 
@@ -1104,10 +1105,10 @@ ${pt.antiAIWarning(agent.age)}`;
     if (group.type !== 'chat') return;
 
     // Random probability to decide whether to speak (avoid all Agents speaking at once)
-    // 部门群用较低的概率（15%），不要太频繁主动发起
+    // Department groups use a lower probability (15%) — don't proactively initiate too frequently
     if (Math.random() > 0.15) return;
 
-    // 触发一次心流思考，让 LLM 自行决定是否主动发起话题
+    // Trigger a flow thinking round, let LLM decide whether to proactively start a topic
     console.log(`  💬 [GroupChatLoop] ${agent.name} considering initiating a topic in idle group ${group.title}`);
     await this._processGroupMessages(agent, group.id, false);
   }

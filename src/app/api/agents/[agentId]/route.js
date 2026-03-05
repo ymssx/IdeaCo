@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server';
 import { getCompany } from '@/lib/store';
+import { getApiT } from '@/lib/api-i18n';
 
 export async function GET(request, { params }) {
+  const t = getApiT(request);
   const company = getCompany();
-  if (!company) return NextResponse.json({ error: 'Please create a company first' }, { status: 400 });
+  if (!company) return NextResponse.json({ error: t('api.noCompany') }, { status: 400 });
 
   try {
     const { agentId } = await params;
@@ -24,12 +26,12 @@ export async function GET(request, { params }) {
             prompt: agent.prompt,
             skills: agent.skills,
             status: agent.status,
-            // CLI agent 展示 cliProvider 信息（实际的 CLI 工具），而非 fallback general provider
+            // CLI agent shows cliProvider info (actual CLI tool), not fallback general provider
             provider: agent.cliProvider
               ? { id: agent.cliProvider.id, name: agent.cliProvider.name, provider: agent.cliProvider.provider || 'Local CLI' }
               : { id: agent.provider.id, name: agent.provider.name, provider: agent.provider.provider },
             cliBackend: agent.cliBackend || null,
-            // CLI agent 的聊天引擎（fallback LLM provider 名称）
+            // CLI agent chat engine (fallback LLM provider name)
             fallbackProvider: agent.cliProvider ? agent.provider.name : null,
             department: dept.name,
             departmentId: dept.id,
@@ -46,7 +48,7 @@ export async function GET(request, { params }) {
             avgScore: agent.performanceHistory.length > 0
               ? Math.round(agent.performanceHistory.reduce((s, p) => s + p.score, 0) / agent.performanceHistory.length)
               : null,
-            // 激励：基于绩效记录生成（高分获得小红花）
+            // Incentives: generated based on performance records (high scores earn flowers)
             incentives: agent.performanceHistory
               .filter(p => p.score >= 80)
               .map(p => ({
@@ -62,18 +64,19 @@ export async function GET(request, { params }) {
         });
       }
     }
-    return NextResponse.json({ error: 'Employee not found' }, { status: 404 });
+    return NextResponse.json({ error: t('api.agentNotFound') }, { status: 404 });
   } catch (e) {
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
 }
 
 /**
- * PUT /api/agents/[agentId] - 更新 Agent 配置（如 CLI 后端）
+ * PUT /api/agents/[agentId] - Update Agent configuration (e.g. CLI backend)
  */
 export async function PUT(request, { params }) {
+  const t = getApiT(request);
   const company = getCompany();
-  if (!company) return NextResponse.json({ error: 'Please create a company first' }, { status: 400 });
+  if (!company) return NextResponse.json({ error: t('api.noCompany') }, { status: 400 });
 
   try {
     const { agentId } = await params;
@@ -82,12 +85,12 @@ export async function PUT(request, { params }) {
     for (const dept of company.departments.values()) {
       const agent = dept.agents.get(agentId);
       if (agent) {
-        // 设置 CLI 后端
+        // Set CLI backend
         if ('cliBackend' in body) {
           agent.setCLIBackend(body.cliBackend || null);
         }
 
-        // 持久化
+        // Persist
         company.save();
 
         return NextResponse.json({
@@ -95,12 +98,12 @@ export async function PUT(request, { params }) {
             id: agent.id,
             name: agent.name,
             cliBackend: agent.cliBackend,
-            message: 'Agent configuration updated',
+            message: t('api.agentConfigUpdated'),
           },
         });
       }
     }
-    return NextResponse.json({ error: 'Employee not found' }, { status: 404 });
+    return NextResponse.json({ error: t('api.agentNotFound') }, { status: 404 });
   } catch (e) {
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
