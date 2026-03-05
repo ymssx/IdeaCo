@@ -493,12 +493,20 @@ for (const agent of (dept.members || dept.agents || [])) {
               >
                 {/* Avatar */}
                 <div className="relative shrink-0">
-                {conv.isRequirement ? (
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-cyan-600 flex items-center justify-center text-sm font-bold">
-                      {(conv.role || '💬').charAt(0)}
+                {(conv.isRequirement || conv.isDepartment) && conv.memberAvatars?.length > 0 ? (
+                    <div className="w-10 h-10 rounded-xl bg-[var(--border)] overflow-hidden grid gap-[1px] p-[1px]" style={{
+                      gridTemplateColumns: `repeat(${conv.memberAvatars.length <= 4 ? 2 : 3}, 1fr)`,
+                    }}>
+                      {conv.memberAvatars.slice(0, conv.memberAvatars.length <= 4 ? 4 : 9).map((av, i) => (
+                        <img key={i} src={av} alt="" className="w-full h-full object-cover rounded-sm bg-[var(--card)]" />
+                      ))}
+                    </div>
+                  ) : conv.isRequirement ? (
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500/80 to-cyan-600/80 flex items-center justify-center text-sm font-bold">
+                      📋
                     </div>
                   ) : conv.isDepartment ? (
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-lg">
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500/80 to-teal-600/80 flex items-center justify-center text-lg">
                       🏢
                     </div>
                   ) : conv.avatar ? (
@@ -741,9 +749,23 @@ for (const agent of (dept.members || dept.agents || [])) {
             <div className="px-4 py-3 border-b border-white/[0.06] bg-[var(--card)]">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3 flex-1 min-w-0">
-                  <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-cyan-600 flex items-center justify-center text-sm font-bold shrink-0">
-                    {(reqChatDetail.departmentName || '💬').charAt(0)}
-                  </div>
+                  {(() => {
+                    const reqDept = (company?.departments || []).find(d => d.id === reqChatDetail.departmentId);
+                    const avatars = reqDept ? (reqDept.members || []).slice(0, 9).map(m => m.avatar).filter(Boolean) : [];
+                    return avatars.length > 0 ? (
+                      <div className="w-9 h-9 rounded-xl bg-[var(--border)] overflow-hidden grid gap-[1px] p-[1px] shrink-0" style={{
+                        gridTemplateColumns: `repeat(${avatars.length <= 4 ? 2 : 3}, 1fr)`,
+                      }}>
+                        {avatars.map((av, i) => (
+                          <img key={i} src={av} alt="" className="w-full h-full object-cover rounded-sm bg-[var(--card)]" />
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500/80 to-cyan-600/80 flex items-center justify-center text-sm font-bold shrink-0">
+                        📋
+                      </div>
+                    );
+                  })()}
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-semibold flex items-center gap-2">
                       {reqChatDetail.title}
@@ -857,9 +879,19 @@ for (const agent of (dept.members || dept.agents || [])) {
             {/* Department group chat header */}
             <div className="px-4 py-3 border-b border-white/[0.06] bg-[var(--card)]">
               <div className="flex items-center gap-3 flex-1 min-w-0">
-                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-sm font-bold shrink-0">
-                  🏢
-                </div>
+                {(deptChatDetail.members || []).length > 0 ? (
+                  <div className="w-9 h-9 rounded-xl bg-[var(--border)] overflow-hidden grid gap-[1px] p-[1px] shrink-0" style={{
+                    gridTemplateColumns: `repeat(${(deptChatDetail.members || []).length <= 4 ? 2 : 3}, 1fr)`,
+                  }}>
+                    {(deptChatDetail.members || []).slice(0, 9).map((m, i) => (
+                      <img key={i} src={m.avatar} alt="" className="w-full h-full object-cover rounded-sm bg-[var(--card)]" />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500/80 to-teal-600/80 flex items-center justify-center text-sm font-bold shrink-0">
+                    🏢
+                  </div>
+                )}
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-semibold">{deptChatDetail.name} 部门群</div>
                   <div className="text-[10px] text-[var(--muted)] truncate">
@@ -1064,6 +1096,7 @@ function buildConversations(secretary, secretaryHistory, requirements = [], t = 
       departmentId: dept.id,
       name: `🏢 ${dept.name}`,
       avatar: null,
+      memberAvatars: (dept.members || []).slice(0, 9).map(m => m.avatar).filter(Boolean),
       role: `${(dept.members || []).length} 人`,
       lastMessage: lastMsg ? `${lastMsg.from?.name || ''}: ${(lastMsg.content || '').slice(0, 30)}` : '部门群聊',
       lastTime: lastMsg?.time || dept.createdAt,
@@ -1084,12 +1117,15 @@ function buildConversations(secretary, secretaryHistory, requirements = [], t = 
       completed: '✅',
       failed: '❌',
     };
+    const reqDept = departments.find(d => d.id === req.departmentId);
+    const reqMemberAvatars = reqDept ? (reqDept.members || []).slice(0, 9).map(m => m.avatar).filter(Boolean) : [];
     convs.push({
       key: `req-${req.id}`,
       type: 'requirement',
       requirementId: req.id,
       name: `📋 ${req.title}`,
-      avatar: null, // Use custom icon instead
+      avatar: null,
+      memberAvatars: reqMemberAvatars,
       role: req.departmentName,
       lastMessage: `${statusEmoji[req.status] || '⏳'} ${req.chatCount || 0} group msgs · ${req.workflow?.completedCount || 0}/${req.workflow?.nodeCount || 0} tasks`,
       lastTime: req.createdAt,

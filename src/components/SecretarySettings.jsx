@@ -5,6 +5,7 @@ import { useStore } from '@/lib/client-store';
 import { getAvatarChoices } from '@/lib/avatar';
 import { useI18n } from '@/lib/i18n';
 import CachedAvatar from './CachedAvatar';
+import AvatarGrid from './AvatarGrid';
 
 export default function SecretarySettings({ onClose }) {
   const { t } = useI18n();
@@ -203,25 +204,11 @@ export default function SecretarySettings({ onClose }) {
               >{t('secretarySettings.refreshAvatar')}</button>
             </div>
 {/* Avatar grid */}
-            <div className="grid grid-cols-8 gap-1.5 overflow-auto pr-1">
-              {avatarChoices.map((choice) => (
-                <button
-                  key={choice.id}
-                  onClick={() => setSelectedAvatar(choice)}
-                  className={`relative aspect-square rounded-lg transition-all overflow-hidden ${
-                    selectedAvatar?.id === choice.id
-                      ? 'bg-[var(--accent)] p-1 scale-[1.02]'
-                      : 'bg-[var(--border)] hover:bg-[var(--accent)]/30 hover:scale-[1.03]'
-                  }`}
-                >
-                  <img
-                    src={choice.url}
-                    alt="avatar"
-                    className="w-full h-full object-cover rounded-md"
-                  />
-                </button>
-              ))}
-            </div>
+            <AvatarGrid
+              choices={avatarChoices}
+              selectedId={selectedAvatar?.id}
+              onSelect={setSelectedAvatar}
+            />
           </div>
 
 {/* Signature */}

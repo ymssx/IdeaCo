@@ -5,6 +5,7 @@ import { useStore } from '@/lib/client-store';
 import { getAvatarChoices } from '@/lib/avatar';
 import { useI18n, LanguageSelector, LANGUAGES } from '@/lib/i18n';
 import { ModelProviders, JobCategory } from '@/core/providers';
+import AvatarGrid from './AvatarGrid';
 
 // Extract GENERAL models from brain providers
 const AVAILABLE_MODELS = Object.values(ModelProviders)
@@ -247,25 +248,11 @@ export default function SetupWizard() {
                   onClick={refreshChoices}
                 >{t('setup.refreshBatch')}</button>
               </div>
-              <div className="grid grid-cols-8 gap-1.5">
-                {avatarChoices.map((choice) => (
-                  <button
-                    key={choice.id}
-                    onClick={() => setSelectedAvatar(choice)}
-                    className={`p-1.5 rounded-lg border transition-all flex flex-col items-center gap-0.5 ${
-                      selectedAvatar?.id === choice.id
-                        ? 'border-[var(--accent)] bg-[var(--accent)]/10 ring-1 ring-[var(--accent)]/30'
-                        : 'border-[var(--border)] hover:border-[var(--accent)]/40'
-                    }`}
-                  >
-                    <img
-                      src={choice.url}
-                      alt="avatar"
-                      className="w-9 h-9 rounded-full bg-[var(--border)]"
-                    />
-                  </button>
-                ))}
-              </div>
+              <AvatarGrid
+                choices={avatarChoices}
+                selectedId={selectedAvatar?.id}
+                onSelect={setSelectedAvatar}
+              />
             </div>
 
             <div className="flex gap-2">

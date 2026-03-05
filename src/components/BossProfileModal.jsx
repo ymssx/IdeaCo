@@ -5,6 +5,7 @@ import { useStore } from '@/lib/client-store';
 import { getAvatarChoices } from '@/lib/avatar';
 import { useI18n } from '@/lib/i18n';
 import CachedAvatar from './CachedAvatar';
+import AvatarGrid from './AvatarGrid';
 
 export default function BossProfileModal({ onClose }) {
   const { t } = useI18n();
@@ -139,25 +140,11 @@ export default function BossProfileModal({ onClose }) {
                 onClick={refreshChoices}
               >{t('bossProfile.refreshAvatar')}</button>
             </div>
-            <div className="grid grid-cols-5 gap-2 max-h-48 overflow-auto pr-1">
-              {avatarChoices.map((choice) => (
-                <button
-                  key={choice.id}
-                  onClick={() => setSelectedAvatar(choice)}
-                  className={`p-1.5 rounded-lg border transition-all flex flex-col items-center gap-0.5 ${
-                    selectedAvatar?.id === choice.id
-                      ? 'border-[var(--accent)] bg-[var(--accent)]/10 ring-1 ring-[var(--accent)]/30'
-                      : 'border-[var(--border)] hover:border-[var(--accent)]/40'
-                  }`}
-                >
-                  <img
-                    src={choice.url}
-                    alt="avatar"
-                    className="w-9 h-9 rounded-full bg-[var(--border)]"
-                  />
-                </button>
-              ))}
-            </div>
+            <AvatarGrid
+              choices={avatarChoices}
+              selectedId={selectedAvatar?.id}
+              onSelect={setSelectedAvatar}
+            />
           </div>
         </div>
 
