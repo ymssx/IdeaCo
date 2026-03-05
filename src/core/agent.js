@@ -8,6 +8,7 @@ import { skillRegistry } from './skills.js';
 import { knowledgeManager } from './knowledge.js';
 import { pluginRegistry } from './plugin.js';
 import { chatStore } from './chat-store.js';
+import { cliBackendRegistry } from './cli-backends/index.js';
 
 // Placeholder signature (after onboarding, the Agent generates its own via LLM)
 const DEFAULT_SIGNATURE = 'Just arrived, still thinking of what to say...';
@@ -39,7 +40,7 @@ const PERSONALITY_POOL = [
  * 5. Has avatar and personal signature
  */
 export class Agent {
-  constructor({ name, role, prompt, skills, provider, department, reportsTo, memory, avatar, signature, gender, age, avatarParams }) {
+  constructor({ name, role, prompt, skills, provider, department, reportsTo, memory, avatar, signature, gender, age, avatarParams, cliBackend, cliProvider }) {
     this.id = uuidv4();
     this.name = name;
     this.role = role;
@@ -53,6 +54,11 @@ export class Agent {
     this.taskHistory = [];
     this.performanceHistory = [];
     this.createdAt = new Date();
+
+    // CLI Backend 配置：当设置了 cliBackend 时，Agent 使用本地 CLI 执行任务
+    this.cliBackend = cliBackend || null;  // CLI backend id, e.g. 'claude-code', 'codebuddy'
+    // CLI Provider 信息：保留原始 CLI provider 用于前端展示（因为 this.provider 被替换为 general fallback）
+    this.cliProvider = cliProvider || null;
 
     // 性别和年龄：由招聘时随机生成或手动指定，不再从名字推断
     this.gender = gender || (Math.random() > 0.5 ? 'male' : 'female');
@@ -273,11 +279,39 @@ export class Agent {
    * @param {object} [callbacks] - Optional callbacks { onToolCall, onLLMCall }
    * @returns {Promise<object>} Task execution result
    */
+  /**
+   * Set CLI backend for this agent
+   * @param {string|null} backendId - CLI backend ID, or null to disable
+   */
+  setCLIBackend(backendId) {
+    this.cliBackend = backendId;
+    if (backendId) {
+      console.log(`  🖥️ [${this.name}] CLI backend set to: ${backendId}`);
+    } else {
+      console.log(`  🖥️ [${this.name}] CLI backend disabled, using LLM API`);
+    }
+  }
+
   async executeTask(task, callbacks = {}) {
     this.status = 'working';
     const startTime = Date.now();
 
-    console.log(`  🤖 [${this.name}] (${this.role}) starting task: "${task.title}"`);
+    // 如果配置了 CLI 后端，优先使用 CLI 执行
+    if (this.cliBackend) {
+      try {
+        const cliResult = await this._executeTaskViaCLI(task, callbacks);
+        if (cliResult) return cliResult;
+        // 如果 CLI 执行失败（返回 null），回退到 LLM API，标记 fallback
+        console.log(`  ⚠️ [${this.name}] CLI execution failed, falling back to LLM API`);
+        this._lastExecutionEngine = 'fallback-llm';
+      } catch (e) {
+        console.error(`  ⚠️ [${this.name}] CLI backend error: ${e.message}, falling back to LLM API`);
+        this._lastExecutionEngine = 'fallback-llm';
+      }
+    }
+
+    const isFallback = this._lastExecutionEngine === 'fallback-llm';
+    console.log(`  🤖 [${this.name}] (${this.role}) starting task: "${task.title}"${isFallback ? ' [CLI FALLBACK]' : ''}`);
     console.log(`     Model: ${this.provider.name} (${this.provider.provider})`);
 
     // Track this task in session system
@@ -320,6 +354,7 @@ export class Agent {
           agentName: this.name,
           role: this.role,
           provider: this.provider.name,
+          executionEngine: this.cliBackend ? `fallback:${this.provider.name}` : this.provider.name,
           taskTitle: task.title,
           output: response.content,
           toolResults: response.toolResults,
@@ -347,6 +382,7 @@ export class Agent {
           agentName: this.name,
           role: this.role,
           provider: this.provider.name,
+          executionEngine: this.cliBackend ? `fallback:${this.provider.name}` : this.provider.name,
           taskTitle: task.title,
           output: response.content,
           toolResults: [],
@@ -370,6 +406,7 @@ export class Agent {
         agentName: this.name,
         role: this.role,
         provider: this.provider.name,
+        executionEngine: this.cliBackend ? `fallback:${this.provider.name}` : this.provider.name,
         taskTitle: task.title,
         output: `Task execution failed: ${error.message}`,
         toolResults: [],
@@ -721,6 +758,109 @@ Do not use any code, tool calls, or technical instructions — reply in natural 
     return entries[1]?.[0] || 'overall capability';
   }
 
+  /**
+   * 通过 CLI 后端执行任务
+   * @private
+   */
+  async _executeTaskViaCLI(task, callbacks = {}) {
+    const backendId = this.cliBackend;
+    const backend = cliBackendRegistry.backends.get(backendId);
+    if (!backend || (backend.state !== 'detected' && backend.state !== 'configured')) {
+      console.warn(`  ⚠️ [${this.name}] CLI backend "${backendId}" not available`);
+      return null;
+    }
+
+    console.log(`  🖥️ [${this.name}] (${this.role}) executing via CLI: ${backend.config.name}`);
+    console.log(`     Task: "${task.title}"`);
+
+    const startTime = Date.now();
+    const wsDir = this.toolKit?.workspaceDir || process.cwd();
+
+    // Track in session system
+    const session = sessionManager.getOrCreate({
+      agentId: this.id, channel: 'cli-task', peerId: task.title, peerKind: 'task',
+    });
+    sessionManager.addMessage(session.sessionKey, {
+      role: 'system', content: `CLI Task started: ${task.title} (via ${backend.config.name})`,
+    });
+
+    this.memory.addShortTerm(`Starting CLI task: "${task.title}" via ${backend.config.name}`, 'task');
+
+    try {
+      const cliResult = await cliBackendRegistry.executeTask(
+        backendId,
+        this,
+        task,
+        wsDir,
+        {
+          onOutput: (chunk) => {
+            if (callbacks.onToolCall) {
+              try { callbacks.onToolCall({ tool: 'cli_output', args: {}, status: 'start' }); } catch {}
+            }
+          },
+          onError: (chunk) => {
+            console.warn(`  [CLI stderr] ${chunk.slice(0, 200)}`);
+          },
+          onComplete: (result) => {
+            if (callbacks.onToolCall) {
+              try { callbacks.onToolCall({ tool: 'cli_complete', args: {}, status: 'done', success: result.exitCode === 0 }); } catch {}
+            }
+          },
+        }
+      );
+
+      const result = {
+        agentId: this.id,
+        agentName: this.name,
+        role: this.role,
+        provider: `CLI:${backend.config.name}`,
+        executionEngine: `cli:${backend.config.name}`,
+        taskTitle: task.title,
+        output: cliResult.output || cliResult.errorOutput || 'CLI completed with no output',
+        toolResults: [{
+          tool: `cli:${backendId}`,
+          args: { task: task.title },
+          result: `Executed via ${backend.config.name}, exit code: ${cliResult.exitCode}`,
+          success: cliResult.exitCode === 0,
+        }],
+        duration: cliResult.duration,
+        success: cliResult.exitCode === 0,
+        cliBackend: backendId,
+      };
+
+      // Track in session
+      sessionManager.addMessage(session.sessionKey, {
+        role: 'assistant', content: cliResult.output?.slice(0, 500) || '',
+        metadata: { cliBackend: backendId, exitCode: cliResult.exitCode },
+      });
+
+      this.memory.addShortTerm(
+        `CLI task completed: "${task.title}" via ${backend.config.name}, ` +
+        `exit code ${cliResult.exitCode}, took ${cliResult.duration}ms`,
+        'task'
+      );
+
+      this.taskHistory.push({
+        task: task.title,
+        result,
+        completedAt: new Date(),
+      });
+
+      this.status = 'idle';
+      console.log(`  ✅ [${this.name}] CLI task complete, exit code ${cliResult.exitCode}, ${cliResult.duration}ms`);
+      return result;
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      this.memory.addShortTerm(
+        `CLI task failed: "${task.title}" via ${backend.config.name} - ${error.message || error.error || 'unknown error'}`,
+        'task'
+      );
+      this.status = 'idle';
+      // 返回 null 让调用方回退到 LLM API
+      return null;
+    }
+  }
+
   learnSkill(skill) {
     if (!this.skills.includes(skill)) {
       this.skills.push(skill);
@@ -785,6 +925,13 @@ Do not use any code, tool calls, or technical instructions — reply in natural 
         costPerToken: this.provider.costPerToken,
         enabled: this.provider.enabled,
       },
+      cliBackend: this.cliBackend,
+      cliProvider: this.cliProvider ? {
+        id: this.cliProvider.id,
+        name: this.cliProvider.name,
+        provider: this.cliProvider.provider,
+        model: this.cliProvider.model,
+      } : null,
       department: this.department,
       reportsTo: this.reportsTo,
       subordinates: [...this.subordinates],
@@ -818,6 +965,12 @@ Do not use any code, tool calls, or technical instructions — reply in natural 
       provider = providerRegistry.getById(data.provider.id) || data.provider;
     }
 
+    // Restore cliProvider reference from registry if available
+    let cliProvider = data.cliProvider || null;
+    if (cliProvider?.id && providerRegistry) {
+      cliProvider = providerRegistry.getById(cliProvider.id) || cliProvider;
+    }
+
     const agent = new Agent({
       name: data.name,
       role: data.role,
@@ -832,6 +985,8 @@ Do not use any code, tool calls, or technical instructions — reply in natural 
       gender: data.gender,
       age: data.age,
       avatarParams: data.avatarParams,
+      cliBackend: data.cliBackend || null,
+      cliProvider,
     });
 
     // Restore internal state

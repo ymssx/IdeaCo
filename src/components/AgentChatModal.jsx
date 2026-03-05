@@ -27,10 +27,15 @@ export default function AgentChatModal({ agentId, agentName, agentAvatar, agentR
     })();
   }, [agentId, fetchAgentChatHistory]);
 
-  // 自动滚动到底部
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  // 手动滚动到底部（仅在用户发送消息时调用）
+  const scrollToBottom = useCallback(() => {
+    // 使用双重rAF确保DOM更新完成后再滚动
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      });
+    });
+  }, []);
 
   // 自动聚焦输入框
   useEffect(() => {
@@ -46,6 +51,9 @@ export default function AgentChatModal({ agentId, agentName, agentAvatar, agentR
     // 乐观更新：先在本地添加 boss 消息
     const optimisticMsg = { role: 'boss', content: userMessage, time: new Date().toISOString() };
     setMessages(prev => [...prev, optimisticMsg]);
+
+    // 用户发送消息后自动滚动到底部
+    scrollToBottom();
 
     try {
       const data = await chatWithAgent(agentId, userMessage);

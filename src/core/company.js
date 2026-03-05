@@ -19,6 +19,7 @@ import { cronScheduler } from './cron.js';
 import { pluginRegistry } from './plugin.js';
 import { auditLogger, AuditCategory, AuditLevel } from './audit.js';
 import { chatStore } from './chat-store.js';
+import { cliBackendRegistry } from './cli-backends/index.js';
 
 /**
  * Company - AI Enterprise
@@ -32,6 +33,12 @@ export class Company {
     this.bossAvatar = null; // Boss avatar URL
     this.departments = new Map();
     this.providerRegistry = new ProviderRegistry();
+    // Sync CLI backends into provider registry so they appear in Brain Providers
+    this.providerRegistry.syncCLIBackends(cliBackendRegistry);
+    // Auto-detect CLI backends in background (async, fire-and-forget)
+    cliBackendRegistry.detectAll().then(() => {
+      this.providerRegistry.syncCLIBackends(cliBackendRegistry);
+    }).catch(() => {});
     this.talentMarket = new TalentMarket();
     this.performanceSystem = new PerformanceSystem();
     this.hr = new HRSystem(this.providerRegistry, this.talentMarket);
@@ -112,8 +119,84 @@ export class Company {
     // 持久化到文件存储
     chatStore.appendMessage(this.chatSessionId, bossMsg);
 
-    // Let secretary analyze whether it's task assignment or casual conversation
-    const reply = await this.secretary.handleBossMessage(message, this);
+    const secretaryAgent = this.secretary.agent;
+    let reply;
+
+    // 如果秘书配置了 CLI 后端，聊天也走 CLI（要求返回 JSON 格式，与 LLM 路径一致）
+    if (secretaryAgent.cliBackend) {
+      try {
+        // 获取最近聊天上下文
+        const recentMessages = chatStore.getRecentMessages(this.chatSessionId, 10);
+        const chatContext = recentMessages.slice(-6).map(m =>
+          `${m.role === 'boss' ? 'Boss' : secretaryAgent.name}: ${m.content}`
+        ).join('\n');
+
+        // 构建公司上下文（精简版，让 CLI 也能正确判断 action）
+        const departments = [...this.departments.values()].map(d => ({
+          name: d.name, id: d.id, mission: d.mission, status: d.status,
+          memberCount: d.agents.size,
+          leader: d.getLeader()?.name || 'Unassigned',
+        }));
+        const deptContext = departments.length > 0
+          ? departments.map(d => `  🏢 ${d.name} [id:${d.id}] - Mission: ${d.mission} | ${d.memberCount} people | Leader: ${d.leader}`).join('\n')
+          : 'No departments yet.';
+
+        // 构建 CLI prompt：要求返回与 LLM 一致的 JSON 格式
+        const cliPrompt = `You are "${secretaryAgent.name}", the personal secretary of "${this.bossName}".
+${secretaryAgent.prompt ? `Your persona: ${secretaryAgent.prompt}\n` : ''}
+Current company "${this.name}" status:
+- Departments: ${this.departments.size}
+${deptContext}
+
+Recent conversation:
+${chatContext}
+
+Boss's latest message: ${message}
+
+You MUST reply with a JSON object (return JSON only, no other text):
+{
+  "content": "Your natural language reply to the boss (warm, personal, with emoji)",
+  "action": null or one of:
+    - { "type": "secretary_handle", "taskDescription": "detailed task for yourself to execute" } — for simple tasks you can handle alone
+    - { "type": "task_assigned", "departmentId": "real dept id from above", "departmentName": "dept name", "taskTitle": "short title", "taskDescription": "detailed description" } — assign to existing department
+    - { "type": "create_department", "departmentName": "name", "mission": "mission" } — boss wants to create a new department
+    - { "type": "need_new_department", "suggestedMission": "task description" } — no existing dept can handle this
+    - { "type": "progress_report" } — boss wants progress
+    - null — casual chat, no action needed
+}
+
+Rules:
+- If boss wants to create a department → create_department
+- If boss gives a task and an existing department matches → task_assigned (use the real departmentId!)
+- If boss gives a simple task you can handle alone → secretary_handle
+- If boss gives a task but no department matches → need_new_department
+- Casual chat → null
+- ALWAYS return valid JSON only, no markdown fences`;
+
+        const cliResult = await cliBackendRegistry.executeTask(
+          secretaryAgent.cliBackend,
+          secretaryAgent,
+          {
+            title: `Secretary chat reply`,
+            description: cliPrompt,
+          },
+          secretaryAgent.toolKit?.workspaceDir || process.cwd(),
+          {},
+          { timeout: 60000 }
+        );
+        const rawOutput = cliResult.output || cliResult.errorOutput || '...';
+
+        // 尝试从 CLI 输出中解析 JSON（复用与 LLM 相同的解析逻辑）
+        reply = this._parseSecretaryJSON(rawOutput, message);
+      } catch (cliErr) {
+        // CLI 失败时回退到 LLM
+        console.warn(`  ⚠️ [Secretary] CLI chat failed, falling back to LLM: ${cliErr.message || cliErr.error}`);
+        reply = await this.secretary.handleBossMessage(message, this);
+      }
+    } else {
+      // Let secretary analyze whether it's task assignment or casual conversation
+      reply = await this.secretary.handleBossMessage(message, this);
+    }
 
     const secretaryMsg = {
       role: 'secretary',
@@ -132,6 +215,112 @@ export class Company {
 
     this._log('Secretary chat', `Boss: "${message.slice(0, 30)}..." → Secretary replied`);
     return reply;
+  }
+
+  /**
+   * 解析秘书返回的 JSON（CLI 和 LLM 共用）
+   * 从原始文本中提取 { content, action } 结构
+   */
+  _parseSecretaryJSON(rawOutput, originalMessage) {
+    try {
+      let jsonStr = rawOutput.trim();
+      // 去除 markdown 代码块包裹
+      const fenceMatch = jsonStr.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+      if (fenceMatch) {
+        jsonStr = fenceMatch[1].trim();
+      }
+      // 提取第一个 JSON 对象
+      const jsonObjMatch = jsonStr.match(/\{[\s\S]*\}/);
+      if (jsonObjMatch) {
+        jsonStr = jsonObjMatch[0];
+      }
+      const parsed = JSON.parse(jsonStr);
+      const result = {
+        content: parsed.content || rawOutput,
+        action: parsed.action || null,
+      };
+
+      // 验证 task_assigned 的 departmentId
+      if (result.action?.type === 'task_assigned' && result.action.departmentId) {
+        const deptById = this.departments.get(result.action.departmentId);
+        if (!deptById) {
+          // departmentId 无效，尝试按名字匹配
+          const deptIdValue = result.action.departmentId;
+          const deptNameValue = result.action.departmentName || deptIdValue;
+          let foundDept = null;
+          for (const dept of this.departments.values()) {
+            if (dept.name === deptIdValue || dept.name === deptNameValue ||
+                dept.name.includes(deptIdValue) || deptIdValue.includes(dept.name)) {
+              foundDept = dept;
+              break;
+            }
+          }
+          if (foundDept) {
+            console.log(`🔧 [CLI] Fixed departmentId: "${deptIdValue}" → "${foundDept.id}" (${foundDept.name})`);
+            result.action.departmentId = foundDept.id;
+            result.action.departmentName = foundDept.name;
+          } else {
+            console.warn(`⚠️ [CLI] departmentId "${deptIdValue}" doesn't match any department, clearing action`);
+            result.action = null;
+          }
+        }
+      }
+
+      console.log(`🤖 [Secretary-CLI] action type: ${result.action?.type || 'null'}`);
+      return result;
+    } catch (parseError) {
+      console.warn('⚠️ [Secretary-CLI] JSON parse failed, using raw output:', parseError.message);
+      // JSON 解析失败时，尝试提取 content 字段
+      let displayContent = rawOutput;
+      const contentFieldMatch = rawOutput.match(/"content"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+      if (contentFieldMatch) {
+        try {
+          displayContent = JSON.parse('"' + contentFieldMatch[1] + '"');
+        } catch {
+          displayContent = contentFieldMatch[1].replace(/\\n/g, '\n').replace(/\\"/g, '"');
+        }
+      }
+
+      // 尝试从原始输出中提取 action
+      let action = null;
+      const actionTypeMatch = rawOutput.match(/"type"\s*:\s*"(task_assigned|need_new_department|create_department|progress_report|secretary_handle)"/);
+      if (actionTypeMatch) {
+        const actionType = actionTypeMatch[1];
+        if (actionType === 'task_assigned') {
+          const deptNameMatch = rawOutput.match(/"departmentName"\s*:\s*"([^"]+)"/);
+          if (deptNameMatch) {
+            for (const dept of this.departments.values()) {
+              if (dept.name === deptNameMatch[1] || dept.name.includes(deptNameMatch[1]) || deptNameMatch[1].includes(dept.name)) {
+                const titleMatch = rawOutput.match(/"taskTitle"\s*:\s*"([^"]+)"/);
+                const descMatch = rawOutput.match(/"taskDescription"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+                action = {
+                  type: 'task_assigned',
+                  departmentId: dept.id,
+                  departmentName: dept.name,
+                  taskTitle: titleMatch ? titleMatch[1] : originalMessage.slice(0, 50),
+                  taskDescription: descMatch ? descMatch[1].replace(/\\n/g, '\n') : originalMessage,
+                };
+                break;
+              }
+            }
+          }
+        } else if (actionType === 'create_department') {
+          const deptNameMatch = rawOutput.match(/"departmentName"\s*:\s*"([^"]+)"/);
+          const missionMatch = rawOutput.match(/"mission"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+          action = { type: 'create_department', departmentName: deptNameMatch?.[1] || '', mission: missionMatch?.[1]?.replace(/\\n/g, '\n') || originalMessage };
+        } else if (actionType === 'need_new_department') {
+          const missionMatch = rawOutput.match(/"suggestedMission"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+          action = { type: 'need_new_department', suggestedMission: missionMatch?.[1]?.replace(/\\n/g, '\n') || originalMessage };
+        } else if (actionType === 'secretary_handle') {
+          const descMatch = rawOutput.match(/"taskDescription"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+          action = { type: 'secretary_handle', taskDescription: descMatch?.[1]?.replace(/\\n/g, '\n') || originalMessage };
+        } else if (actionType === 'progress_report') {
+          action = { type: 'progress_report' };
+        }
+      }
+
+      return { content: displayContent, action };
+    }
   }
 
   /**
@@ -201,17 +390,58 @@ export class Company {
     // Add current message
     messages.push({ role: 'user', content: message });
 
-    // Call LLM
+    // 如果是 CLI agent，通过 CLI 后端执行聊天
     let replyContent;
-    try {
-      const response = await llmClient.chat(targetAgent.provider, messages, {
-        temperature: 0.8,
-        maxTokens: 2048,
-      });
-      replyContent = response.content;
-      targetAgent._trackUsage(response.usage);
-    } catch (err) {
-      replyContent = `(Sorry boss, my brain froze: ${err.message})`;
+    const chatEngine = targetAgent.cliProvider
+      ? { engine: 'cli', cliName: targetAgent.cliProvider.name }
+      : { engine: 'llm', llmName: targetAgent.provider.name };
+
+    if (targetAgent.cliBackend) {
+      // CLI agent 聊天也走 CLI 后端
+      try {
+        // 构建更自然的聊天 prompt（不使用 _buildTaskPrompt 的任务格式）
+        const chatContext = recentMessages.slice(-6).map(m =>
+          `${m.role === 'boss' ? 'Boss' : targetAgent.name}: ${m.content}`
+        ).join('\n');
+
+        const cliResult = await cliBackendRegistry.executeTask(
+          targetAgent.cliBackend,
+          targetAgent,
+          {
+            title: `Chat reply`,
+            description: `You are having a 1-on-1 conversation with your boss "${this.bossName}". Reply naturally and helpfully based on your personality and role. Keep your reply concise (2-6 sentences). Do NOT use any tools or execute any code — just reply conversationally.\n\nRecent conversation:\n${chatContext}\n\nBoss: ${message}\n\nReply as ${targetAgent.name}:`,
+          },
+          targetAgent.toolKit?.workspaceDir || process.cwd(),
+          {},
+          { timeout: 60000 }  // 聊天场景 60 秒超时（而非默认 5 分钟）
+        );
+        replyContent = cliResult.output || cliResult.errorOutput || '...';
+      } catch (cliErr) {
+        // CLI 失败时回退到 LLM
+        console.warn(`  ⚠️ [${targetAgent.name}] CLI chat failed, falling back to LLM: ${cliErr.message || cliErr.error}`);
+        try {
+          const response = await llmClient.chat(targetAgent.provider, messages, {
+            temperature: 0.8,
+            maxTokens: 2048,
+          });
+          replyContent = response.content;
+          targetAgent._trackUsage(response.usage);
+        } catch (err) {
+          replyContent = `(Sorry boss, my brain froze: ${err.message})`;
+        }
+      }
+    } else {
+      // 普通 LLM agent
+      try {
+        const response = await llmClient.chat(targetAgent.provider, messages, {
+          temperature: 0.8,
+          maxTokens: 2048,
+        });
+        replyContent = response.content;
+        targetAgent._trackUsage(response.usage);
+      } catch (err) {
+        replyContent = `(Sorry boss, my brain froze: ${err.message})`;
+      }
     }
 
     // Append agent reply
@@ -231,6 +461,7 @@ export class Company {
       agentName: targetAgent.name,
       reply: replyContent,
       time: new Date(),
+      chatEngine,
     };
   }
 
@@ -302,7 +533,7 @@ export class Company {
         totalMessages: session.totalMessages || 0,
         unread,
       };
-    }).filter(s => s.totalMessages > 0) // 只返回有消息的会话
+    }).filter(s => s.totalMessages > 0 && s.agentName !== 'Unknown' && s.agentAvatar !== null) // 只返回有消息的会话，且过滤掉已被开除（找不到agent）的员工
       .sort((a, b) => new Date(b.lastTime) - new Date(a.lastTime)); // 按时间倒序
   }
 
@@ -428,6 +659,16 @@ export class Company {
       agent.provider = newProvider;
       // Sync update HR assistant's provider
       this.secretary.hrAssistant.agent.provider = newProvider;
+      // 如果是 CLI provider，设置秘书的 CLI 后端；否则清除
+      if (newProvider.isCLI && newProvider.cliBackendId) {
+        agent.setCLIBackend(newProvider.cliBackendId);
+        // CLI provider 存储引用，用于前端显示
+        agent.cliProvider = newProvider;
+        this._log('Secretary settings', `Secretary CLI backend set to: ${newProvider.name} (${newProvider.cliBackendId})`);
+      } else {
+        agent.setCLIBackend(null);
+        agent.cliProvider = null;
+      }
       this._log('Secretary settings', `Secretary provider switched to: ${newProvider.name}`);
     }
     this._log('Secretary settings', `Updated secretary settings: ${Object.keys(settings).join(', ')}`);
@@ -538,14 +779,32 @@ export class Company {
       departmentName: name,
       mission,
       reasoning: teamPlan.reasoning || null,
-      members: teamPlan.members.map(m => ({
-        templateId: m.templateId,
-        title: m.templateTitle,
-        name: m.name,
-        isLeader: m.isLeader,
-        reportsTo: m.reportsTo !== null ? teamPlan.members[m.reportsTo]?.name : null,
-        reason: m.reason || null,
-      })),
+      members: teamPlan.members.map(m => {
+        // 查找该岗位的 job template，获取 category 和 requiredCapabilities
+        const template = this.hr.getTemplate(m.templateId);
+        let providerName = null;
+        let providerModel = null;
+        if (template) {
+          const recommended = this.providerRegistry.recommend(
+            template.category,
+            template.requiredCapabilities
+          );
+          if (recommended) {
+            providerName = recommended.name;
+            providerModel = recommended.model;
+          }
+        }
+        return {
+          templateId: m.templateId,
+          title: m.templateTitle,
+          name: m.name,
+          isLeader: m.isLeader,
+          reportsTo: m.reportsTo !== null ? teamPlan.members[m.reportsTo]?.name : null,
+          reason: m.reason || null,
+          providerName,   // 推荐的供应商名称（模型名）
+          providerModel,  // 推荐的供应商模型
+        };
+      }),
       collaborationRules: teamPlan.collaborationRules,
     };
   }
@@ -806,7 +1065,23 @@ const dept = this.findDepartment(departmentId);
       adjustGoal,
       reasoning: adjustPlan.reasoning,
       fires: adjustPlan.fires,
-      hires: adjustPlan.hires,
+      hires: adjustPlan.hires.map(h => {
+        // 查找推荐的 provider 信息
+        const template = this.hr.getTemplate(h.templateId);
+        let providerName = null;
+        let providerModel = null;
+        if (template) {
+          const recommended = this.providerRegistry.recommend(
+            template.category,
+            template.requiredCapabilities
+          );
+          if (recommended) {
+            providerName = recommended.name;
+            providerModel = recommended.model;
+          }
+        }
+        return { ...h, providerName, providerModel };
+      }),
     };
   }
 
@@ -1415,6 +1690,10 @@ Reply in the same language the Boss used. Be concise but warm.`
         const usage = a.tokenUsage || { totalTokens: 0, totalCost: 0, promptTokens: 0, completionTokens: 0, callCount: 0 };
         deptTokens += usage.totalTokens;
         deptCost += usage.totalCost;
+        // CLI agent 展示 cliProvider 信息（实际的 CLI 工具），而非 fallback general provider
+        const displayProvider = a.cliProvider
+          ? { id: a.cliProvider.id, name: a.cliProvider.name, provider: a.cliProvider.provider || 'Local CLI' }
+          : { id: a.provider.id, name: a.provider.name, provider: a.provider.provider };
         return {
         id: a.id,
         name: a.name,
@@ -1425,7 +1704,10 @@ Reply in the same language the Boss used. Be concise but warm.`
         signature: a.signature,
         personality: a.personality,
         status: a.status,
-        provider: { id: a.provider.id, name: a.provider.name, provider: a.provider.provider },
+        provider: displayProvider,
+        cliBackend: a.cliBackend || null,
+        // CLI agent 的聊天引擎（fallback LLM provider 名称）
+        fallbackProvider: a.cliProvider ? a.provider.name : null,
         skills: a.skills,
         reportsTo: a.reportsTo,
         subordinates: a.subordinates,
@@ -1474,11 +1756,19 @@ Reply in the same language the Boss used. Be concise but warm.`
         prompt: this.secretary.agent.prompt,
         provider: this.secretary.agent.provider.name,
         providerId: this.secretary.agent.provider.id,
-        // Optional general-purpose provider list (enabled only)
-        availableProviders: this.providerRegistry.getByCategory('general').map(p => ({
-          id: p.id,
-          name: p.name,
-        })),
+        // Optional general-purpose + CLI provider list (enabled only)
+        availableProviders: [
+          ...this.providerRegistry.getByCategory('general').map(p => ({
+            id: p.id,
+            name: p.name,
+          })),
+          ...this.providerRegistry.getByCategory('cli').map(p => ({
+            id: p.id,
+            name: `${p.cliIcon || '🖥️'} ${p.name} (CLI)`,
+            isCLI: true,
+            cliBackendId: p.cliBackendId,
+          })),
+        ],
         hrAssistant: {
           name: this.secretary.hrAssistant.agent.name,
           avatar: this.secretary.hrAssistant.agent.avatar,
@@ -1650,6 +1940,7 @@ const dept = this.findDepartment(departmentId);
       messageBusMessages: this.messageBus.messages.slice(-500).map(m => m.toJSON()),
       requirements: this.requirementManager.serialize(),
       cronJobs: cronScheduler.serialize(),
+      cliBackends: cliBackendRegistry.serialize(),
       savedAt: new Date(),
     };
   }
@@ -1790,6 +2081,29 @@ const dept = this.findDepartment(departmentId);
     if (data.cronJobs) {
       cronScheduler.restore(data.cronJobs);
     }
+
+    // Restore CLI backends (custom backends)
+    if (data.cliBackends) {
+      cliBackendRegistry.restore(data.cliBackends);
+    }
+    // Sync CLI backends into provider registry
+    company.providerRegistry.syncCLIBackends(cliBackendRegistry);
+    // Re-apply provider configs for CLI providers (to restore enabled state)
+    const reapplyCLIConfigs = () => {
+      if (data.providerConfigs) {
+        for (const [pid, cfg] of Object.entries(data.providerConfigs)) {
+          if (pid.startsWith('cli-')) {
+            try { company.providerRegistry.configure(pid, cfg.apiKey); } catch {}
+          }
+        }
+      }
+    };
+    reapplyCLIConfigs();
+    // Auto-detect CLI backends in background, then re-sync and re-apply configs
+    cliBackendRegistry.detectAll().then(() => {
+      company.providerRegistry.syncCLIBackends(cliBackendRegistry);
+      reapplyCLIConfigs();
+    }).catch(() => {});
 
     console.log(`✅ Company "${company.name}" state restored: ${company.departments.size} departments`);
     return company;

@@ -171,6 +171,43 @@ Your responsibilities include: motion graphics, transition effects, UI animation
     skills: ['motion-graphics', 'transitions', 'ui-animation', 'visual-effects'],
     requiredCapabilities: ['video-effects'],
   },
+
+  // ===== CLI Coding Assistant Positions =====
+  CLI_SOFTWARE_ENGINEER: {
+    id: 'cli-software-engineer',
+    title: 'CLI Software Engineer',
+    category: JobCategory.CLI,
+    prompt: `You are a software engineer powered by a local CLI coding assistant.
+You execute tasks directly through the CLI tool on the local machine, producing real code changes.
+Your responsibilities include: code implementation, file operations, shell command execution, code review, and debugging.
+You have full access to the local development environment and can directly create, modify, and test code.`,
+    skills: ['coding', 'file-operations', 'shell-execution', 'code-review', 'debugging'],
+    requiredCapabilities: ['coding'],
+  },
+
+  CLI_FULLSTACK_DEVELOPER: {
+    id: 'cli-fullstack-developer',
+    title: 'CLI Full-Stack Developer',
+    category: JobCategory.CLI,
+    prompt: `You are a full-stack developer powered by a local CLI coding assistant.
+You can work on both frontend and backend code, set up development environments, and run tests.
+Your responsibilities include: full-stack development, database setup, API development, frontend implementation, and DevOps tasks.
+You operate directly on the local file system and can execute any shell commands needed.`,
+    skills: ['fullstack', 'api-design', 'database', 'frontend', 'devops', 'shell-execution'],
+    requiredCapabilities: ['coding', 'file-operations'],
+  },
+
+  CLI_CODE_REVIEWER: {
+    id: 'cli-code-reviewer',
+    title: 'CLI Code Reviewer',
+    category: JobCategory.CLI,
+    prompt: `You are a code reviewer powered by a local CLI coding assistant.
+You review code changes, analyze code quality, identify potential bugs and security issues.
+Your responsibilities include: code review, quality analysis, security audit, refactoring suggestions, and best practice enforcement.
+You can read the entire codebase and run analysis tools directly on the local machine.`,
+    skills: ['code-review', 'quality-analysis', 'security-audit', 'refactoring', 'best-practices'],
+    requiredCapabilities: ['coding', 'code-review'],
+  },
 };
 
 /**
@@ -249,7 +286,7 @@ export class HRSystem {
       }
     }
 
-    return {
+    const result = {
       name,
       role: template.title,
       prompt: template.prompt,
@@ -257,6 +294,22 @@ export class HRSystem {
       provider,
       templateId: template.id,
     };
+
+    // If this is a CLI provider, attach the cliBackend id so the Agent uses local CLI
+    if (provider.isCLI && provider.cliBackendId) {
+      result.cliBackend = provider.cliBackendId;
+      // 保存原始 CLI provider 信息，供前端展示使用
+      result.cliProvider = { ...provider };
+      // CLI agents still need a general provider for fallback (LLM chat, intro generation, etc.)
+      // Try to find a general provider as fallback
+      const fallback = this.providerRegistry.recommend('general');
+      if (fallback) {
+        result.provider = fallback; // Use general provider for LLM capabilities
+        result.cliBackend = provider.cliBackendId; // But execute tasks via CLI
+      }
+    }
+
+    return result;
   }
 
   /**

@@ -10,6 +10,7 @@ export const JobCategory = {
   DRAWING: 'drawing',       // Drawing/illustration positions
   MUSIC: 'music',           // Music positions
   VIDEO: 'video',           // Video positions
+  CLI: 'cli',               // CLI coding assistant positions (local CLI tools)
 };
 
 // Job category label mapping (i18n keys for frontend)
@@ -18,6 +19,7 @@ export const JobCategoryLabel = {
   [JobCategory.DRAWING]: 'drawing',
   [JobCategory.MUSIC]: 'music',
   [JobCategory.VIDEO]: 'video',
+  [JobCategory.CLI]: 'cli',
 };
 
 // Model Providers (outsourcing vendor marketplace)
@@ -224,6 +226,11 @@ export const ModelProviders = {
     apiKey: '',
     enabled: false,
   },
+
+  // === CLI Coding Assistant Providers ===
+  // CLI providers are auto-populated from CLI Backend Registry at runtime.
+  // They appear in the Brain Providers board as a separate "CLI" category.
+  // When enabled, HR can recruit agents that use local CLI tools as execution engines.
 };
 
 /**
@@ -234,6 +241,48 @@ export class ProviderRegistry {
     this.providers = new Map();
     // Register all built-in providers
     Object.values(ModelProviders).forEach(p => this.register({ ...p }));
+  }
+
+  /**
+   * Sync CLI backends from CLIBackendRegistry into providers.
+   * Called at startup and after CLI detection to keep the two systems in sync.
+   * CLI backends become providers under the 'cli' category.
+   * @param {import('./cli-backends/registry.js').CLIBackendRegistry} cliRegistry
+   */
+  syncCLIBackends(cliRegistry) {
+    if (!cliRegistry) return;
+    const backends = cliRegistry.listAll();
+    for (const b of backends) {
+      const providerId = `cli-${b.id}`;
+      const existing = this.providers.get(providerId);
+      // Preserve existing enabled/apiKey state if already registered
+      const wasEnabled = existing?.enabled || false;
+      this.providers.set(providerId, {
+        id: providerId,
+        name: b.name,
+        provider: 'Local CLI',
+        model: b.execCommand,
+        category: JobCategory.CLI,
+        capabilities: ['coding', 'file-operations', 'shell-execution', 'code-review', 'refactoring'],
+        costPerToken: 0,
+        priceLabel: 'Free (local)',
+        priceLevel: 1,
+        rating: b.rating || 80,  // 使用 CLI 自身的评分（在 BUILTIN_BACKENDS 中定义）
+        description: b.description || `${b.name} - local CLI coding assistant`,
+      // CLI providers don't need API keys; they use local CLI authentication
+        // 检测到/已配置的 CLI 自动启用，否则保留手动开关状态
+        apiKey: (b.state === 'detected' || b.state === 'configured') ? 'cli-local' : '',
+        enabled: (b.state === 'detected' || b.state === 'configured') ? true : wasEnabled || false,
+        // Extra CLI metadata
+        isCLI: true,
+        cliBackendId: b.id,
+        cliState: b.state,
+        cliVersion: b.version,
+        cliIcon: b.icon,
+        // TODO: hide CodeBuddy from external users in the future
+        // hidden: b.id === 'codebuddy',
+      });
+    }
   }
 
   /** Register a new model provider */
@@ -255,6 +304,11 @@ export class ProviderRegistry {
   configure(id, apiKey) {
     const provider = this.providers.get(id);
     if (!provider) throw new Error(`Provider not found: ${id}`);
+    // CLI providers use toggle instead of API key
+    if (provider.isCLI) {
+      provider.enabled = !!apiKey;
+      return provider;
+    }
     provider.apiKey = apiKey;
     provider.enabled = !!apiKey;
     return provider;
@@ -266,6 +320,11 @@ export class ProviderRegistry {
   setEnabled(id, enabled) {
     const provider = this.providers.get(id);
     if (!provider) throw new Error(`Provider not found: ${id}`);
+    // CLI providers can be toggled without API key check
+    if (provider.isCLI) {
+      provider.enabled = enabled;
+      return provider;
+    }
     if (enabled && !provider.apiKey) {
       throw new Error(`Provider ${provider.name} has no API Key configured, cannot enable`);
     }
@@ -332,6 +391,8 @@ export class ProviderRegistry {
     const stats = {};
     for (const cat of Object.values(JobCategory)) {
       const all = this.getAllByCategory(cat);
+      // Skip empty CLI category if no CLI backends registered
+      if (cat === JobCategory.CLI && all.length === 0) continue;
       const enabled = this.getByCategory(cat);
       stats[cat] = {
         label: JobCategoryLabel[cat],
@@ -348,6 +409,12 @@ export class ProviderRegistry {
           priceLevel: p.priceLevel || 2,
           description: p.description || '',
           capabilities: p.capabilities || [],
+          // CLI-specific fields
+          isCLI: p.isCLI || false,
+          cliBackendId: p.cliBackendId || null,
+          cliState: p.cliState || null,
+          cliVersion: p.cliVersion || null,
+          cliIcon: p.cliIcon || null,
         })),
       };
     }

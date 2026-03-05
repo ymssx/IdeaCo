@@ -554,6 +554,7 @@ const [chatAgent, setChatAgent] = useState(null); // Agent chat target { id, nam
                         <div className="flex-1">
                           <div className="text-sm font-medium">{h.name}</div>
                           <div className="text-xs text-[var(--muted)]">{h.templateTitle || h.templateId}</div>
+                          {h.providerName && <div className="text-[10px] text-purple-400/80 mt-0.5">⚡ {h.providerName}</div>}
                           {h.reason && <div className="text-[10px] text-blue-400/70 mt-0.5">💡 {h.reason}</div>}
                         </div>
                       </div>
@@ -624,6 +625,7 @@ const [chatAgent, setChatAgent] = useState(null); // Agent chat target { id, nam
                       <div className="flex-1">
                         <div className="text-sm font-medium">{m.name}</div>
                         <div className="text-xs text-[var(--muted)]">{m.title} {m.reportsTo ? `→ ${m.reportsTo}` : ''}</div>
+                        {m.providerName && <div className="text-[10px] text-purple-400/80 mt-0.5">⚡ {m.providerName}</div>}
                         {m.reason && <div className="text-[10px] text-blue-400/70 mt-0.5">💡 {m.reason}</div>}
                       </div>
                     </div>

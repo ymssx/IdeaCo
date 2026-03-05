@@ -7,6 +7,7 @@ import { pluginRegistry } from './plugin.js';
 import { skillRegistry } from './skills.js';
 import { knowledgeManager } from './knowledge.js';
 import { chatStore } from './chat-store.js';
+import { cliBackendRegistry } from './cli-backends/index.js';
 
 /**
  * Secretary's Dedicated HR Assistant
@@ -187,10 +188,31 @@ When communicating with the boss, you need to:
       id: t.id, title: t.title, category: t.category, skills: t.skills,
     }));
 
+    // Build enabled providers info so LLM knows what's available
+    const enabledProviders = this.company.providerRegistry.listEnabled().map(p => ({
+      id: p.id, name: p.name, category: p.category, rating: p.rating,
+      isCLI: p.isCLI || false, cliBackendId: p.cliBackendId || null,
+    }));
+
+    // Identify which categories have enabled providers
+    const availableCategories = [...new Set(enabledProviders.map(p => p.category))];
+
     const systemPrompt = `You are an experienced corporate secretary skilled at team planning and talent matching.
 
 Here are the available job templates (you can only choose from these):
 ${JSON.stringify(availableRoles, null, 2)}
+
+## Currently enabled providers (IMPORTANT - only templates whose category has an enabled provider can be hired!):
+${JSON.stringify(enabledProviders, null, 2)}
+
+Available categories: ${availableCategories.join(', ')}
+
+⚠️ CRITICAL RULES for provider-aware hiring:
+- You can ONLY use templates whose category has at least one enabled provider above.
+- If the boss mentions a specific provider name (e.g. "CodeBuddy", "Claude Code", "Codex"), you MUST use a CLI template (category: "cli") for that position.
+- CLI templates (cli-software-engineer, cli-fullstack-developer, cli-code-reviewer) use local CLI tools as execution engines. They are powerful coding assistants.
+- When CLI providers are available and the task is coding-related, PREFER CLI templates over general templates — they can directly execute code on the local machine.
+- If the boss says something like "hire a CodeBuddy employee" or "add a CodeBuddy developer", choose a cli-* template.
 
 Based on the boss's requirements, output a team plan in JSON format as follows:
 {
@@ -317,6 +339,13 @@ Requirements:
    * AI-analyze department adjustment
    */
   async _aiAnalyzeAdjustment(department, currentMembers, availableRoles, adjustGoal) {
+    // Build enabled providers info so LLM knows what's available
+    const enabledProviders = this.company.providerRegistry.listEnabled().map(p => ({
+      id: p.id, name: p.name, category: p.category, rating: p.rating,
+      isCLI: p.isCLI || false, cliBackendId: p.cliBackendId || null,
+    }));
+    const availableCategories = [...new Set(enabledProviders.map(p => p.category))];
+
     const systemPrompt = `You are an experienced corporate secretary skilled at organizational restructuring and HR planning.
 
 Current department info:
@@ -326,6 +355,17 @@ Current department info:
 
 Available job templates (hiring can only choose from these):
 ${JSON.stringify(availableRoles, null, 2)}
+
+## Currently enabled providers (IMPORTANT - only templates whose category has an enabled provider can be hired!):
+${JSON.stringify(enabledProviders, null, 2)}
+
+Available categories: ${availableCategories.join(', ')}
+
+⚠️ CRITICAL RULES for provider-aware hiring:
+- You can ONLY use templates whose category has at least one enabled provider above.
+- If the boss mentions a specific provider/tool name (e.g. "CodeBuddy", "Claude Code", "Codex"), you MUST use a CLI template (category: "cli") for that position.
+- CLI templates use local CLI tools as execution engines — they are powerful coding assistants that can directly execute code.
+- When CLI providers are available and the task involves coding, PREFER CLI templates over general templates.
 
 Based on the boss's adjustment goal, output an adjustment plan in JSON format as follows:
 {
@@ -418,6 +458,12 @@ Requirements:
           hr
         );
         const agent = new Agent(recruitConfig);
+
+        // If this is a CLI-backed agent, set the CLI backend
+        if (recruitConfig.cliBackend) {
+          agent.setCLIBackend(recruitConfig.cliBackend);
+          console.log(`  🖥️ [${agent.name}] assigned CLI backend: ${recruitConfig.cliBackend}`);
+        }
 
         // If recalled, add comeback memory
         if (recruitConfig.isRecalled) {
@@ -990,7 +1036,40 @@ ${memoryContext}
 6. Sign off naturally as a secretary would`;
 
     try {
-      // Use chat with tools so the secretary can use shell_exec etc. to complete tasks
+      // 如果秘书配置了 CLI 后端，优先使用 CLI 执行任务
+      if (this.agent.cliBackend) {
+        try {
+          console.log(`  🖥️ [Secretary] Executing task via CLI backend: ${this.agent.cliBackend}`);
+          const cliResult = await cliBackendRegistry.executeTask(
+            this.agent.cliBackend,
+            this.agent,
+            {
+              title: `Secretary task`,
+              description: `${systemPrompt}\n\nTask from the boss:\n${taskDescription}`,
+            },
+            this.agent.toolKit?.workspaceDir || process.cwd(),
+            {},
+            { timeout: 120000 }  // 秘书任务 2 分钟超时
+          );
+          const content = cliResult.output || cliResult.errorOutput || '...';
+          console.log(`✅ [Secretary] CLI task completed, output ${content.length} chars`);
+
+          this.agent.memory.addShortTerm(
+            `Completed task directly (via CLI): ${taskDescription.slice(0, 80)}`,
+            'task'
+          );
+
+          return {
+            content,
+            success: true,
+          };
+        } catch (cliErr) {
+          console.warn(`  ⚠️ [Secretary] CLI task failed, falling back to LLM: ${cliErr.message || cliErr.error}`);
+          // CLI 失败时回退到 LLM
+        }
+      }
+
+      // 使用 LLM + 工具执行任务
       const toolExecutor = this.agent.toolKit;
       let response;
 

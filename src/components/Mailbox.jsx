@@ -198,6 +198,7 @@ export default function Mailbox() {
   const [activeChat, setActiveChat] = useState(null); // { type: 'secretary' } | { type: 'agent-chat', agentId, ... }
   const [inputText, setInputText] = useState('');
   const [sending, setSending] = useState(false);
+  const [sendingTargetId, setSendingTargetId] = useState(null); // 追踪正在发送消息的目标ID，防止typing状态串台
   const [secretaryHistory, setSecretaryHistory] = useState([]);
   const [selectedAgent, setSelectedAgent] = useState(null); // View employee detail
   const [chatFilter, setChatFilter] = useState('all'); // Chat filter: all | group | private | important
@@ -303,6 +304,14 @@ for (const agent of (dept.members || dept.agents || [])) {
     const text = inputText.trim();
     setInputText('');
     setSending(true);
+    // 记录当前发送目标，防止切换聊天后typing状态串台
+    const currentTargetId = activeChat?.type === 'secretary' ? 'secretary'
+      : activeChat?.type === 'agent-chat' ? activeChat.agentId
+      : activeChat?.type === 'requirement' ? activeChat.id : null;
+    setSendingTargetId(currentTargetId);
+
+    // 用户发消息后立即滚动到底部
+    setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
 
     try {
       if (activeChat?.type === 'secretary') {
@@ -349,8 +358,7 @@ for (const agent of (dept.members || dept.agents || [])) {
       }
     }
     setSending(false);
-    // 统一滚动到底部
-    setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+    setSendingTargetId(null);
   };
 
   const handleKeyDown = (e) => {
@@ -565,7 +573,7 @@ for (const agent of (dept.members || dept.agents || [])) {
                 />
               ))}
 
-              {sending && activeChat.type === 'secretary' && (
+              {sending && sendingTargetId === 'secretary' && (
                 <div className="flex gap-2">
                   <img
                 src={secretary?.avatar || getAvatarUrl('secretary')}
@@ -651,7 +659,7 @@ for (const agent of (dept.members || dept.agents || [])) {
                 ))
               )}
 
-              {sending && activeChat.type === 'agent-chat' && (
+              {sending && sendingTargetId === activeChat.agentId && (
                 <div className="flex gap-2">
                   {activeChat.agentAvatar ? (
                     <img src={activeChat.agentAvatar} alt="" className="w-8 h-8 rounded-full bg-[var(--border)] shrink-0" />

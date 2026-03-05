@@ -133,7 +133,7 @@ stats: { departments: '부서', workers: '직원', requirements: '요구사항' 
   providers: {
     title: '⚡ AI 공급자', subtitle: 'API Key를 설정하면 HR이 해당 유형의 직원을 채용할 수 있습니다.',
     hint: { title: '💡 HR 채용 전략', desc: 'HR은 <strong class="text-green-400">높은 평점 + 낮은 가격</strong>의 공급자를 우선 선택합니다.' },
-    categories: { general: '일반 직무', drawing: '드로잉 직무', music: '음악 직무', video: '영상 직무' },
+    categories: { general: '일반 직무', drawing: '드로잉 직무', music: '음악 직무', video: '영상 직무', cli: 'CLI 어시스턴트' },
     enabled: '{n}/{total} 활성화',
     configure: { title: '🔑 {name} 설정', provider: '공급자: {name}', apiKeyLabel: 'API Key', apiKeyPlaceholder: 'API Key 입력' },
     talentMarket: { btn: '인재 시장' },
@@ -160,7 +160,11 @@ stats: { departments: '부서', workers: '직원', requirements: '요구사항' 
     incentiveTitle: '인센티브 ({n})', incentive_outstanding: '탁월한 성과', incentive_excellent: '우수한 성과', scorePoints: '{score}점',
     totalCost: '총 비용', totalTokens: '총 토큰', promptTokens: '프롬프트 토큰', completionTokens: '완료 토큰',
     callCount: 'LLM 호출 횟수', callUnit: '회', usageHint: '💡 소비 데이터는 실제 LLM API 호출의 usage 정보 누적입니다',
-    toolCalls: '🔧 {n}회 도구 호출', score: '{score}점 {level}',
+    toolCalls: '🔧 {n}회 도구 호출',
+    taskEngine: '작업 엔진', chatEngine: '채팅 엔진',
+    engineCli: '🖥️ {name}', engineLlm: '☁️ {name}',
+    engineFallbackHint: '(CLI는 코드 작업 전용, 채팅은 {name}이(가) 대행)',
+    score: '{score}점 {level}',
   },
   orgTree: {
     title: '🌳 지휘 체계', subtitle: '누가 누구를 지휘하는지 한눈에. 노드를 클릭하면 상세를 볼 수 있습니다.',
@@ -223,6 +227,14 @@ stats: { departments: '부서', workers: '직원', requirements: '요구사항' 
     cronForm: { name: '작업 이름', schedule: '스케줄 (예: every 30m, daily 09:00)', selectAgent: '-- 에이전트 선택 --', taskPrompt: '에이전트 지시사항...', scheduleHint: '형식: "every 5m", "every 2h", "daily 09:00", "weekly mon 10:00"' },
     pluginDetail: { noPlugins: '플러그인 없음', totalTools: '도구 수' },
     health: { title: '시스템 상태', providerHealth: 'AI 공급자 상태', recentAudit: '최근 감사 이벤트' },
+    cliBackends: {
+      title: 'CLI 백엔드', subtitle: '로컬 CLI 코딩 어시스턴트를 Agent 실행 엔진으로 통합',
+      detectAll: '전체 감지', detecting: '감지 중...', registerCustom: '커스텀 CLI 등록',
+      noBackends: 'CLI 백엔드가 감지되지 않았습니다', noBackendsHint: 'Claude Code, Codex 또는 CodeBuddy와 같은 CLI 도구를 설치한 후 감지를 클릭하세요',
+      status: { detected: '감지됨', not_found: '미발견', configured: '구성됨', error: '오류' },
+      version: '버전', command: '명령어', nodeVersion: 'Node 버전', builtin: '내장', custom: '커스텀', remove: '제거',
+      form: { id: '백엔드 ID', name: '표시 이름', execCommand: '실행 명령어', execArgs: '인수 (쉼표 구분)', detectCommand: '감지 명령어', memoryDir: 'Memory 디렉토리', memoryFile: 'Memory 파일명', nvmNode: 'Node 버전 (nvm)', nvmNodeHint: '필요 없으면 비워두세요' },
+    },
   },
 };
 export default ko;

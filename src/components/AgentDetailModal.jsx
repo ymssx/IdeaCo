@@ -93,8 +93,10 @@ export default function AgentDetailModal({ agentId, onClose }) {
               {agent.personality?.trait && <span className="ml-2 text-purple-400">· {agent.personality.trait}</span>}
             </div>
             <div className="text-xs text-[var(--muted)] italic mt-1">"{agent.signature}"</div>
-            <div className="flex items-center gap-2 mt-2">
-              <span className="text-xs bg-blue-900/30 text-blue-400 px-2 py-0.5 rounded">{agent.provider.name}</span>
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
+              <span className={`text-xs px-2 py-0.5 rounded ${agent.cliBackend ? 'bg-emerald-900/30 text-emerald-400' : 'bg-blue-900/30 text-blue-400'}`}>
+                {agent.cliBackend ? '🖥️ ' : ''}{agent.provider.name}
+              </span>
               {agent.avgScore && (
                 <span className={`text-xs px-2 py-0.5 rounded ${
                   agent.avgScore >= 80 ? 'bg-green-900/30 text-green-400' :

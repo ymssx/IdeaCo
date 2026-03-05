@@ -5,7 +5,7 @@ import { useStore } from '@/lib/client-store';
 import { useI18n } from '@/lib/i18n';
 import TalentMarket from './TalentMarket';
 
-const CATEGORY_ICONS = { general: '💬', drawing: '🎨', music: '🎵', video: '🎬' };
+const CATEGORY_ICONS = { general: '💬', drawing: '🎨', music: '🎵', video: '🎬', cli: '🖥️' };
 const PRICE_COLORS = ['text-green-400', 'text-yellow-400', 'text-red-400'];
 const PRICE_DOTS = ['bg-green-500', 'bg-yellow-500', 'bg-red-500'];
 const RATING_COLORS = { high: 'text-green-400', mid: 'text-yellow-400', low: 'text-orange-400' };
@@ -21,7 +21,7 @@ function RatingBadge({ rating }) {
  */
 export default function SystemMonitor({ embedded = false }) {
   const { t } = useI18n();
-  const { company, fetchCronJobs, createCronJob, manageCronJob, fetchPlugins, managePlugin, fetchSkills, manageSkill, fetchKnowledge, searchKnowledge, manageKnowledge, fetchSystemStatus, configureProvider } = useStore();
+  const { company, fetchCronJobs, createCronJob, manageCronJob, fetchPlugins, managePlugin, fetchSkills, manageSkill, fetchKnowledge, searchKnowledge, manageKnowledge, fetchSystemStatus, configureProvider, fetchCLIBackends, detectCLIBackends, manageCLIBackend } = useStore();
   const [activeSection, setActiveSection] = useState('providers');
   const [cronData, setCronData] = useState({ summary: {}, jobs: [] });
   const [plugins, setPlugins] = useState([]);
@@ -29,6 +29,12 @@ export default function SystemMonitor({ embedded = false }) {
   const [knowledge, setKnowledge] = useState({ bases: [], stats: {} });
   const [systemStatus, setSystemStatus] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  // CLI Backends state
+  const [cliBackends, setCLIBackends] = useState([]);
+  const [cliDetecting, setCLIDetecting] = useState(false);
+  const [showRegisterCLI, setShowRegisterCLI] = useState(false);
+  const [newCLI, setNewCLI] = useState({ id: '', name: '', execCommand: '', execArgs: '-p,{prompt},-y', detectCommand: '', memoryDir: '', memoryFile: 'MEMORY.md', nvmNode: '' });
 
   // Knowledge base state
   const [showCreateKB, setShowCreateKB] = useState(false);
@@ -52,20 +58,22 @@ export default function SystemMonitor({ embedded = false }) {
     drawing: t('providers.categories.drawing'),
     music: t('providers.categories.music'),
     video: t('providers.categories.video'),
+    cli: t('providers.categories.cli'),
   };
 
   const refresh = useCallback(async () => {
     setLoading(true);
-    const [cron, plug, sk, kb, status] = await Promise.all([
-      fetchCronJobs(), fetchPlugins(), fetchSkills(), fetchKnowledge(), fetchSystemStatus(),
+    const [cron, plug, sk, kb, status, cli] = await Promise.all([
+      fetchCronJobs(), fetchPlugins(), fetchSkills(), fetchKnowledge(), fetchSystemStatus(), fetchCLIBackends(),
     ]);
     setCronData(cron || { summary: {}, jobs: [] });
     setPlugins(plug || []);
     setSkills(sk || []);
     setKnowledge(kb || { bases: [], stats: {} });
     setSystemStatus(status);
+    if (cli) setCLIBackends(cli);
     setLoading(false);
-  }, [fetchCronJobs, fetchPlugins, fetchSkills, fetchKnowledge, fetchSystemStatus]);
+  }, [fetchCronJobs, fetchPlugins, fetchSkills, fetchKnowledge, fetchSystemStatus, fetchCLIBackends]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -271,12 +279,80 @@ export default function SystemMonitor({ embedded = false }) {
                   <div>
                     <h3 className="font-semibold">{categoryLabels[category] || category}</h3>
                     <div className="text-xs text-[var(--muted)]">
-                      {info.enabled}/{info.total} {t('providers.enabled', { n: info.enabled, total: info.total })}
+                      {t('providers.enabled', { n: info.enabled, total: info.total })}
                     </div>
                   </div>
                 </div>
-                <div className={`w-3 h-3 rounded-full ${info.enabled > 0 ? 'bg-green-500' : 'bg-red-500'}`} />
+                {/* CLI category: detect & register buttons */}
+                {category === 'cli' && (
+                  <div className="flex gap-2 ml-auto mr-3">
+                    <button
+                      onClick={async () => {
+                        setCLIDetecting(true);
+                        await detectCLIBackends();
+                        const updated = await fetchCLIBackends();
+                        if (updated) setCLIBackends(updated);
+                        setCLIDetecting(false);
+                      }}
+                      disabled={cliDetecting}
+                      className="px-2.5 py-1 rounded text-[10px] bg-[var(--accent)] text-white hover:opacity-90 transition-all disabled:opacity-50"
+                    >
+                      {cliDetecting ? t('systemSettings.cliBackends.detecting') : `🔍 ${t('systemSettings.cliBackends.detectAll')}`}
+                    </button>
+                    <button
+                      onClick={() => setShowRegisterCLI(!showRegisterCLI)}
+                      className="px-2.5 py-1 rounded text-[10px] bg-white/10 text-[var(--muted)] hover:bg-white/20 transition-all"
+                    >
+                      + {t('systemSettings.cliBackends.registerCustom')}
+                    </button>
+                  </div>
+                )}
               </div>
+
+              {/* CLI category: register custom CLI form */}
+              {category === 'cli' && showRegisterCLI && (
+                <div className="p-4 rounded-lg bg-white/5 border border-[var(--border)] mb-4 space-y-3 animate-fade-in">
+                  <h4 className="text-xs font-semibold">{t('systemSettings.cliBackends.registerCustom')}</h4>
+                  <div className="grid grid-cols-2 gap-3">
+                    <input className="input text-xs" placeholder={t('systemSettings.cliBackends.form.id')} value={newCLI.id} onChange={e => setNewCLI({...newCLI, id: e.target.value})} />
+                    <input className="input text-xs" placeholder={t('systemSettings.cliBackends.form.name')} value={newCLI.name} onChange={e => setNewCLI({...newCLI, name: e.target.value})} />
+                    <input className="input text-xs" placeholder={t('systemSettings.cliBackends.form.execCommand')} value={newCLI.execCommand} onChange={e => setNewCLI({...newCLI, execCommand: e.target.value})} />
+                    <input className="input text-xs" placeholder={t('systemSettings.cliBackends.form.execArgs')} value={newCLI.execArgs} onChange={e => setNewCLI({...newCLI, execArgs: e.target.value})} />
+                    <input className="input text-xs" placeholder={t('systemSettings.cliBackends.form.detectCommand')} value={newCLI.detectCommand} onChange={e => setNewCLI({...newCLI, detectCommand: e.target.value})} />
+                    <input className="input text-xs" placeholder={t('systemSettings.cliBackends.form.memoryDir')} value={newCLI.memoryDir} onChange={e => setNewCLI({...newCLI, memoryDir: e.target.value})} />
+                    <input className="input text-xs" placeholder={t('systemSettings.cliBackends.form.memoryFile')} value={newCLI.memoryFile} onChange={e => setNewCLI({...newCLI, memoryFile: e.target.value})} />
+                    <div>
+                      <input className="input text-xs" placeholder={t('systemSettings.cliBackends.form.nvmNode')} value={newCLI.nvmNode} onChange={e => setNewCLI({...newCLI, nvmNode: e.target.value})} />
+                      <p className="text-[10px] text-[var(--muted)] mt-0.5">{t('systemSettings.cliBackends.form.nvmNodeHint')}</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 justify-end">
+                    <button onClick={() => setShowRegisterCLI(false)} className="px-3 py-1 text-xs text-[var(--muted)] hover:text-white transition-all">
+                      {t('common.cancel')}
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (!newCLI.id || !newCLI.execCommand) return;
+                        const config = {
+                          ...newCLI,
+                          execArgs: newCLI.execArgs.split(',').map(s => s.trim()),
+                          detectCommand: newCLI.detectCommand || `${newCLI.execCommand} --version`,
+                          memoryDir: newCLI.memoryDir || `.${newCLI.id}`,
+                          nvmNode: newCLI.nvmNode || null,
+                        };
+                        const updated = await manageCLIBackend('register', { config });
+                        if (updated) setCLIBackends(updated);
+                        setShowRegisterCLI(false);
+                        setNewCLI({ id: '', name: '', execCommand: '', execArgs: '-p,{prompt},-y', detectCommand: '', memoryDir: '', memoryFile: 'MEMORY.md', nvmNode: '' });
+                      }}
+                      disabled={!newCLI.id || !newCLI.execCommand}
+                      className="px-3 py-1 rounded-lg text-xs bg-[var(--accent)] text-white hover:opacity-90 disabled:opacity-50 transition-all"
+                    >
+                      {t('systemSettings.cliBackends.registerCustom')}
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                 {info.providers.map((p) => (
@@ -289,22 +365,45 @@ export default function SystemMonitor({ embedded = false }) {
                     }`}
                   >
                     <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className={`status-dot ${p.enabled ? 'active' : 'idle'}`} />
-                        <span className="text-sm font-medium truncate">{p.name}</span>
-                      </div>
-                      <button
-                        className={`text-xs px-2.5 py-1 rounded transition-all shrink-0 ${
-                          p.enabled
-                            ? 'bg-green-900/30 text-green-400 hover:bg-green-900/50'
-                            : 'bg-[var(--accent)]/10 text-[var(--accent)] hover:bg-[var(--accent)]/20'
-                        }`}
-                        onClick={() => { setConfigTarget(p); setApiKey(''); }}
-                      >
-                        {p.enabled ? t('common.manage') : t('common.configure')}
-                      </button>
+                  <div className="flex items-center gap-2 min-w-0">
+                    {p.cliIcon && <span className="text-sm">{p.cliIcon}</span>}
+                    <span className={`status-dot ${p.enabled ? 'active' : 'idle'}`} />
+                    <span className="text-sm font-medium truncate">{p.name}</span>
+                  </div>
+                  {/* CLI providers use a toggle switch instead of configure button */}
+                  {p.isCLI ? (
+                    <button
+                      className={`text-xs px-2.5 py-1 rounded transition-all shrink-0 ${
+                        p.enabled
+                          ? 'bg-green-900/30 text-green-400 hover:bg-red-900/30 hover:text-red-400'
+                          : 'bg-[var(--accent)]/10 text-[var(--accent)] hover:bg-green-900/30 hover:text-green-400'
+                      }`}
+                      onClick={async () => {
+                        await configureProvider(p.id, p.enabled ? '' : 'cli-local');
+                      }}
+                    >
+                      {p.enabled ? t('common.disable') : t('common.enable')}
+                    </button>
+                  ) : (
+                    <button
+                      className={`text-xs px-2.5 py-1 rounded transition-all shrink-0 ${
+                        p.enabled
+                          ? 'bg-green-900/30 text-green-400 hover:bg-green-900/50'
+                          : 'bg-[var(--accent)]/10 text-[var(--accent)] hover:bg-[var(--accent)]/20'
+                      }`}
+                      onClick={() => { setConfigTarget(p); setApiKey(''); }}
+                    >
+                      {p.enabled ? t('common.manage') : t('common.configure')}
+                    </button>
+                  )}
                     </div>
-                    <div className="text-xs text-[var(--muted)] mb-2">{p.provider}</div>
+                <div className="text-xs text-[var(--muted)] mb-2">
+                  {p.provider}
+                  {p.cliVersion && <span className="ml-2 text-[10px] opacity-60">v{p.cliVersion}</span>}
+                  {p.cliState && p.cliState !== 'detected' && (
+                    <span className="ml-2 text-[10px] text-yellow-400">({t(`systemSettings.cliBackends.status.${p.cliState}`)})</span>
+                  )}
+                </div>
                     <div className="flex items-center gap-3 mb-2">
                       <RatingBadge rating={p.rating} />
                       <div className="flex items-center gap-1">

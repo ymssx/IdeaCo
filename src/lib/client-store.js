@@ -235,6 +235,19 @@ chatMinimized: false,
     }
   },
 
+  updateAgent: async (agentId, updates) => {
+    try {
+      const data = await apiCall(`/agents/${agentId}`, {
+        method: 'PUT',
+        body: JSON.stringify(updates),
+      });
+      return data.data;
+    } catch (e) {
+      set({ error: e.message });
+      throw e;
+    }
+  },
+
   // === Talent Market ===
   recallAgent: async (profileId, departmentId, newSkills) => {
     try {
@@ -459,6 +472,41 @@ chatMinimized: false,
       return data.data;
     } catch (e) {
       return null;
+    }
+  },
+
+  // === CLI Backends ===
+  fetchCLIBackends: async () => {
+    try {
+      const data = await apiCall('/system/cli-backends');
+      return data.data || [];
+    } catch (e) {
+      return [];
+    }
+  },
+
+  detectCLIBackends: async () => {
+    try {
+      const data = await apiCall('/system/cli-backends', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'detect' }),
+      });
+      return data.data || [];
+    } catch (e) {
+      return [];
+    }
+  },
+
+  manageCLIBackend: async (action, payload = {}) => {
+    try {
+      const data = await apiCall('/system/cli-backends', {
+        method: 'POST',
+        body: JSON.stringify({ action, ...payload }),
+      });
+      return data.data;
+    } catch (e) {
+      set({ error: e.message });
+      throw e;
     }
   },
 

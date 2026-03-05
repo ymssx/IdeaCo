@@ -30,3 +30,4 @@ export { ConfigValidator, configValidator, ConfigType, enterpriseConfigSchema } 
 export { SkillRegistry, skillRegistry, SkillDefinition, SkillCategory, SkillState } from './skills.js';
 export { KnowledgeManager, knowledgeManager, KnowledgeType, EntryType } from './knowledge.js';
 export { ChatStore, chatStore } from './chat-store.js';
+export { CLIBackendRegistry, cliBackendRegistry, CLIBackendState } from './cli-backends/index.js';

@@ -214,6 +214,7 @@ export default function Overview() {
                       <div className="flex-1">
                         <div className="text-sm font-medium">{m.name}</div>
                         <div className="text-xs text-[var(--muted)]">{m.title}</div>
+                        {m.providerName && <div className="text-[10px] text-purple-400/80 mt-0.5">⚡ {m.providerName}</div>}
                         {m.reason && <div className="text-[10px] text-blue-400/70 mt-0.5">💡 {m.reason}</div>}
                       </div>
                       <div className="text-right">

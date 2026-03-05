@@ -132,7 +132,7 @@ stats: { departments: 'Abt.', workers: 'Arbeiter', requirements: 'Anforderungen'
   providers: {
     title: '⚡ KI-Anbieter', subtitle: 'API-Schlüssel konfigurieren, damit HR rekrutieren kann.',
     hint: { title: '💡 HR-Strategie', desc: 'HR bevorzugt Anbieter mit <strong class="text-green-400">hoher Bewertung + niedrigem Preis</strong>.' },
-    categories: { general: 'Allgemein', drawing: 'Zeichnung', music: 'Musik', video: 'Video' },
+    categories: { general: 'Allgemein', drawing: 'Zeichnung', music: 'Musik', video: 'Video', cli: 'CLI-Assistenten' },
     enabled: '{n}/{total} aktiviert',
     configure: { title: '🔑 {name} konfigurieren', provider: 'Anbieter: {name}', apiKeyLabel: 'API-Schlüssel', apiKeyPlaceholder: 'API-Schlüssel eingeben' },
     talentMarket: { btn: 'Talentmarkt' },
@@ -159,7 +159,11 @@ stats: { departments: 'Abt.', workers: 'Arbeiter', requirements: 'Anforderungen'
     incentiveTitle: 'Anreize ({n})', incentive_outstanding: 'Herausragend', incentive_excellent: 'Ausgezeichnet', scorePoints: '{score} Pkt.',
     totalCost: 'Gesamtkosten', totalTokens: 'Gesamt-Token', promptTokens: 'Prompt-Token', completionTokens: 'Completion-Token',
     callCount: 'LLM-Aufrufe', callUnit: 'mal', usageHint: '💡 Daten basieren auf tatsächlicher LLM-API-Nutzung',
-    toolCalls: '🔧 {n} Tool-Aufrufe', score: '{score} Pkt. {level}',
+    toolCalls: '🔧 {n} Tool-Aufrufe',
+    taskEngine: 'Aufgaben-Engine', chatEngine: 'Chat-Engine',
+    engineCli: '🖥️ {name}', engineLlm: '☁️ {name}',
+    engineFallbackHint: '(CLI nur für Code-Aufgaben, Chat wird von {name} übernommen)',
+    score: '{score} Pkt. {level}',
   },
   orgTree: {
     title: '🌳 Befehlskette', subtitle: 'Wer befiehlt wem — auf einen Blick. Klicken Sie für Details.',
@@ -224,6 +228,14 @@ stats: { departments: 'Abt.', workers: 'Arbeiter', requirements: 'Anforderungen'
     cronForm: { name: 'Name', schedule: 'Zeitplan (z.B. every 30m, daily 09:00)', selectAgent: '-- Agent auswählen --', taskPrompt: 'Anweisungen für den Agenten...', scheduleHint: 'Formate: "every 5m", "every 2h", "daily 09:00", "weekly mon 10:00"' },
     pluginDetail: { noPlugins: 'Keine Plugins', totalTools: 'Werkzeuge' },
     health: { title: 'Systemzustand', providerHealth: 'KI-Anbieter Zustand', recentAudit: 'Kürzliche Audit-Ereignisse' },
+    cliBackends: {
+      title: 'CLI-Backends', subtitle: 'Lokale CLI-Codierungsassistenten als Agent-Ausführungsengines integrieren',
+      detectAll: 'Alle Erkennen', detecting: 'Erkennung...', registerCustom: 'Benutzerdefiniertes CLI Registrieren',
+      noBackends: 'Keine CLI-Backends erkannt', noBackendsHint: 'Installieren Sie ein CLI-Tool wie Claude Code, Codex oder CodeBuddy und klicken Sie auf Erkennen',
+      status: { detected: 'Erkannt', not_found: 'Nicht Gefunden', configured: 'Konfiguriert', error: 'Fehler' },
+      version: 'Version', command: 'Befehl', nodeVersion: 'Node-Version', builtin: 'Eingebaut', custom: 'Benutzerdefiniert', remove: 'Entfernen',
+      form: { id: 'Backend-ID', name: 'Anzeigename', execCommand: 'Ausführungsbefehl', execArgs: 'Argumente (kommagetrennt)', detectCommand: 'Erkennungsbefehl', memoryDir: 'Memory-Verzeichnis', memoryFile: 'Memory-Datei', nvmNode: 'Node-Version (nvm)', nvmNodeHint: 'Leer lassen wenn nicht benötigt' },
+    },
   },
 };
 export default de;
