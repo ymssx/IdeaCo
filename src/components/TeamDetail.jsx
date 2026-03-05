@@ -18,7 +18,7 @@ export default function TeamDetail() {
     navigateBackFromTeam, fetchTeamDetail, updateTeam, deleteTeam,
     createSprint, discussSprint, approveSprint, fetchSprintDetail,
     sendSprintMessage, deleteSprint,
-    fetchWorkspaceFile,
+    fetchWorkspaceFile, navigateToRequirement,
   } = useStore();
 
   const [team, setTeam] = useState(null);
@@ -228,6 +228,14 @@ export default function TeamDetail() {
               {sprintDetail.status === 'pending_approval' && (
                 <button className="btn-primary text-xs" disabled={loading} onClick={() => handleApprove(sprintDetail.id)}>
                   {loading ? '...' : t('team.sprint.approve')}
+                </button>
+              )}
+              {sprintDetail.requirementId && (
+                <button
+                  className="text-xs px-3 py-1 rounded bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 font-medium"
+                  onClick={() => navigateToRequirement(sprintDetail.requirementId)}
+                >
+                  📋 {t('team.sprint.viewRequirement') || '查看需求'}
                 </button>
               )}
               <button

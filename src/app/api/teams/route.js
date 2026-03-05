@@ -545,7 +545,7 @@ Speak in the same language as the original plan.`,
     return response;
   }
 
-  // === Approve Sprint (Boss 同意开始迭代) ===
+  // === Approve Sprint (Boss 同意开始迭代 → 创建标准需求) ===
   if (action === 'approve_sprint') {
     const { teamId, sprintId } = body;
     if (!teamId || !sprintId) {
@@ -568,39 +568,33 @@ Speak in the same language as the original plan.`,
 
     sprint.addGroupMessage(
       { name: 'Boss', role: 'boss' },
-      `✅ 同意！开始迭代「${sprint.title}」，各位加油！`,
+      `✅ 同意！方案通过，正在创建需求并分配给团队执行。`,
       'message'
     );
 
     company.save();
 
-    // Async: Leader decomposes workflow and executes (same as requirement flow)
-    const dept = company.findDepartment(team.departmentId);
-    if (dept) {
-      const members = team.memberIds.map(mid => dept.agents.get(mid)).filter(Boolean);
-      const leader = dept.agents.get(team.leaderId) || members[0];
-
-      if (members.length > 0 && leader) {
-        // Use RequirementManager's planWorkflow then executeWorkflow
-        // We create a virtual requirement-like object for the sprint
-        (async () => {
-          try {
-            await company.requirementManager.planWorkflow(sprint, members, leader.provider);
-            await company.requirementManager.executeWorkflow(sprint, dept, company.performanceSystem);
-            company.save();
-          } catch (e) {
-            console.error('Sprint execution failed:', e.message);
-            sprint.status = SS.FAILED;
-            sprint.addGroupMessage(
-              { name: 'System', role: 'system' },
-              `❌ 迭代执行失败: ${e.message}`,
-              'system'
-            );
-            company.save();
-          }
-        })();
+    // Async: Create a standard Requirement from the sprint and execute via the full requirement pipeline
+    (async () => {
+      try {
+        const requirement = await company.assignSprintAsDepartmentTask(sprint, team);
+        sprint.addGroupMessage(
+          { name: 'System', role: 'system' },
+          `📋 需求「${requirement.title}」已创建并开始执行，可在需求看板中查看详情。`,
+          'system'
+        );
+        company.save();
+      } catch (e) {
+        console.error('Sprint → Requirement failed:', e.message);
+        sprint.status = SS.FAILED;
+        sprint.addGroupMessage(
+          { name: 'System', role: 'system' },
+          `❌ 需求创建或执行失败: ${e.message}`,
+          'system'
+        );
+        company.save();
       }
-    }
+    })();
 
     return NextResponse.json({ data: sprint.serialize() });
   }

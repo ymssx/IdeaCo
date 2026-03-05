@@ -1473,6 +1473,114 @@ const dept = this.findDepartment(departmentId);
   }
 
   /**
+   * Convert an approved Sprint into a standard Requirement and execute it.
+   * Only team members participate (not the entire department).
+   * @param {object} sprint - Sprint object
+   * @param {object} team - Team object
+   * @returns {Promise<object>} The created requirement
+   */
+  async assignSprintAsDepartmentTask(sprint, team) {
+    const dept = this.findDepartment(team.departmentId);
+    if (!dept) throw new Error(`Department not found: ${team.departmentId}`);
+
+    const members = team.memberIds.map(mid => dept.agents.get(mid)).filter(Boolean);
+    if (members.length === 0) throw new Error(`Team "${team.name}" has no valid members`);
+
+    const leader = dept.agents.get(team.leaderId) || members[0];
+
+    // Build task description from sprint plan + goal
+    const taskDescription = sprint.plan
+      ? `# 迭代目标\n${sprint.goal}\n\n# 实施方案\n${sprint.plan}`
+      : sprint.goal;
+    const title = sprint.title;
+
+    this._log('Sprint → Requirement', `Team "${team.name}" sprint "${title}" approved, creating requirement`);
+
+    // 1. Create standard requirement
+    const requirement = this.requirementManager.create({
+      title,
+      description: taskDescription,
+      departmentId: dept.id,
+      departmentName: dept.name,
+      bossMessage: sprint.goal,
+    });
+
+    // Link sprint ↔ requirement
+    sprint.requirementId = requirement.id;
+    this.save();
+    console.log(`📝 Sprint → Requirement created: ${requirement.id} - ${title}`);
+
+    // 2. Leader decomposes workflow (using only team members, not entire dept)
+    requirement.updateLiveStatus({
+      currentAgent: leader.name,
+      currentAgentId: leader.id,
+      currentAgentAvatar: leader.avatar,
+      currentAction: `${leader.name} is analyzing and decomposing the sprint plan...`,
+    });
+    this.save();
+
+    try {
+      await this.requirementManager.planWorkflow(
+        requirement, members, leader.provider
+      );
+    } catch (e) {
+      console.error('Sprint workflow decomposition failed:', e.message);
+    }
+    this.save();
+
+    // 3. Execute workflow DAG
+    let summary;
+    try {
+      summary = await this.requirementManager.executeWorkflow(
+        requirement, dept, this.performanceSystem
+      );
+    } catch (e) {
+      console.error('Sprint workflow execution failed:', e.message);
+      requirement.status = 'failed';
+      requirement.completedAt = new Date();
+      requirement.summary = { totalTasks: 0, successTasks: 0, failedTasks: 0, totalDuration: 0, outputs: [], error: e.message };
+      requirement.addGroupMessage(
+        { name: 'System', role: 'system' },
+        `❌ Sprint requirement execution failed: ${e.message}`,
+        'system'
+      );
+      this.save();
+      summary = requirement.summary;
+    }
+
+    // 4. Leader sends report email
+    if (leader && summary) {
+      let reportContent = `Sprint "${title}" completed!\n\n`;
+      reportContent += `📊 Execution Summary:\n`;
+      reportContent += `- Tasks completed: ${summary.successTasks}/${summary.totalTasks}\n`;
+      reportContent += `- Total duration: ${Math.round(summary.totalDuration / 1000)}s\n\n`;
+      reportContent += `📝 Member outputs:\n`;
+      for (const o of (summary.outputs || [])) {
+        reportContent += `\n[${o.agentName} (${o.role})]\n`;
+        reportContent += (o.content || '').slice(0, 300);
+        if ((o.content || '').length > 300) reportContent += '...';
+        reportContent += '\n';
+      }
+      leader.sendMailToBoss(`📋 Sprint Report: ${title}`, reportContent, this);
+    }
+
+    // 5. Update sprint status based on requirement result
+    const { SprintStatus } = await import('@/core/team.js');
+    if (requirement.status === 'completed') {
+      sprint.status = SprintStatus.COMPLETED;
+      sprint.completedAt = new Date();
+      sprint.summary = requirement.summary;
+    } else if (requirement.status === 'failed') {
+      sprint.status = SprintStatus.FAILED;
+      sprint.completedAt = new Date();
+      sprint.summary = requirement.summary;
+    }
+
+    this.save();
+    return requirement;
+  }
+
+  /**
    * Boss sends a message in a requirement's group chat
    * The leader will see the message and decide whether to adjust the plan
    * @param {string} requirementId - Requirement ID

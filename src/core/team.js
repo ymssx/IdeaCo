@@ -24,7 +24,8 @@ export class Sprint {
     this.teamName = teamName;
     this.status = SprintStatus.DRAFT;
     this.plan = null;                // 讨论后形成的迭代方案
-    this.workflow = null;            // 工作流（和 Requirement 一样的 DAG）
+    this.requirementId = null;       // 审批通过后创建的标准需求 ID
+    this.workflow = null;            // (deprecated) 工作流由关联需求管理
     this.groupChat = [];             // 迭代群聊
     this.outputs = [];               // 产出
     this.createdAt = new Date();
@@ -92,6 +93,7 @@ export class Sprint {
       teamName: this.teamName,
       status: this.status,
       plan: this.plan,
+      requirementId: this.requirementId,
       workflow: this.workflow,
       groupChat: this.groupChat.slice(-200),
       outputs: this.outputs,
@@ -113,6 +115,7 @@ export class Sprint {
     s.id = data.id;
     s.status = data.status;
     s.plan = data.plan;
+    s.requirementId = data.requirementId || null;
     s.workflow = data.workflow;
     s.groupChat = data.groupChat || [];
     s.outputs = data.outputs || [];
