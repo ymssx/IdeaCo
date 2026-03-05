@@ -7,6 +7,9 @@ import AgentChatModal from './AgentChatModal';
 import { useI18n } from '@/lib/i18n';
 import CachedAvatar from './CachedAvatar';
 import FilesView from './FilesView';
+import GroupChatView from './GroupChatView';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 export default function TeamDetail() {
   const { t } = useI18n();
@@ -30,7 +33,7 @@ export default function TeamDetail() {
 
   // Sprint detail
   const [sprintDetail, setSprintDetail] = useState(null);
-  const [sprintTab, setSprintTab] = useState('chat'); // chat | workflow | outputs | files
+  const [sprintTab, setSprintTab] = useState('workflow'); // workflow | files
   const [chatInput, setChatInput] = useState('');
   const chatEndRef = useRef(null);
 
@@ -171,234 +174,244 @@ export default function TeamDetail() {
     failed: { label: t('team.sprint.failed'), color: 'text-red-400', bg: 'bg-red-900/30', icon: '❌' },
   };
 
-  // Sprint detail view (inline)
+  // Sprint detail view (inline) — two-column layout like RequirementDetail
   const renderSprintDetail = () => {
     if (!sprintDetail) return null;
     const st = statusCfg[sprintDetail.status] || statusCfg.draft;
     const groupChat = (sprintDetail.groupChat || []).filter(m => m.visibility !== 'flow');
 
+    // Build agentMap for GroupChatView
+    const chatAgentMap = {};
+    if (company?.departments) {
+      for (const dept of company.departments) {
+        for (const agent of (dept.members || dept.agents || [])) {
+          chatAgentMap[agent.id] = agent.name;
+        }
+      }
+    }
+
+    // Adapt sendSprintMessage to GroupChatView's (id, msg) signature
+    const handleSprintChatSend = async (_id, msg) => {
+      await sendSprintMessage(activeTeamId, sprintDetail.id, msg);
+    };
+    const handleSprintChatRefresh = async () => {
+      const data = await fetchSprintDetail(activeTeamId, sprintDetail.id);
+      if (data) setSprintDetail(data);
+    };
+
+    // Find leader info for typing indicator
+    const leaderMsg = groupChat.find(m => m.from?.id !== 'boss' && m.from?.role !== 'system' && m.type !== 'system');
+    const chatLeaderInfo = leaderMsg ? { name: leaderMsg.from?.name, avatar: leaderMsg.from?.avatar } : null;
+
     return (
-      <div className="space-y-4">
+      <div className="flex-1 min-h-0 flex flex-col">
         {/* Sprint header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => { setActiveSprintId(null); setSprintDetail(null); }}
-              className="text-[var(--muted)] hover:text-[var(--foreground)] text-sm"
-            >
-              ← {t('team.sprint.backToList')}
-            </button>
-            <div className="w-px h-5 bg-[var(--border)]" />
-            <span className="text-lg font-bold">{sprintDetail.title}</span>
-            <span className={`text-xs px-2 py-0.5 rounded-full ${st.bg} ${st.color}`}>{st.icon} {st.label}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            {sprintDetail.status === 'draft' && (
+        <div className="shrink-0 border-b border-[var(--border)] bg-[var(--card)]/50 px-6 py-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
               <button
-                className="btn-primary text-xs"
-                disabled={loading}
-                onClick={() => handleDiscuss(sprintDetail.id)}
+                onClick={() => { setActiveSprintId(null); setSprintDetail(null); }}
+                className="text-[var(--muted)] hover:text-[var(--foreground)] text-sm"
               >
-                {loading ? t('team.sprint.discussing') : t('team.sprint.startDiscussion')}
+                ← {t('team.sprint.backToList')}
               </button>
-            )}
-            {sprintDetail.status === 'pending_approval' && (
-              <button
-                className="btn-primary text-xs"
-                disabled={loading}
-                onClick={() => handleApprove(sprintDetail.id)}
-              >
-                {loading ? '...' : t('team.sprint.approve')}
-              </button>
-            )}
-            <button
-              className="text-xs px-2 py-1 rounded bg-red-600/15 text-red-400 hover:bg-red-600/25"
-              onClick={async () => {
-                if (confirm(t('team.sprint.confirmDelete'))) {
-                  await deleteSprint(activeTeamId, sprintDetail.id);
-                  setActiveSprintId(null);
-                  setSprintDetail(null);
-                  loadTeam();
-                }
-              }}
-            >
-              🗑️
-            </button>
-          </div>
-        </div>
-
-        {/* Goal */}
-        <div className="card bg-blue-900/10 border-blue-500/20">
-          <div className="text-xs font-medium text-blue-400 mb-1">🎯 {t('team.sprint.goal')}</div>
-          <p className="text-sm">{sprintDetail.goal}</p>
-        </div>
-
-        {/* Plan (if discussed) */}
-        {sprintDetail.plan && (
-          <div className="card bg-purple-900/10 border-purple-500/20">
-            <div className="text-xs font-medium text-purple-400 mb-1">📋 {t('team.sprint.plan')}</div>
-            <pre className="text-sm whitespace-pre-wrap text-[var(--foreground)]/80">{sprintDetail.plan}</pre>
-          </div>
-        )}
-
-        {/* Tabs */}
-        <div className="flex gap-1 border-b border-[var(--border)] pb-1">
-          {[
-            { key: 'chat', label: `💬 ${t('team.sprint.chat')}` },
-            { key: 'workflow', label: `📊 ${t('team.sprint.workflow')}` },
-            { key: 'outputs', label: `📦 ${t('team.sprint.outputs')}` },
-          ].map(tab => (
-            <button
-              key={tab.key}
-              onClick={() => setSprintTab(tab.key)}
-              className={`text-xs px-3 py-1.5 rounded-t transition-colors ${
-                sprintTab === tab.key
-                  ? 'bg-[var(--card)] text-[var(--foreground)] border border-b-0 border-[var(--border)]'
-                  : 'text-[var(--muted)] hover:text-[var(--foreground)]'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Tab content */}
-        {sprintTab === 'chat' && (
-          <div className="card max-h-[50vh] flex flex-col">
-            <div className="flex-1 overflow-auto space-y-2 mb-3 min-h-[200px]">
-              {groupChat.length === 0 ? (
-                <div className="text-center py-8 text-[var(--muted)] text-sm">{t('team.sprint.noMessages')}</div>
-              ) : (
-                groupChat.map(msg => (
-                  <div key={msg.id} className={`flex gap-2 ${msg.type === 'system' ? 'justify-center' : ''}`}>
-                    {msg.type === 'system' ? (
-                      <div className="text-[10px] text-[var(--muted)] bg-white/5 px-3 py-1 rounded-full">{msg.content}</div>
-                    ) : (
-                      <>
-                        <div className="shrink-0 w-7 h-7">
-                          {msg.from.avatar ? (
-                            <CachedAvatar src={msg.from.avatar} alt={msg.from.name} className="w-7 h-7 rounded-full" />
-                          ) : (
-                            <div className="w-7 h-7 rounded-full bg-[var(--border)] flex items-center justify-center text-xs">
-                              {msg.from.name?.[0] || '?'}
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-medium">{msg.from.name}</span>
-                            <span className="text-[10px] text-[var(--muted)]">
-                              {new Date(msg.time).toLocaleTimeString()}
-                            </span>
-                          </div>
-                          <div className="text-sm mt-0.5 whitespace-pre-wrap break-words">{msg.content}</div>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                ))
+              <div className="w-px h-5 bg-[var(--border)]" />
+              <span className="text-lg font-bold">{sprintDetail.title}</span>
+              <span className={`text-xs px-2 py-0.5 rounded-full ${st.bg} ${st.color}`}>{st.icon} {st.label}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              {sprintDetail.status === 'draft' && (
+                <button className="btn-primary text-xs" disabled={loading} onClick={() => handleDiscuss(sprintDetail.id)}>
+                  {loading ? t('team.sprint.discussing') : t('team.sprint.startDiscussion')}
+                </button>
               )}
-              <div ref={chatEndRef} />
-            </div>
-            {/* Chat input */}
-            <div className="flex gap-2 pt-2 border-t border-[var(--border)]">
-              <input
-                className="input flex-1 text-sm"
-                placeholder={t('team.sprint.chatPlaceholder')}
-                value={chatInput}
-                onChange={e => setChatInput(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendChat(); } }}
-              />
+              {sprintDetail.status === 'pending_approval' && (
+                <button className="btn-primary text-xs" disabled={loading} onClick={() => handleApprove(sprintDetail.id)}>
+                  {loading ? '...' : t('team.sprint.approve')}
+                </button>
+              )}
               <button
-                className="btn-primary text-sm px-4"
-                disabled={!chatInput.trim()}
-                onClick={handleSendChat}
+                className="text-xs px-2 py-1 rounded bg-red-600/15 text-red-400 hover:bg-red-600/25"
+                onClick={async () => {
+                  if (confirm(t('team.sprint.confirmDelete'))) {
+                    await deleteSprint(activeTeamId, sprintDetail.id);
+                    setActiveSprintId(null);
+                    setSprintDetail(null);
+                    loadTeam();
+                  }
+                }}
               >
-                {t('common.send')}
+                🗑️
               </button>
             </div>
           </div>
-        )}
-
-        {sprintTab === 'workflow' && (
-          <div className="card">
-            {sprintDetail.workflow?.nodes?.length > 0 ? (
-              <div className="space-y-2">
-                {/* Progress bar */}
-                {(() => {
-                  const nodes = sprintDetail.workflow.nodes;
-                  const completed = nodes.filter(n => n.status === 'completed').length;
-                  const total = nodes.length;
-                  const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
-                  return (
-                    <div className="mb-4">
-                      <div className="flex justify-between text-xs text-[var(--muted)] mb-1">
-                        <span>{t('reqDetail.workflow.progress')}</span>
-                        <span>{completed}/{total} ({pct}%)</span>
-                      </div>
-                      <div className="w-full h-2 bg-[var(--border)] rounded-full overflow-hidden">
-                        <div className="h-full bg-green-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
-                      </div>
-                    </div>
-                  );
-                })()}
-                {sprintDetail.workflow.nodes.map((node, i) => {
-                  const nodeSt = {
-                    waiting: { color: 'border-gray-600', text: 'text-gray-400', icon: '⏳' },
-                    ready: { color: 'border-blue-600', text: 'text-blue-400', icon: '🟢' },
-                    running: { color: 'border-yellow-600', text: 'text-yellow-400', icon: '⚙️' },
-                    reviewing: { color: 'border-purple-600', text: 'text-purple-400', icon: '🔍' },
-                    revision: { color: 'border-orange-600', text: 'text-orange-400', icon: '🔄' },
-                    completed: { color: 'border-green-600', text: 'text-green-400', icon: '✅' },
-                    failed: { color: 'border-red-600', text: 'text-red-400', icon: '❌' },
-                  }[node.status] || { color: 'border-gray-600', text: 'text-gray-400', icon: '❓' };
-                  return (
-                    <div key={node.id} className={`border-l-2 ${nodeSt.color} pl-3 py-2`}>
-                      <div className="flex items-center gap-2">
-                        <span>{nodeSt.icon}</span>
-                        <span className="text-sm font-medium">{node.title}</span>
-                        <span className={`text-[10px] ${nodeSt.text}`}>{node.status}</span>
-                      </div>
-                      <div className="text-xs text-[var(--muted)] mt-0.5">
-                        → {node.assigneeName || 'TBD'}
-                        {node.reviewerName && <span className="ml-2">🔍 {node.reviewerName}</span>}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="text-center py-8 text-[var(--muted)] text-sm">
-                {t('reqDetail.workflow.notParsed')}
-              </div>
+          {/* Goal & Plan summary */}
+          <div className="flex items-center gap-4 mt-2 text-xs text-[var(--muted)]">
+            <span>🎯 {sprintDetail.goal}</span>
+            {sprintDetail.workflow?.nodes?.length > 0 && (
+              <span>📊 {sprintDetail.workflow.nodes.filter(n => n.status === 'completed').length}/{sprintDetail.workflow.nodes.length}</span>
             )}
           </div>
-        )}
+        </div>
 
-        {sprintTab === 'outputs' && (
-          <div className="card">
-            {sprintDetail.outputs?.length > 0 ? (
-              <div className="space-y-3">
-                {sprintDetail.outputs.map(out => (
-                  <div key={out.id} className="border border-[var(--border)] rounded-lg p-3">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-xs font-medium">{out.agentName}</span>
-                      <span className="text-[10px] text-[var(--muted)]">{out.role}</span>
-                      <span className="text-[10px] bg-blue-900/30 text-blue-400 px-1.5 py-0.5 rounded">{out.outputType}</span>
-                    </div>
-                    <pre className="text-xs whitespace-pre-wrap max-h-40 overflow-auto text-[var(--foreground)]/80 bg-black/20 p-2 rounded">
-                      {out.content?.length > 500 ? out.content.slice(0, 500) + '...' : out.content}
-                    </pre>
+        {/* Two-column body */}
+        <div className="flex-1 min-h-0 flex">
+          {/* Left: Group Chat */}
+          <div className="w-[380px] shrink-0 border-r border-white/[0.06] flex flex-col bg-[var(--background)]">
+            <div className="px-4 py-2.5 border-b border-white/[0.06] bg-[var(--card)] flex items-center justify-between">
+              <span className="text-sm font-medium">💬 {t('team.sprint.chat')}</span>
+              <span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded-full text-[var(--muted)]">{groupChat.length}</span>
+            </div>
+            <GroupChatView
+              groupChat={groupChat}
+              agentMap={chatAgentMap}
+              bossAvatar={company?.bossAvatar}
+              bossName={company?.boss || 'Boss'}
+              requirementId={sprintDetail.id}
+              onSendMessage={handleSprintChatSend}
+              fetchDetail={handleSprintChatRefresh}
+              leaderInfo={chatLeaderInfo}
+              chatEndRef={chatEndRef}
+              embedded
+            />
+          </div>
+
+          {/* Right: Tabs + Content */}
+          <div className="flex-1 min-w-0 flex flex-col">
+            {/* Tab bar */}
+            <div className="flex border-b border-white/[0.06] shrink-0 px-6 bg-[var(--card)]">
+              {[
+                ...(sprintDetail.plan ? [{ key: 'plan', label: `📋 ${t('team.sprint.plan')}` }] : []),
+                { key: 'workflow', label: `📊 ${t('team.sprint.workflow')}`, badge: sprintDetail.workflow?.nodes?.length },
+                { key: 'files', label: t('team.tab.files') },
+              ].map(tab => (
+                <button
+                  key={tab.key}
+                  onClick={() => setSprintTab(tab.key)}
+                  className={`px-5 py-3 text-sm font-medium transition-all border-b-2 ${
+                    sprintTab === tab.key
+                      ? 'border-[var(--accent)] text-[var(--accent)]'
+                      : 'border-transparent text-[var(--muted)] hover:text-white'
+                  }`}
+                >
+                  {tab.label}
+                  {tab.badge > 0 && (
+                    <span className="ml-1.5 text-[10px] bg-white/10 px-1.5 py-0.5 rounded-full">{tab.badge}</span>
+                  )}
+                </button>
+              ))}
+            </div>
+
+            {/* Tab content */}
+            <div className={`flex-1 min-h-0 flex flex-col ${sprintTab === 'files' ? 'overflow-hidden' : 'overflow-auto p-4'}`}>
+              {sprintTab === 'plan' && sprintDetail.plan && (
+                <div className="">
+                  <div className="prose prose-invert prose-xs max-w-none font-mono text-xs leading-relaxed">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{sprintDetail.plan}</ReactMarkdown>
                   </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-8 text-[var(--muted)] text-sm">
-                {t('reqDetail.outputs.noOutputs')}
-              </div>
-            )}
+                </div>
+              )}
+
+              {sprintTab === 'workflow' && (
+                <div>
+                  {sprintDetail.workflow?.nodes?.length > 0 ? (
+                    <div className="space-y-2">
+                      {/* Progress bar */}
+                      {(() => {
+                        const nodes = sprintDetail.workflow.nodes;
+                        const completed = nodes.filter(n => n.status === 'completed').length;
+                        const total = nodes.length;
+                        const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+                        return (
+                          <div className="mb-4">
+                            <div className="flex justify-between text-xs text-[var(--muted)] mb-1">
+                              <span>{t('reqDetail.workflow.progress')}</span>
+                              <span>{completed}/{total} ({pct}%)</span>
+                            </div>
+                            <div className="w-full h-2 bg-[var(--border)] rounded-full overflow-hidden">
+                              <div className="h-full bg-green-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                            </div>
+                          </div>
+                        );
+                      })()}
+                      {sprintDetail.workflow.nodes.map((node) => {
+                        const nodeSt = {
+                          waiting: { color: 'border-gray-600', text: 'text-gray-400', icon: '⏳' },
+                          ready: { color: 'border-blue-600', text: 'text-blue-400', icon: '🟢' },
+                          running: { color: 'border-yellow-600', text: 'text-yellow-400', icon: '⚙️' },
+                          reviewing: { color: 'border-purple-600', text: 'text-purple-400', icon: '🔍' },
+                          revision: { color: 'border-orange-600', text: 'text-orange-400', icon: '🔄' },
+                          completed: { color: 'border-green-600', text: 'text-green-400', icon: '✅' },
+                          failed: { color: 'border-red-600', text: 'text-red-400', icon: '❌' },
+                        }[node.status] || { color: 'border-gray-600', text: 'text-gray-400', icon: '❓' };
+                        return (
+                          <div key={node.id} className={`border-l-2 ${nodeSt.color} pl-3 py-2`}>
+                            <div className="flex items-center gap-2">
+                              <span>{nodeSt.icon}</span>
+                              <span className="text-sm font-medium">{node.title}</span>
+                              <span className={`text-[10px] ${nodeSt.text}`}>{node.status}</span>
+                            </div>
+                            <div className="text-xs text-[var(--muted)] mt-0.5">
+                              → {node.assigneeName || 'TBD'}
+                              {node.reviewerName && <span className="ml-2">🔍 {node.reviewerName}</span>}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 text-[var(--muted)] text-sm">
+                      {t('reqDetail.workflow.notParsed')}
+                    </div>
+                  )}
+
+                  {/* Outputs section below workflow */}
+                  {sprintDetail.outputs?.length > 0 && (
+                    <div className="mt-6">
+                      <h3 className="text-sm font-semibold text-[var(--muted)] uppercase tracking-wider mb-3">📦 {t('team.sprint.outputs')}</h3>
+                      <div className="space-y-3">
+                        {sprintDetail.outputs.map(out => (
+                          <div key={out.id} className="border border-[var(--border)] rounded-lg p-3">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-xs font-medium">{out.agentName}</span>
+                              <span className="text-[10px] text-[var(--muted)]">{out.role}</span>
+                              <span className="text-[10px] bg-blue-900/30 text-blue-400 px-1.5 py-0.5 rounded">{out.outputType}</span>
+                            </div>
+                            <pre className="text-xs whitespace-pre-wrap max-h-40 overflow-auto text-[var(--foreground)]/80 bg-black/20 p-2 rounded">
+                              {out.content?.length > 500 ? out.content.slice(0, 500) + '...' : out.content}
+                            </pre>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {sprintTab === 'files' && (
+                <div className="flex-1 min-h-0">
+                  {team.workspacePath ? (
+                    <div className="h-full">
+                      <FilesView
+                        departmentId={team.departmentId}
+                        previewFile={previewFile}
+                        onPreview={loadFilePreview}
+                        onClosePreview={() => setPreviewFile(null)}
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-center h-full text-[var(--muted)]">
+                      <div className="text-center">
+                        <div className="text-3xl mb-2">📁</div>
+                        <p className="text-sm">{t('team.noWorkspace')}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
-        )}
+        </div>
       </div>
     );
   };
@@ -470,7 +483,11 @@ export default function TeamDetail() {
       </div>
 
       {/* Main content */}
-      <div className={`flex-1 min-h-0 p-6 space-y-6 flex flex-col ${activeTab === 'files' ? 'overflow-hidden' : 'overflow-auto'}`}>
+      <div className={`flex-1 min-h-0 flex flex-col ${
+        activeSprintId
+          ? 'overflow-hidden'
+          : `p-6 space-y-6 ${activeTab === 'files' ? 'overflow-hidden' : 'overflow-auto'}`
+      }`}>
 
         {/* New Sprint Form */}
         {showNewSprint && (

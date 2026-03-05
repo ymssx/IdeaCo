@@ -279,96 +279,270 @@ export async function POST(request) {
     }
 
     sprint.status = SS.DISCUSSING;
+    company.save();
 
-    // Leader starts discussion
+    // Return immediately, run discussion async so frontend can poll progress
+    const response = NextResponse.json({ data: sprint.serialize() });
+
+    // Async discussion flow (心流模式)
     const dept = company.findDepartment(team.departmentId);
     const leader = dept?.agents.get(team.leaderId);
 
     if (leader) {
-      sprint.addGroupMessage(
-        leader,
-        `📢 各位，我们来讨论迭代「${sprint.title}」的方案。\n\n🎯 迭代目标：${sprint.goal}\n\n请各位结合自己的专长给出建议，我会汇总形成最终方案。`,
-        'message'
-      );
+      (async () => {
+        try {
+          const { llmClient } = await import('@/core/llm-client.js');
+          const { getTraitStyle, getAgeStyle } = await import('@/core/prompt-locale.js');
 
-      // Use LLM to generate leader's discussion plan
-      try {
-        const { llmClient } = await import('@/core/llm-client.js');
-        const memberInfo = team.memberIds.map(mid => {
-          const a = dept.agents.get(mid);
-          return a ? `- ${a.name} (${a.role}): skills=[${a.skills.join(', ')}]` : null;
-        }).filter(Boolean).join('\n');
+          const members = team.memberIds.map(mid => dept.agents.get(mid)).filter(Boolean);
+          const nonLeaderMembers = members.filter(m => m.id !== team.leaderId);
 
-        const response = await llmClient.chat(leader.provider, [
-          {
-            role: 'system',
-            content: `You are "${leader.name}", a project leader. Your team wants to start a sprint.
+          const memberInfo = members.map(a =>
+            `- ${a.name} (${a.role}): skills=[${a.skills.join(', ')}]`
+          ).join('\n');
+
+          // Helper: build personality-aware system prompt for an agent
+          const buildAgentPrompt = (agent, scenario) => {
+            const p = agent.personality || {};
+            const traitStyle = getTraitStyle(p.trait);
+            const ageStyle = getAgeStyle(agent.age);
+            return `${traitStyle}
+
+You are "${agent.name}", ${agent.gender || 'male'}, age ${agent.age || 28}, working as "${agent.role}".
+Tone: ${p.tone || 'professional'}. Quirk: ${p.quirk || 'none'}. Signature: ${agent.signature || ''}.
+
+${ageStyle}
+
+---
+
+${scenario}
+
+IMPORTANT: Stay in character. Your reply should reflect your personality, age, and speaking style. DO NOT sound like a polite AI assistant. Be natural, opinionated, and real.
+Speak in the same language as the conversation (match the sprint goal language).`;
+          };
+
+          // Helper: get recent chat as context string
+          const getChatContext = () => {
+            const msgs = (sprint.groupChat || []).filter(m => m.visibility !== 'flow');
+            return msgs.slice(-15).map(m => `${m.from?.name || 'System'}: ${m.content}`).join('\n');
+          };
+
+          // === Phase 1: Leader opens discussion ===
+          sprint.addGroupMessage(
+            leader,
+            `📢 各位，我们来讨论迭代「${sprint.title}」的方案。\n\n🎯 迭代目标：${sprint.goal}\n\n请各位结合自己的专长给出建议，我会汇总形成最终方案。`,
+            'message'
+          );
+          company.save();
+
+          // === Phase 2: Leader proposes initial plan ===
+          const planResponse = await llmClient.chat(leader.provider, [
+            {
+              role: 'system',
+              content: buildAgentPrompt(leader, `You are the team leader. Your team is starting a sprint discussion.
 Team members:\n${memberInfo}
 
-Analyze the sprint goal and propose a concrete plan. Include:
-1. How to approach the goal
-2. What each team member should focus on
+Analyze the sprint goal and propose a concrete initial plan. Include:
+1. Overall approach and architecture
+2. Task breakdown — what each team member should focus on (based on their skills)
 3. Expected deliverables
-4. Potential risks
+4. Potential risks and mitigation
 
-Be concise and actionable. Speak in the language matching the sprint goal.`,
-          },
-          { role: 'user', content: `Sprint goal: ${sprint.goal}\n\nPropose a plan for the team to discuss.` },
-        ], { temperature: 0.7, maxTokens: 1024 });
+Be specific and actionable. This is a DRAFT plan for the team to discuss and improve.`),
+            },
+            { role: 'user', content: `Sprint goal: ${sprint.goal}\n\nPropose your initial plan for the team to discuss.` },
+          ], { temperature: 0.7, maxTokens: 1024 });
 
-        leader._trackUsage(response.usage);
-        sprint.plan = response.content;
+          leader._trackUsage(planResponse.usage);
+          sprint.plan = planResponse.content;
 
-        sprint.addGroupMessage(
-          leader,
-          `📋 这是我的初步方案：\n\n${response.content}\n\n大家觉得如何？有什么补充或者意见？`,
-          'message'
-        );
+          sprint.addGroupMessage(
+            leader,
+            `📋 这是我的初步方案：\n\n${planResponse.content}\n\n大家觉得如何？请结合自己的专长提出意见和建议，我们一起完善。`,
+            'message'
+          );
+          company.save();
 
-        // Each member responds (brief)
-        for (const mid of team.memberIds) {
-          if (mid === team.leaderId) continue;
-          const agent = dept.agents.get(mid);
-          if (!agent || !agent.provider?.enabled || !agent.provider?.apiKey) continue;
+          // Small delay to mimic natural pacing
+          await new Promise(r => setTimeout(r, 1500));
 
+          // === Phase 3: Each member gives feedback (Round 1 — initial opinions) ===
+          // Randomize order so it feels natural
+          const shuffled = [...nonLeaderMembers].sort(() => Math.random() - 0.5);
+
+          for (const agent of shuffled) {
+            if (!agent.provider?.enabled || !agent.provider?.apiKey) continue;
+
+            // Inner monologue (flow visibility — Boss can peek)
+            try {
+              const monologueResp = await llmClient.chat(agent.provider, [
+                {
+                  role: 'system',
+                  content: buildAgentPrompt(agent, `You are in a sprint planning discussion. The leader just proposed a plan. Think about what you really feel about this plan — your honest inner thoughts. This is your PRIVATE inner monologue, not what you'll say out loud.
+
+Consider: Does the plan make sense for your role? Any concerns? Anything missing? What would YOU change?`),
+                },
+                { role: 'user', content: `Chat context:\n${getChatContext()}\n\nWhat are your honest inner thoughts about this plan? (1-2 sentences, be real)` },
+              ], { temperature: 0.95, maxTokens: 200 });
+              agent._trackUsage(monologueResp.usage);
+              sprint.addGroupMessage(
+                { id: agent.id, name: agent.name, avatar: agent.avatar, role: agent.role },
+                monologueResp.content,
+                'monologue',
+                'flow'
+              );
+            } catch (e) { /* monologue failed, continue */ }
+
+            // Actual group message — substantive feedback
+            try {
+              const feedbackResp = await llmClient.chat(agent.provider, [
+                {
+                  role: 'system',
+                  content: buildAgentPrompt(agent, `You are in a sprint planning discussion group. The leader proposed an initial plan. Now it's your turn to give feedback.
+
+Your expertise: ${agent.role}, skills: [${(agent.skills || []).join(', ')}]
+
+REQUIREMENTS for your feedback:
+1. Comment on the parts relevant to YOUR expertise — be specific
+2. Point out any issues, risks, or improvements you see
+3. If you disagree with something, say so clearly and suggest alternatives
+4. If you have additional ideas, propose them
+5. Keep it concise but substantive (3-5 sentences)
+
+Other team members:\n${memberInfo}
+
+DO NOT just say "looks good" or "I agree". Give REAL, specific feedback.`),
+                },
+                { role: 'user', content: `Chat context:\n${getChatContext()}\n\nGive your professional feedback on the plan.` },
+              ], { temperature: 0.8, maxTokens: 400 });
+
+              agent._trackUsage(feedbackResp.usage);
+              sprint.addGroupMessage(agent, feedbackResp.content, 'message');
+              company.save();
+
+              // Stagger replies
+              await new Promise(r => setTimeout(r, 800 + Math.random() * 1200));
+            } catch (e) { /* ignore */ }
+          }
+
+          // === Phase 4: Cross-discussion (Round 2 — members respond to each other) ===
+          // Pick 2-3 members who had the most substantive feedback to continue
+          const discussants = shuffled
+            .filter(a => a.provider?.enabled && a.provider?.apiKey)
+            .slice(0, Math.min(3, nonLeaderMembers.length));
+
+          if (discussants.length > 1) {
+            await new Promise(r => setTimeout(r, 1000));
+
+            for (const agent of discussants) {
+              try {
+                const crossResp = await llmClient.chat(agent.provider, [
+                  {
+                    role: 'system',
+                    content: buildAgentPrompt(agent, `You are in a sprint planning discussion. Other team members have given their feedback. Now you can:
+1. Respond to a colleague's point you agree or disagree with
+2. Build on someone else's suggestion
+3. Raise a new concern that wasn't mentioned
+4. Propose a specific technical solution
+
+Be brief (2-3 sentences). Reference specific colleagues by name when responding to their points. Stay in character.`),
+                  },
+                  { role: 'user', content: `Full discussion so far:\n${getChatContext()}\n\nAdd to the discussion — respond to colleagues or raise new points.` },
+                ], { temperature: 0.85, maxTokens: 300 });
+
+                agent._trackUsage(crossResp.usage);
+                sprint.addGroupMessage(agent, crossResp.content, 'message');
+                company.save();
+
+                await new Promise(r => setTimeout(r, 600 + Math.random() * 800));
+              } catch (e) { /* ignore */ }
+            }
+          }
+
+          // === Phase 5: Leader summarizes and revises plan ===
+          await new Promise(r => setTimeout(r, 1000));
+
+          // Leader inner monologue
           try {
-            const p = agent.personality || {};
-            const memberReply = await llmClient.chat(agent.provider, [
+            const leaderMonologue = await llmClient.chat(leader.provider, [
               {
                 role: 'system',
-                content: `You are "${agent.name}", working as "${agent.role}". Personality: ${p.trait || 'Professional'}.
-Your leader proposed a sprint plan. Give brief feedback (2-3 sentences) based on your expertise.
-Be constructive, in character. Speak in the same language as the plan.`,
+                content: buildAgentPrompt(leader, `You are the team leader. Your team has finished discussing the sprint plan. Think about all the feedback — what should you incorporate? What should you push back on? This is your PRIVATE inner thought.`),
               },
-              { role: 'user', content: `Sprint goal: ${sprint.goal}\n\nLeader's plan:\n${response.content}\n\nGive your feedback.` },
-            ], { temperature: 0.8, maxTokens: 256 });
-
-            agent._trackUsage(memberReply.usage);
-            sprint.addGroupMessage(agent, memberReply.content, 'message');
+              { role: 'user', content: `Discussion:\n${getChatContext()}\n\nYour honest thoughts on the team's feedback? (2-3 sentences)` },
+            ], { temperature: 0.8, maxTokens: 200 });
+            leader._trackUsage(leaderMonologue.usage);
+            sprint.addGroupMessage(
+              { id: leader.id, name: leader.name, avatar: leader.avatar, role: leader.role },
+              leaderMonologue.content,
+              'monologue',
+              'flow'
+            );
           } catch (e) { /* ignore */ }
-        }
 
-        // Leader summarizes
-        sprint.addGroupMessage(
-          { name: 'System', role: 'system' },
-          `✅ 讨论完毕！方案已准备好，等待 Boss 审批。`,
-          'system'
-        );
-        sprint.status = SS.PENDING_APPROVAL;
-      } catch (e) {
-        sprint.addGroupMessage(
-          { name: 'System', role: 'system' },
-          `⚠️ 讨论生成失败: ${e.message}，请手动设置方案。`,
-          'system'
-        );
-        sprint.status = SS.PENDING_APPROVAL;
-      }
+          // Leader summary message in group
+          try {
+            const summaryResp = await llmClient.chat(leader.provider, [
+              {
+                role: 'system',
+                content: buildAgentPrompt(leader, `You are the team leader wrapping up the sprint plan discussion. You need to:
+1. Acknowledge the team's valuable feedback (mention specific people and their points)
+2. Explain which suggestions you're incorporating and why
+3. Note any concerns you'll monitor during execution
+4. Announce the plan is ready for Boss's approval
+
+Be concise, professional, and appreciative. Show you actually listened.`),
+              },
+              { role: 'user', content: `Full discussion:\n${getChatContext()}\n\nSummarize the discussion and wrap up.` },
+            ], { temperature: 0.7, maxTokens: 400 });
+
+            leader._trackUsage(summaryResp.usage);
+            sprint.addGroupMessage(leader, summaryResp.content, 'message');
+          } catch (e) { /* ignore */ }
+
+          // Leader revises the plan based on all feedback
+          try {
+            const revisedPlan = await llmClient.chat(leader.provider, [
+              {
+                role: 'system',
+                content: `You are "${leader.name}", team leader. Your team has discussed the sprint plan and given feedback. Now revise the plan incorporating the valid suggestions.
+
+Output ONLY the revised plan in markdown format. Keep it concise and actionable.
+Speak in the same language as the original plan.`,
+              },
+              { role: 'user', content: `Original plan:\n${sprint.plan}\n\nFull team discussion:\n${getChatContext()}\n\nOutput the REVISED plan incorporating the team's feedback:` },
+            ], { temperature: 0.5, maxTokens: 2048 });
+
+            leader._trackUsage(revisedPlan.usage);
+            sprint.plan = revisedPlan.content;
+          } catch (e) { /* plan revision failed, keep original */ }
+
+          // Final system message
+          sprint.addGroupMessage(
+            { name: 'System', role: 'system' },
+            `✅ 讨论完毕！方案已根据团队意见修订，等待 Boss 审批。`,
+            'system'
+          );
+          sprint.status = SS.PENDING_APPROVAL;
+          company.save();
+
+        } catch (e) {
+          console.error('[Sprint Discussion] Error:', e.message);
+          sprint.addGroupMessage(
+            { name: 'System', role: 'system' },
+            `⚠️ 讨论过程中出错: ${e.message}，当前方案提交审批。`,
+            'system'
+          );
+          sprint.status = SS.PENDING_APPROVAL;
+          company.save();
+        }
+      })();
     } else {
       sprint.status = SS.PENDING_APPROVAL;
+      company.save();
     }
 
-    company.save();
-    return NextResponse.json({ data: sprint.serialize() });
+    return response;
   }
 
   // === Approve Sprint (Boss 同意开始迭代) ===
@@ -452,9 +626,9 @@ Be constructive, in character. Speak in the same language as the plan.`,
 
     company.save();
 
-    // If sprint is in progress, trigger leader to respond (like sendBossGroupMessage)
+    // Trigger leader to respond when Boss sends a message
     const { SprintStatus: SS } = await import('@/core/team.js');
-    if (sprint.status === SS.IN_PROGRESS || sprint.status === SS.DISCUSSING) {
+    if (sprint.status === SS.IN_PROGRESS || sprint.status === SS.DISCUSSING || sprint.status === SS.PENDING_APPROVAL) {
       const dept = company.findDepartment(team.departmentId);
       const leader = dept?.agents.get(team.leaderId);
       if (leader && leader.provider?.enabled && leader.provider?.apiKey) {
@@ -464,10 +638,16 @@ Be constructive, in character. Speak in the same language as the plan.`,
             `${m.from.name}: ${m.content}`
           ).join('\n');
 
+          const systemPrompts = {
+            [SS.PENDING_APPROVAL]: `You are "${leader.name}", team leader for sprint "${sprint.title}". The plan has been submitted and is awaiting Boss's approval. Boss is now giving feedback or suggestions on the plan. Listen carefully, acknowledge the feedback, explain how you will adjust the plan accordingly, and update the approach. Be concise and professional. Speak in the same language as the conversation.`,
+            [SS.DISCUSSING]: `You are "${leader.name}", team leader for sprint "${sprint.title}". The team is currently discussing the sprint plan. Boss is participating in the discussion. Respond to Boss's input, incorporate suggestions, and coordinate with the team. Be concise and professional. Speak in the same language as the conversation.`,
+            [SS.IN_PROGRESS]: `You are "${leader.name}", team leader for sprint "${sprint.title}". Boss just sent a message. Respond briefly and professionally. If Boss is giving instructions, acknowledge and explain how you'll handle it. Speak in the same language as the conversation.`,
+          };
+
           const reply = await llmClient.chat(leader.provider, [
             {
               role: 'system',
-              content: `You are "${leader.name}", team leader for sprint "${sprint.title}". Boss just sent a message. Respond briefly and professionally. If Boss is giving instructions, acknowledge and explain how you'll handle it. Speak in the same language as the conversation.`,
+              content: systemPrompts[sprint.status] || systemPrompts[SS.IN_PROGRESS],
             },
             { role: 'user', content: `Recent chat:\n${recentChat}\n\nBoss says: ${message}\n\nRespond as the team leader.` },
           ], { temperature: 0.7, maxTokens: 512 });
@@ -475,6 +655,108 @@ Be constructive, in character. Speak in the same language as the plan.`,
           leader._trackUsage(reply.usage);
           sprint.addGroupMessage(leader, reply.content, 'message');
           company.save();
+
+          // If pending_approval and Boss gave feedback, update the plan then trigger team discussion
+          if (sprint.status === SS.PENDING_APPROVAL && sprint.plan) {
+            // Run async so API returns immediately
+            (async () => {
+              try {
+                const { getTraitStyle, getAgeStyle } = await import('@/core/prompt-locale.js');
+
+                // Leader revises the plan based on Boss feedback
+                const planReply = await llmClient.chat(leader.provider, [
+                  {
+                    role: 'system',
+                    content: `You are "${leader.name}", team leader. Boss has given feedback on your sprint plan. Update the plan based on Boss's feedback. Output ONLY the revised plan in the same format (markdown). Keep it concise. Speak in the same language as the original plan.`,
+                  },
+                  { role: 'user', content: `Original plan:\n${sprint.plan}\n\nBoss feedback: ${message}\n\nYour response to Boss: ${reply.content}\n\nNow output the revised plan:` },
+                ], { temperature: 0.5, maxTokens: 2048 });
+
+                leader._trackUsage(planReply.usage);
+                sprint.plan = planReply.content;
+                company.save();
+
+                await new Promise(r => setTimeout(r, 1000));
+
+                // Now trigger team members to review and comment on the revised plan
+                const members = team.memberIds
+                  .map(mid => dept.agents.get(mid))
+                  .filter(a => a && a.id !== team.leaderId && a.provider?.enabled && a.provider?.apiKey);
+
+                const recentMsgs = sprint.groupChat.slice(-15)
+                  .filter(m => m.visibility !== 'flow')
+                  .map(m => `${m.from?.name || 'System'}: ${m.content}`)
+                  .join('\n');
+
+                const shuffled = [...members].sort(() => Math.random() - 0.5);
+
+                for (const agent of shuffled) {
+                  try {
+                    const p = agent.personality || {};
+                    const traitStyle = getTraitStyle(p.trait);
+                    const ageStyle = getAgeStyle(agent.age);
+
+                    const feedbackResp = await llmClient.chat(agent.provider, [
+                      {
+                        role: 'system',
+                        content: `${traitStyle}\n\nYou are "${agent.name}", ${agent.gender || 'male'}, age ${agent.age || 28}, working as "${agent.role}".\nTone: ${p.tone || 'professional'}. Quirk: ${p.quirk || 'none'}.\n\n${ageStyle}\n\n---\n\nYour team leader just revised the sprint plan based on Boss's feedback. Now it's your turn to review the REVISED plan and give your opinion.\n\nYour expertise: ${agent.role}, skills: [${(agent.skills || []).join(', ')}]\n\nREQUIREMENTS:\n1. Comment on whether the revisions address Boss's concerns\n2. Point out any issues or improvements you see in the NEW plan\n3. If you have additional suggestions, propose them\n4. Keep it concise (2-4 sentences)\n\nDO NOT just say "looks good". Give REAL, specific feedback. Stay in character.\nSpeak in the same language as the conversation.`,
+                      },
+                      { role: 'user', content: `Recent discussion:\n${recentMsgs}\n\nBoss's feedback: ${message}\n\nRevised plan:\n${sprint.plan}\n\nGive your feedback on the revised plan.` },
+                    ], { temperature: 0.8, maxTokens: 400 });
+
+                    agent._trackUsage(feedbackResp.usage);
+                    sprint.addGroupMessage(agent, feedbackResp.content, 'message');
+                    company.save();
+
+                    await new Promise(r => setTimeout(r, 800 + Math.random() * 1200));
+                  } catch (e) { /* ignore individual agent failure */ }
+                }
+
+                // Leader incorporates team feedback into a final revision
+                if (shuffled.length > 0) {
+                  await new Promise(r => setTimeout(r, 800));
+
+                  const finalChat = sprint.groupChat.slice(-15)
+                    .filter(m => m.visibility !== 'flow')
+                    .map(m => `${m.from?.name || 'System'}: ${m.content}`)
+                    .join('\n');
+
+                  try {
+                    const wrapResp = await llmClient.chat(leader.provider, [
+                      {
+                        role: 'system',
+                        content: `You are "${leader.name}", team leader. Boss gave feedback, you revised the plan, and team members have reviewed the revision. Now briefly acknowledge the team's input and confirm the plan is updated. Be concise (2-3 sentences). Speak in the same language as the conversation.`,
+                      },
+                      { role: 'user', content: `Discussion:\n${finalChat}\n\nWrap up briefly.` },
+                    ], { temperature: 0.7, maxTokens: 256 });
+
+                    leader._trackUsage(wrapResp.usage);
+                    sprint.addGroupMessage(leader, wrapResp.content, 'message');
+                  } catch (e) { /* ignore */ }
+
+                  // Final plan revision incorporating team's latest feedback
+                  try {
+                    const finalPlan = await llmClient.chat(leader.provider, [
+                      {
+                        role: 'system',
+                        content: `You are "${leader.name}", team leader. Revise the plan one more time incorporating the team's latest feedback. Output ONLY the revised plan in markdown. Keep the same language.`,
+                      },
+                      { role: 'user', content: `Current plan:\n${sprint.plan}\n\nTeam feedback:\n${finalChat}\n\nOutput the final revised plan:` },
+                    ], { temperature: 0.5, maxTokens: 2048 });
+
+                    leader._trackUsage(finalPlan.usage);
+                    sprint.plan = finalPlan.content;
+                  } catch (e) { /* ignore */ }
+
+                  company.save();
+                }
+              } catch (e) {
+                console.error('[Sprint Boss Feedback Discussion] Error:', e.message);
+              }
+            })();
+          } else {
+            company.save();
+          }
         } catch (e) { /* ignore */ }
       }
     }
