@@ -787,6 +787,11 @@ Do not use any code, tool calls, or technical instructions — reply in natural 
     this.memory.addShortTerm(`Starting CLI task: "${task.title}" via ${backend.config.name}`, 'task');
 
     try {
+      // Track output length for progress heartbeats
+      let outputLen = 0;
+      let lastHeartbeat = Date.now();
+      const HEARTBEAT_INTERVAL = 15000; // 15s heartbeat
+
       const cliResult = await cliBackendRegistry.executeTask(
         backendId,
         this,
@@ -794,8 +799,15 @@ Do not use any code, tool calls, or technical instructions — reply in natural 
         wsDir,
         {
           onOutput: (chunk) => {
-            if (callbacks.onToolCall) {
-              try { callbacks.onToolCall({ tool: 'cli_output', args: {}, status: 'start' }); } catch {}
+            outputLen += chunk.length;
+            const now = Date.now();
+            // Send periodic heartbeat callbacks so callers know CLI is still alive
+            if (now - lastHeartbeat >= HEARTBEAT_INTERVAL) {
+              lastHeartbeat = now;
+              const elapsed = Math.round((now - startTime) / 1000);
+              if (callbacks.onToolCall) {
+                try { callbacks.onToolCall({ tool: 'cli_progress', args: { elapsed, outputLen, backend: backend.config.name }, status: 'start' }); } catch {}
+              }
             }
           },
           onError: (chunk) => {
@@ -803,7 +815,7 @@ Do not use any code, tool calls, or technical instructions — reply in natural 
           },
           onComplete: (result) => {
             if (callbacks.onToolCall) {
-              try { callbacks.onToolCall({ tool: 'cli_complete', args: {}, status: 'done', success: result.exitCode === 0 }); } catch {}
+              try { callbacks.onToolCall({ tool: 'cli_complete', args: { backend: backend.config.name, exitCode: result.exitCode }, status: 'done', success: result.exitCode === 0 }); } catch {}
             }
           },
         }

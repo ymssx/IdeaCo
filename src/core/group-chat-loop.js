@@ -6,10 +6,11 @@
  * 2. Direct messages are replied to immediately
  * 3. Group messages → enter flow state (inner monologue, not broadcast to group)
  *    → Only sends messages to group chat when AI decides to speak
- * 4. When @mentioned, must reply (enters flow first, but always produces output)
+ * 4. When @mentioned, prioritize replying (but not mandatory if nothing to add)
  * 5. AI sends group message → triggers other employees' loops → forms chat loop
  * 6. When chat group is idle for a long time (1 hour), AI can initiate topics
  * 7. Boss can peek at employee's flow output (inner monologue)
+ * 8. Periodically self-check: if a workflow task is stuck on this agent, nudge progress
  */
 import { v4 as uuidv4 } from 'uuid';
 import EventEmitter from 'eventemitter3';
@@ -25,6 +26,8 @@ const DEFAULT_CONFIG = {
   antiSpamWindowMs: 120000,       // 2-minute sliding window for anti-spam
   antiSpamMaxMessages: 3,         // Max messages per agent per group in the anti-spam window
   cooldownAfterSpeakMs: 15000,    // 15-second cooldown after speaking before speaking again
+  selfCheckIntervalMs: 60000,     // 60-second interval for workflow self-check
+  stuckThresholdMs: 120000,       // 2 minutes: task running longer than this triggers self-check nudge
 };
 
 /**
@@ -95,6 +98,9 @@ export class GroupChatLoop extends EventEmitter {
     // Recent speak timestamps per Agent per group: `${agentId}:${groupId}` => Date[]
     this._recentSpeaks = new Map();
 
+    // Last self-check timestamp per Agent per group: `${agentId}:${groupId}` => Date
+    this._lastSelfCheck = new Map();
+
     // Company reference (injected externally)
     this.company = null;
 
@@ -126,6 +132,7 @@ export class GroupChatLoop extends EventEmitter {
     this._pollTimers.clear();
     this._processing.clear();
     this._recentSpeaks.clear();
+    this._lastSelfCheck.clear();
     console.log('⏹️ GroupChatLoop: Chat loop engine stopped');
     this.emit('stopped');
   }
@@ -244,6 +251,9 @@ export class GroupChatLoop extends EventEmitter {
 
     for (const group of groups) {
       await this._checkGroupForAgent(agent, group);
+
+      // Self-check: if workflow task is stuck on this agent, nudge progress
+      await this._selfCheckWorkflow(agent, group);
     }
   }
 
@@ -467,6 +477,7 @@ export class GroupChatLoop extends EventEmitter {
     const p = agent.personality;
 
     // Build anti-spam context info
+    const groupId = requirement.id;
     const spamInfo = this._getSpamInfo(agent.id, groupId);
 
     const systemPrompt = `You are "${agent.name}", position: "${agent.role}".
@@ -490,33 +501,35 @@ You MUST write genuine, rich, and deep inner thoughts in the innerThoughts field
 - innerThoughts should be 2-5 sentences, don't just write one dismissive sentence!
 - ⚠️ innerThoughts must NEVER be empty or contain only "nothing" or "no thoughts"
 
-**🚫 Anti-Spam & Speaking Discipline (CRITICAL — READ CAREFULLY!):**
-${spamInfo.recentCount > 0 ? `⚠️ You have already sent ${spamInfo.recentCount} message(s) in the last 2 minutes. ` : ''}${spamInfo.isOnCooldown ? '🛑 You JUST spoke recently — strongly prefer staying SILENT unless absolutely critical.' : ''}
-- **Treasure every message.** The group chat is a shared space — each message should carry real, substantial value.
-- **Do NOT reply just because you were @mentioned.** Being @mentioned is a signal, not an obligation. If you have nothing meaningful to add, stay silent. A nod or "got it" is almost never worth sending.
-- **Ask yourself before speaking: "Does this message move the project forward?"** If the answer is no, do NOT send it.
-- **Avoid echoing, acknowledging, or restating** what others already said. "Agreed", "Sounds good", "I think so too" — these are noise, not signal.
-- **Avoid chat loops**: If you see a back-and-forth exchange between you and another person that's going in circles or not producing new information, STOP. Break the cycle by staying silent.
-- **Max 1 message per turn.** Even if you have multiple thoughts, consolidate into ONE concise message or stay silent.
-- **Good reasons to speak:** You have a NEW conclusion, a concrete deliverable, a blocker, a correction, or a decision that others need to know about.
-- **Bad reasons to speak:** Someone @mentioned you, someone asked a rhetorical question, you want to show you're paying attention, you want to be polite.
+**� When You SHOULD Speak (important — don't stay silent when it matters!):**
+- You have a **real progress update**: "I finished module X", "Found a bug in Y", "API integration is done"
+- You found a **blocker** or problem: "I'm stuck on X because...", "This approach won't work because..."
+- You have a **concrete deliverable** to share: code output, design decision, test results
+- You have a **substantive disagreement**: "I think we should do X instead because..."
+- The boss or a colleague asked you a **direct question** — answer it
+- You've been **working on a task for a while** and the team needs a status update
+- The group chat has been quiet and you have meaningful progress to share
 
-**🎯 Stay On Topic — Requirement Focus (CRITICAL!):**
-- This is a WORK group for requirement "${requirement.title}". Every message should relate to completing this requirement.
-- Before speaking, ask: "Is what I'm about to say helping us finish this requirement, or am I drifting off-topic?"
-- If the conversation has drifted off-topic, do NOT join the drift. Instead, either stay silent or steer the conversation back to the requirement.
-- Progress updates, technical decisions, blockers, deliverables — these belong in the group. Chit-chat, tangents, and meta-discussion do NOT.
-- If you notice the group has been chatting about something unrelated for several messages, consider saying: "Let's get back to [requirement topic]." — but ONLY if no one else has already said it.
+**🚫 When You Should NOT Speak:**
+${spamInfo.recentCount > 0 ? `⚠️ You have already sent ${spamInfo.recentCount} message(s) in the last 2 minutes. ` : ''}${spamInfo.isOnCooldown ? '🛑 You JUST spoke recently — prefer staying silent unless you have key progress.' : ''}
+- Empty acknowledgements: "Got it", "OK", "Sounds good", "Agreed" — these are noise
+- Restating what others already said
+- "I'm thinking", "I'm checking the file" — don't narrate your process
+- Chat loops: if you see back-and-forth going in circles, break the cycle by staying silent
+- Rhetorical or general questions that don't need YOUR specific input
+- Being polite for the sake of being polite
 
-**Speaking Rules (adjusted):**
-- If you were @mentioned, consider replying ONLY if you have something valuable to add. It's OK to not reply if the conversation doesn't need your input.
-- If your work has real progress, concrete conclusions, review findings, or actionable suggestions, speak up.
-- If the boss asked a direct question to you, reply. If the boss made a general announcement, a reply is usually unnecessary.
-- "I'm thinking", "I'm checking the file", "Got it", "OK" — do NOT send these to group chat.
-- "I found a bug in X", "I finished module Y", "I disagree because Z" — these are GREAT for group chat.
-- When in doubt, stay SILENT. Silence is always better than noise.
+**🎯 Stay On Topic — Requirement Focus:**
+- This is a WORK group for requirement "${requirement.title}". Keep messages focused on completing this requirement.
+- If the conversation has drifted off-topic, either stay silent or steer back to the requirement.
 
-${isMentioned ? '📌 You were @mentioned — but this does NOT mean you must reply. Only reply if you have something substantive to contribute.' : ''}
+**⚖️ Balance Rule — The Key Principle:**
+- The group chat is for COLLABORATION. Sharing progress and results is ESSENTIAL for the team to function.
+- DO speak when you have something that helps the team: progress, results, problems, decisions.
+- DON'T speak when you'd just be making noise: acknowledgements, echoes, process narration.
+- When in doubt about trivial stuff, stay silent. When in doubt about work progress, SPEAK UP.
+
+${isMentioned ? '📌 You were @mentioned — prioritize replying, especially if it\'s a direct question or request. But if you truly have nothing to add, it\'s OK to stay silent.' : ''}
 
 Reply in the following JSON format (return JSON only, no other content):
 {
@@ -680,6 +693,90 @@ Please enter flow thinking and decide whether to speak.`;
       recentCount: recentTimestamps.length,
       isOnCooldown: recentTimestamps.some(t => t > cooldownStart),
     };
+  }
+
+  /**
+   * Self-check: if a workflow task is stuck on this agent, nudge progress
+   * This ensures that when the workflow is stalled on a particular agent,
+   * they periodically check in and report status to the group
+   */
+  async _selfCheckWorkflow(agent, group) {
+    if (!group.requirement?.workflow?.nodes) return;
+
+    const key = `${agent.id}:${group.id}`;
+    const now = Date.now();
+    const lastCheck = this._lastSelfCheck.get(key) || 0;
+
+    // Rate limit self-checks
+    if (now - lastCheck < this.config.selfCheckIntervalMs) return;
+
+    const nodes = group.requirement.workflow.nodes;
+
+    // Find nodes that are stuck on this agent (running/reviewing/revision for a while)
+    const myStuckNodes = nodes.filter(n => {
+      if (n.assigneeId !== agent.id && n.reviewerId !== agent.id) return false;
+      if (!['running', 'reviewing', 'revision'].includes(n.status)) return false;
+      if (!n.startedAt) return false;
+      const elapsed = now - new Date(n.startedAt).getTime();
+      return elapsed > this.config.stuckThresholdMs;
+    });
+
+    if (myStuckNodes.length === 0) return;
+
+    // Update last self-check time
+    this._lastSelfCheck.set(key, now);
+
+    // Check if group chat has been quiet (no messages from this agent recently)
+    const recentGroupMessages = (group.requirement.groupChat || [])
+      .filter(m => m.visibility !== 'flow')
+      .slice(-10);
+
+    const myRecentMessages = recentGroupMessages.filter(
+      m => m.from?.id === agent.id && m.type === 'message'
+    );
+
+    // If agent has spoken very recently about this, skip
+    if (myRecentMessages.length > 0) {
+      const lastMsgTime = new Date(myRecentMessages[myRecentMessages.length - 1].time).getTime();
+      if (now - lastMsgTime < this.config.selfCheckIntervalMs * 2) return;
+    }
+
+    // Anti-spam check
+    const spamCheck = this._getSpamInfo(agent.id, group.id);
+    if (spamCheck.recentCount >= this.config.antiSpamMaxMessages) return;
+
+    // Generate a self-check message to the group
+    for (const node of myStuckNodes.slice(0, 1)) { // Only nudge for the first stuck node
+      const elapsed = Math.round((now - new Date(node.startedAt).getTime()) / 1000);
+      const isReviewer = node.reviewerId === agent.id;
+
+      // Determine what kind of check-in to post
+      let checkInContent;
+      if (isReviewer && node.status === 'reviewing') {
+        checkInContent = `🔍 Still reviewing "${node.title}" (${elapsed}s elapsed). Working on it...`;
+      } else if (node.status === 'revision') {
+        checkInContent = `✏️ Working on revisions for "${node.title}" (${elapsed}s elapsed). Making progress...`;
+      } else {
+        checkInContent = `⚙️ Still working on "${node.title}" (${elapsed}s elapsed). Will update when I have results.`;
+      }
+
+      // Send to group chat
+      group.requirement.addGroupMessage(
+        {
+          id: agent.id,
+          name: agent.name,
+          avatar: agent.avatar,
+          role: agent.role,
+        },
+        checkInContent,
+        'message'
+      );
+
+      this._recordSpeak(agent.id, group.id);
+      this._lastGroupActivity.set(group.id, new Date());
+
+      console.log(`  🔔 [GroupChatLoop] ${agent.name} self-check: ${checkInContent}`);
+    }
   }
 
   /**

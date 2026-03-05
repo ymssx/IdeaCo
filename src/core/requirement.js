@@ -581,26 +581,23 @@ Requirements:
               return a ? `@[${a.id}]` : null;
             }).filter(Boolean);
           if (myParallel.length > 0) {
-            requirement.addGroupMessage(
+          requirement.addGroupMessage(
               agent,
               `🔨 Starting "${node.title}"! Working in parallel with ${myParallel.join(', ')} — let's sync up if needed! 💪`,
-              'message',
-              'flow'
+              'message'
             );
           } else {
             requirement.addGroupMessage(
               agent,
               `🔨 Starting to work on "${node.title}"!`,
-              'message',
-              'flow'
+              'message'
             );
           }
         } else {
           requirement.addGroupMessage(
             agent,
             `🔨 Starting to work on "${node.title}"!`,
-            'message',
-            'flow'
+            'message'
           );
         }
 
@@ -655,6 +652,17 @@ currentAction: `${agent.name} is typing..."${node.title}"`,
             onToolCall: ({ tool, args, status, success, error: toolErr }) => {
               // Update requirement's liveStatus in real-time
               if (status === 'start') {
+                // CLI progress heartbeat — special handling
+                if (tool === 'cli_progress') {
+                  const elapsed = args?.elapsed || 0;
+                  const backend = args?.backend || 'CLI';
+                  requirement.updateLiveStatus({
+                    currentAction: `${agent.name} is working via ${backend}... (${elapsed}s elapsed)`,
+                  });
+                  requirement.addGroupMessage(agent, `🖥️ Still working via ${backend}... (${elapsed}s elapsed)`, 'tool_call');
+                  return;
+                }
+
                 requirement.updateLiveStatus({
                   currentAction: `${agent.name} is calling tool ${tool}`,
                   toolCallsInProgress: [...(requirement.liveStatus.toolCallsInProgress || []), tool],
@@ -674,6 +682,18 @@ currentAction: `${agent.name} is typing..."${node.title}"`,
                   requirement.addGroupMessage(agent, `🔧 Using tool: ${tool}`, 'tool_call');
                 }
               } else if (status === 'done') {
+                // CLI complete — special handling
+                if (tool === 'cli_complete') {
+                  const backend = args?.backend || 'CLI';
+                  const exitCode = args?.exitCode;
+                  requirement.updateLiveStatus({
+                    currentAction: `${agent.name} completed work via ${backend} (exit: ${exitCode})`,
+                    toolCallsInProgress: [],
+                  });
+                  requirement.addGroupMessage(agent, `✅ ${backend} execution completed (exit code: ${exitCode})`, 'tool_call');
+                  return;
+                }
+
                 requirement.updateLiveStatus({
                   currentAction: `${agent.name} completed tool call ${tool}`,
                   toolCallsInProgress: (requirement.liveStatus.toolCallsInProgress || []).filter(t => t !== tool),
@@ -944,11 +964,11 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
 
           // Share output preview
           if (finalResult.output) {
-            const preview = finalResult.output.length > 200 ? finalResult.output.slice(0, 200) + '...' : finalResult.output;
+            const preview = finalResult.output.length > 300 ? finalResult.output.slice(0, 300) + '...' : finalResult.output;
             requirement.addGroupMessage(
               agent,
               `📄 My output:\n${preview}`,
-              'output'
+              'message'
             );
           }
 

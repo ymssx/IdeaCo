@@ -11,7 +11,8 @@
  * - 子进程输入输出监听
  * - 与现有 Agent 系统无缝集成
  */
-import { existsSync, mkdirSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, writeFileSync, unlinkSync } from 'fs';
+import { tmpdir } from 'os';
 import path from 'path';
 import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
@@ -369,11 +370,18 @@ export class CLIBackendRegistry {
     // 2. 构建 prompt
     const prompt = this._buildTaskPrompt(task);
 
-    // 3. 构建命令行参数（使用 stdin 传入 prompt，避免 shell 转义问题）
-    const args = config.execArgs
-      .filter(arg => arg !== '{prompt}')
-      .map(arg => arg.replace('{prompt}', ''))
-      .filter(arg => arg.length > 0);
+    // 3. 构建命令行参数
+    // Strategy: always use stdin for prompt delivery when running via nvm/bash -c
+    // because shell escaping of large multi-line prompts is unreliable.
+    // For non-nvm (direct spawn), args are safe since spawn doesn't go through shell.
+    const hasPromptPlaceholder = config.execArgs.some(arg => arg.includes('{prompt}'));
+    const isNvmMode = !!config.nvmNode;
+    // In nvm mode: strip {prompt} from args, deliver via stdin (temp file piped in)
+    // In non-nvm mode: replace {prompt} directly in args (spawn doesn't use shell)
+    const useStdin = !hasPromptPlaceholder || isNvmMode;
+    const args = isNvmMode
+      ? config.execArgs.filter(arg => arg !== '{prompt}').map(arg => arg.replace('{prompt}', ''))
+      : config.execArgs.map(arg => arg.replace('{prompt}', prompt));
 
     // 4. 构建执行环境（每个 agent 独立的 XDG 目录，避免 CLI 记忆共享）
     const agentConfigDir = path.join(agentDir, '.config');
@@ -401,45 +409,92 @@ export class CLIBackendRegistry {
       mkdirSync(cwd, { recursive: true });
     }
 
-    const timeoutMs = options.timeout || 300000;
+    const timeoutMs = options.timeout || 600000; // 10 minutes max total timeout
+    const inactivityTimeoutMs = options.inactivityTimeout || 120000; // 2 minutes no-output timeout
 
-    console.log(`🚀 CLI executing: ${config.execCommand} ${args.join(' ')} (stdin prompt, ${Math.round(timeoutMs/1000)}s timeout)`);
+    const promptMode = useStdin ? 'stdin' : 'args';
+    console.log(`🚀 CLI executing: ${config.execCommand} (${promptMode} prompt, ${Math.round(timeoutMs/1000)}s timeout, ${Math.round(inactivityTimeoutMs/1000)}s inactivity limit)`);
     console.log(`   Working dir: ${cwd}`);
-    console.log(`   Prompt length: ${prompt.length} chars`);
+    console.log(`   Prompt length: ${prompt.length} chars, mode: ${promptMode}`);
 
     const startTime = Date.now();
 
     return new Promise((resolve, reject) => {
       let output = '';
       let errorOutput = '';
+      let lastActivityTime = Date.now();
+      let totalTimer = null;
+      let inactivityTimer = null;
+      let killed = false;
+
+      const killChild = (reason) => {
+        if (killed) return;
+        killed = true;
+        const elapsed = Date.now() - startTime;
+        console.warn(`⏰ CLI killed: ${config.name} — ${reason} (after ${Math.round(elapsed/1000)}s)`);
+        try { child.kill('SIGTERM'); } catch {}
+        // Force kill after 5 seconds if SIGTERM doesn't work
+        setTimeout(() => {
+          try { child.kill('SIGKILL'); } catch {}
+        }, 5000);
+      };
+
+      const resetInactivityTimer = () => {
+        lastActivityTime = Date.now();
+        if (inactivityTimer) clearTimeout(inactivityTimer);
+        inactivityTimer = setTimeout(() => {
+          killChild(`no output for ${Math.round(inactivityTimeoutMs/1000)}s`);
+        }, inactivityTimeoutMs);
+      };
 
       let child;
       const nvmPrefix = getNvmPrefix(config.nvmNode);
 
+      // Write prompt to temp file for stdin delivery (avoids shell escaping issues)
+      let promptTmpFile = null;
+      if (useStdin && isNvmMode) {
+        promptTmpFile = path.join(tmpdir(), `ai-ent-prompt-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`);
+        writeFileSync(promptTmpFile, prompt, 'utf-8');
+      }
+
       if (nvmPrefix) {
-        const fullCommand = `${nvmPrefix}${config.execCommand} ${args.map(a => `'${a.replace(/'/g, "'\\''")}'`).join(' ')}`;
+        // Build shell command with args (prompt NOT in args for nvm mode)
+        const argsStr = args.filter(a => a.length > 0).map(a => `'${a.replace(/'/g, "'\\''")}'`).join(' ');
+        // Pipe prompt via stdin from temp file
+        const stdinPipe = promptTmpFile ? `cat '${promptTmpFile}' | ` : '';
+        const fullCommand = `${nvmPrefix}${stdinPipe}${config.execCommand} ${argsStr}`;
         child = spawn('bash', ['-c', fullCommand], {
           cwd,
           env,
           stdio: ['pipe', 'pipe', 'pipe'],
-          timeout: timeoutMs,
         });
       } else {
         child = spawn(config.execCommand, args, {
           cwd,
           env,
           stdio: ['pipe', 'pipe', 'pipe'],
-          timeout: timeoutMs,
         });
       }
 
-      // 通过 stdin 管道传入 prompt
-      child.stdin.write(prompt);
+      // Total timeout: hard kill after timeoutMs
+      totalTimer = setTimeout(() => {
+        killChild(`total timeout ${Math.round(timeoutMs/1000)}s reached`);
+      }, timeoutMs);
+
+      // Start inactivity timer
+      resetInactivityTimer();
+
+      // 通过 stdin 管道传入 prompt（非 nvm 模式且 useStdin 时）
+      // nvm 模式的 stdin 已通过 temp file + cat 管道传入
+      if (useStdin && !isNvmMode) {
+        child.stdin.write(prompt);
+      }
       child.stdin.end();
 
       child.stdout.on('data', (data) => {
         const chunk = data.toString();
         output += chunk;
+        resetInactivityTimer(); // Reset inactivity timer on output
         if (callbacks.onOutput) {
           try { callbacks.onOutput(chunk); } catch {}
         }
@@ -448,23 +503,30 @@ export class CLIBackendRegistry {
       child.stderr.on('data', (data) => {
         const chunk = data.toString();
         errorOutput += chunk;
+        resetInactivityTimer(); // stderr also counts as activity
         if (callbacks.onError) {
           try { callbacks.onError(chunk); } catch {}
         }
       });
 
       child.on('close', (code) => {
+        // Clean up timers and temp files
+        if (totalTimer) clearTimeout(totalTimer);
+        if (inactivityTimer) clearTimeout(inactivityTimer);
+        if (promptTmpFile) { try { unlinkSync(promptTmpFile); } catch {} }
+
         const duration = Date.now() - startTime;
         const result = {
           output: output.trim(),
           errorOutput: errorOutput.trim(),
-          exitCode: code,
+          exitCode: killed ? (code ?? -1) : code,
           duration,
           backendId: config.id,
           backendName: config.name,
+          killed,
         };
 
-        console.log(`✅ CLI completed: ${config.name}, exit code ${code}, ${duration}ms`);
+        console.log(`✅ CLI completed: ${config.name}, exit code ${code}${killed ? ' (killed)' : ''}, ${duration}ms`);
 
         if (callbacks.onComplete) {
           try { callbacks.onComplete(result); } catch {}
@@ -474,6 +536,11 @@ export class CLIBackendRegistry {
       });
 
       child.on('error', (error) => {
+        // Clean up timers and temp files
+        if (totalTimer) clearTimeout(totalTimer);
+        if (inactivityTimer) clearTimeout(inactivityTimer);
+        if (promptTmpFile) { try { unlinkSync(promptTmpFile); } catch {} }
+
         const duration = Date.now() - startTime;
         console.error(`❌ CLI error: ${config.name} - ${error.message}`);
         reject({
@@ -484,6 +551,7 @@ export class CLIBackendRegistry {
           backendId: config.id,
           backendName: config.name,
           error: error.message,
+          killed,
         });
       });
     });
