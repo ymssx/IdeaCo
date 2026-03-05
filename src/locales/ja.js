@@ -179,6 +179,17 @@ stats: { departments: '部門', workers: '社員', requirements: '要件' },
     workflow: { progress: '全体進捗', running: '実行中', completed: '完了', failed: '失敗', pending: '待機中', typing: '作業中...' },
     chat: { noMessages: 'グループチャットメッセージなし', noMessagesHint: 'タスク実行時の社員間コミュニケーションがここに表示されます' },
     outputs: { noOutputs: '成果物なし', noOutputsHint: 'タスク完了後の成果物がここに表示されます' },
+    members: {
+      blockingTitle: '⏱️ 現在のブロッキング', title: '👥 メンバー', count: '({n})',
+      running: '実行中', reviewing: 'レビュー中', revision: '修正中', waiting: '待機中', ready: '準備完了', completed: '完了', failed: '失敗',
+      working: '⚡作業中', noTask: 'タスクなし', peekFlow: 'フローを覗く', viewProfile: 'プロフィール表示',
+    },
+    flowPeek: {
+      title: '{name}のフローを覗く', tabFlow: '📋 作業ログ', tabThoughts: '💭 独白', tabHistory: '📜 履歴',
+      loading: '心を覗いています...', noFlowLogs: '作業ログなし', noFlowLogsHint: 'エージェントが作業を開始するとここに表示されます',
+      thinking: '🧠 思考中...', decided: '💬 発言を決定', silent: '🤫 沈黙', thought: '💭 独白', organizing: '思考整理中...',
+      noMonologue: 'アクティブな独白なし', noHistory: '履歴なし', spoke: '💬 発言', keptSilent: '🤫 沈黙を維持', codeBlock: '[コードブロック]',
+    },
   },
   time: { justNow: 'たった今', minutesAgo: '{n}分前', sun: '日', mon: '月', tue: '火', wed: '水', thu: '木', fri: '金', sat: '土' },
   agentChat: {

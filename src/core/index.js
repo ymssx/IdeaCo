@@ -31,3 +31,4 @@ export { SkillRegistry, skillRegistry, SkillDefinition, SkillCategory, SkillStat
 export { KnowledgeManager, knowledgeManager, KnowledgeType, EntryType } from './knowledge.js';
 export { ChatStore, chatStore } from './chat-store.js';
 export { CLIBackendRegistry, cliBackendRegistry, CLIBackendState } from './cli-backends/index.js';
+export { GroupChatLoop, groupChatLoop } from './group-chat-loop.js';

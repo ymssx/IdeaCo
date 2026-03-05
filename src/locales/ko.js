@@ -194,6 +194,17 @@ stats: { departments: '부서', workers: '직원', requirements: '요구사항' 
     workflow: { progress: '전체 진행률', running: '실행 중', completed: '완료', failed: '실패', pending: '대기 중', typing: '작업 중...' },
     chat: { noMessages: '그룹 채팅 메시지 없음', noMessagesHint: '작업 실행 시 직원 간 대화가 여기에 표시됩니다' },
     outputs: { noOutputs: '산출물 없음', noOutputsHint: '작업 완료 후 산출물이 여기에 표시됩니다' },
+    members: {
+      blockingTitle: '⏱️ 현재 블로킹', title: '👥 멤버', count: '({n})',
+      running: '실행 중', reviewing: '검토 중', revision: '수정 중', waiting: '대기 중', ready: '준비됨', completed: '완료', failed: '실패',
+      working: '⚡작업 중', noTask: '작업 없음', peekFlow: '플로우 엿보기', viewProfile: '프로필 보기',
+    },
+    flowPeek: {
+      title: '{name}의 플로우 엿보기', tabFlow: '📋 작업 로그', tabThoughts: '💭 독백', tabHistory: '📜 기록',
+      loading: '마음을 엿보는 중...', noFlowLogs: '작업 로그 없음', noFlowLogsHint: '에이전트가 작업을 시작하면 여기에 표시됩니다',
+      thinking: '🧠 생각 중...', decided: '💬 발언 결정', silent: '🤫 침묵', thought: '💭 독백', organizing: '생각 정리 중...',
+      noMonologue: '활성 독백 없음', noHistory: '기록 없음', spoke: '💬 발언함', keptSilent: '🤫 침묵 유지', codeBlock: '[코드 블록]',
+    },
   },
   time: { justNow: '방금', minutesAgo: '{n}분 전', sun: '일', mon: '월', tue: '화', wed: '수', thu: '목', fri: '금', sat: '토' },
   agentChat: {

@@ -22,7 +22,36 @@ export async function GET(request) {
     if (!req) {
       return NextResponse.json({ error: 'Requirement not found' }, { status: 404 });
     }
-    return NextResponse.json({ data: req.serialize() });
+    const data = req.serialize();
+
+    // 附加部门成员列表（群员列表）
+    const dept = company.findDepartment(req.departmentId);
+    if (dept) {
+      data.members = dept.getMembers().map(a => ({
+        id: a.id,
+        name: a.name,
+        role: a.role,
+        avatar: a.avatar,
+        status: a.status,
+      }));
+    }
+
+    // 计算当前流程卡点：找出所有正在 running/reviewing/revision 的节点及其执行者
+    if (data.workflow?.nodes) {
+      data.blockingInfo = data.workflow.nodes
+        .filter(n => ['running', 'reviewing', 'revision'].includes(n.status))
+        .map(n => ({
+          nodeId: n.id,
+          nodeTitle: n.title,
+          status: n.status,
+          assigneeId: n.assigneeId,
+          assigneeName: n.assigneeName,
+          reviewerId: n.reviewerId,
+          reviewerName: n.reviewerName,
+        }));
+    }
+
+    return NextResponse.json({ data });
   }
 
   if (departmentId) {

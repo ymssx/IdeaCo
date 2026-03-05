@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useStore } from '@/lib/client-store';
 import { useI18n } from '@/lib/i18n';
 import GroupChatView from './GroupChatView';
+import AgentDetailModal from './AgentDetailModal';
 
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
@@ -90,10 +91,19 @@ export default function RequirementDetail({ requirementId, onClose }) {
 const { fetchRequirementDetail, requirementDetail, clearRequirementDetail, fetchWorkspaceFile, navigateBack, activeRequirementId, deleteRequirement, restartRequirement, sendGroupChatMessage, company } = useStore();
   const reqId = requirementId || activeRequirementId;
   const isPage = !onClose; // If no onClose is passed, it is standalone page mode
-  const [activeTab, setActiveTab] = useState('workflow'); // workflow | chat | outputs | files
+  const [activeTab, setActiveTab] = useState('workflow'); // workflow | outputs | files
   const chatEndRef = useRef(null);
   const pollRef = useRef(null);
   const [previewFile, setPreviewFile] = useState(null); // { path, content, loading }
+
+  // 群员交互：查看卡片信息 + 偷看心流
+  const [selectedMemberAgentId, setSelectedMemberAgentId] = useState(null);
+  const [peekFlowAgentId, setPeekFlowAgentId] = useState(null);
+  const [peekFlowData, setPeekFlowData] = useState(null);
+  const [peekFlowMsgs, setPeekFlowMsgs] = useState([]);
+  const [peekFlowHistory, setPeekFlowHistory] = useState([]);
+  const [peekFlowLoading, setPeekFlowLoading] = useState(false);
+  const [peekFlowTab, setPeekFlowTab] = useState('flow');
 
   // Save reqId to ref to avoid reading stale value in closure
   const reqIdRef = useRef(reqId);
@@ -156,6 +166,48 @@ const { fetchRequirementDetail, requirementDetail, clearRequirementDetail, fetch
       setPreviewFile({ path: filePath, content: t('reqDetail.files.readFailed'), loading: false });
     }
   }, [requirementDetail?.departmentId]);
+
+  // 偷看员工心流
+  const peekMemberFlow = useCallback(async (agentId) => {
+    setPeekFlowAgentId(agentId);
+    setPeekFlowLoading(true);
+    setPeekFlowTab('flow');
+    try {
+      const [currentRes, historyRes, flowRes] = await Promise.all([
+        fetch(`/api/group-chat-loop?agentId=${agentId}&groupId=${reqId}`),
+        fetch(`/api/group-chat-loop?agentId=${agentId}&groupId=${reqId}&history=1`),
+        fetch(`/api/group-chat-loop?agentId=${agentId}&groupId=${reqId}&flowMessages=1`),
+      ]);
+      const currentData = await currentRes.json();
+      const historyData = await historyRes.json();
+      const flowData = await flowRes.json();
+      setPeekFlowData(currentData.data);
+      setPeekFlowHistory(historyData.data || []);
+      setPeekFlowMsgs(flowData.data || []);
+    } catch (err) {
+      console.error('Failed to peek flow:', err);
+    } finally {
+      setPeekFlowLoading(false);
+    }
+  }, [reqId]);
+
+  // 自动刷新心流
+  useEffect(() => {
+    if (!peekFlowAgentId || !reqId) return;
+    const timer = setInterval(async () => {
+      try {
+        const [res, flowRes] = await Promise.all([
+          fetch(`/api/group-chat-loop?agentId=${peekFlowAgentId}&groupId=${reqId}`),
+          fetch(`/api/group-chat-loop?agentId=${peekFlowAgentId}&groupId=${reqId}&flowMessages=1`),
+        ]);
+        const data = await res.json();
+        const flowData = await flowRes.json();
+        if (data.data) setPeekFlowData(data.data);
+        if (flowData.data) setPeekFlowMsgs(flowData.data);
+      } catch {}
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [peekFlowAgentId, reqId]);
 
   const handleClose = onClose || navigateBack;
 
@@ -224,88 +276,122 @@ const { fetchRequirementDetail, requirementDetail, clearRequirementDetail, fetch
           </div>
         </div>
 
-        {/* Tab bar */}
-        <div className="flex border-b border-white/[0.06] shrink-0 px-6 bg-[var(--card)]">
-          {[
-            { id: 'workflow', label: t('reqDetail.tabs.workflow'), badge: req.workflow?.nodes?.length },
-            { id: 'chat', label: t('reqDetail.tabs.chat'), badge: req.groupChat?.length },
-            { id: 'outputs', label: t('reqDetail.tabs.outputs'), badge: req.outputs?.length },
-            { id: 'files', label: t('reqDetail.tabs.files'), badge: req.liveStatus?.recentFileChanges?.length || 0 },
-          ].map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`px-5 py-3 text-sm font-medium transition-all border-b-2 ${
-                activeTab === tab.id
-                  ? 'border-[var(--accent)] text-[var(--accent)]'
-                  : 'border-transparent text-[var(--muted)] hover:text-white'
-              }`}
-            >
-              {tab.label}
-              {tab.badge > 0 && (
-                <span className="ml-1.5 text-[10px] bg-white/10 px-1.5 py-0.5 rounded-full">{tab.badge}</span>
-              )}
-            </button>
-          ))}
-        </div>
-
-        {/* Content area - full screen */}
-        <div className={`flex-1 min-h-0 flex flex-col pb-6 ${activeTab === 'files' ? 'overflow-hidden' : 'overflow-auto'}`}>
-          {activeTab === 'workflow' && (
-            <>
-              {/* Live progress panel (only shown under workflow tab) */}
-              {(req.status === 'in_progress' || req.status === 'planning' || req.status === 'failed') && req.liveStatus && (
-                <LiveStatusPanel
-                  liveStatus={req.liveStatus}
-                  requirementId={req.id}
-                  requirementStatus={req.status}
-                  onRestart={() => restartRequirement(req.id)}
-                  onDelete={() => deleteRequirement(req.id)}
-                />
-              )}
-              <WorkflowView workflow={req.workflow} liveStatus={req.liveStatus} />
-            </>
-          )}
-          {activeTab === 'chat' && (() => {
-            // 构建 agentMap 和 leaderInfo
-            const chatAgentMap = {};
-            if (company?.departments) {
-              for (const dept of company.departments) {
-                for (const agent of (dept.members || dept.agents || [])) {
-                  chatAgentMap[agent.id] = agent.name;
+        {/* 左右布局主体 */}
+        <div className="flex-1 min-h-0 flex">
+          {/* 左侧：群聊面板 */}
+          <div className="w-[380px] shrink-0 border-r border-white/[0.06] flex flex-col bg-[var(--background)]">
+            <div className="px-4 py-2.5 border-b border-white/[0.06] bg-[var(--card)] flex items-center justify-between">
+              <span className="text-sm font-medium">{t('reqDetail.tabs.chat')}</span>
+              <span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded-full text-[var(--muted)]">{(req.groupChat || []).length}</span>
+            </div>
+            {(() => {
+              const chatAgentMap = {};
+              if (company?.departments) {
+                for (const dept of company.departments) {
+                  for (const agent of (dept.members || dept.agents || [])) {
+                    chatAgentMap[agent.id] = agent.name;
+                  }
                 }
               }
-            }
-            const leaderMsg = (req.groupChat || []).find(m => m.from?.id !== 'boss' && m.from?.role !== 'system' && m.type !== 'system');
-            const chatLeaderInfo = leaderMsg ? { name: leaderMsg.from?.name, avatar: leaderMsg.from?.avatar } : null;
-            return (
-              <GroupChatView
-                groupChat={req.groupChat || []}
-                agentMap={chatAgentMap}
-                bossAvatar={company?.bossAvatar}
-                bossName={company?.boss || 'Boss'}
-                requirementId={req.id}
-                onSendMessage={sendGroupChatMessage}
-                fetchDetail={fetchRequirementDetail}
-                leaderInfo={chatLeaderInfo}
-                chatEndRef={chatEndRef}
-                embedded
-              />
-            );
-          })()}
-          {activeTab === 'outputs' && <OutputsView outputs={req.outputs || []} />}
-          {activeTab === 'files' && (
-            <div className="flex-1 min-h-0">
-              <FilesView
-                fileChanges={req.liveStatus?.recentFileChanges || []}
-                departmentId={req.departmentId}
-                previewFile={previewFile}
-                onPreview={loadFilePreview}
-                onClosePreview={() => setPreviewFile(null)}
-              />
+              const leaderMsg = (req.groupChat || []).find(m => m.from?.id !== 'boss' && m.from?.role !== 'system' && m.type !== 'system');
+              const chatLeaderInfo = leaderMsg ? { name: leaderMsg.from?.name, avatar: leaderMsg.from?.avatar } : null;
+              return (
+                <GroupChatView
+                  groupChat={req.groupChat || []}
+                  agentMap={chatAgentMap}
+                  bossAvatar={company?.bossAvatar}
+                  bossName={company?.boss || 'Boss'}
+                  requirementId={req.id}
+                  onSendMessage={sendGroupChatMessage}
+                  fetchDetail={fetchRequirementDetail}
+                  leaderInfo={chatLeaderInfo}
+                  chatEndRef={chatEndRef}
+                  embedded
+                />
+              );
+            })()}
+          </div>
+
+          {/* 右侧：群员列表 + Tab bar + Content */}
+          <div className="flex-1 min-w-0 flex flex-col">
+            {/* 群员列表 + 流程卡点 */}
+            <MembersAndBlockingPanel members={req.members} blockingInfo={req.blockingInfo} workflow={req.workflow} status={req.status} onPeekFlow={peekMemberFlow} onViewAgent={setSelectedMemberAgentId} />
+
+            {/* Tab bar (不含 chat，因为群聊已在左侧) */}
+            <div className="flex border-b border-white/[0.06] shrink-0 px-6 bg-[var(--card)]">
+              {[
+                { id: 'workflow', label: t('reqDetail.tabs.workflow'), badge: req.workflow?.nodes?.length },
+                { id: 'outputs', label: t('reqDetail.tabs.outputs'), badge: req.outputs?.length },
+                { id: 'files', label: t('reqDetail.tabs.files'), badge: req.liveStatus?.recentFileChanges?.length || 0 },
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`px-5 py-3 text-sm font-medium transition-all border-b-2 ${
+                    activeTab === tab.id
+                      ? 'border-[var(--accent)] text-[var(--accent)]'
+                      : 'border-transparent text-[var(--muted)] hover:text-white'
+                  }`}
+                >
+                  {tab.label}
+                  {tab.badge > 0 && (
+                    <span className="ml-1.5 text-[10px] bg-white/10 px-1.5 py-0.5 rounded-full">{tab.badge}</span>
+                  )}
+                </button>
+              ))}
             </div>
-          )}
+
+            {/* Content area */}
+            <div className={`flex-1 min-h-0 flex flex-col pb-6 ${activeTab === 'files' ? 'overflow-hidden' : 'overflow-auto'}`}>
+              {activeTab === 'workflow' && (
+                <>
+                  {(req.status === 'in_progress' || req.status === 'planning' || req.status === 'failed') && req.liveStatus && (
+                    <LiveStatusPanel
+                      liveStatus={req.liveStatus}
+                      requirementId={req.id}
+                      requirementStatus={req.status}
+                      onRestart={() => restartRequirement(req.id)}
+                      onDelete={() => deleteRequirement(req.id)}
+                    />
+                  )}
+                  <WorkflowView workflow={req.workflow} liveStatus={req.liveStatus} members={req.members} />
+                </>
+              )}
+              {activeTab === 'outputs' && <OutputsView outputs={req.outputs || []} />}
+              {activeTab === 'files' && (
+                <div className="flex-1 min-h-0">
+                  <FilesView
+                    fileChanges={req.liveStatus?.recentFileChanges || []}
+                    departmentId={req.departmentId}
+                    previewFile={previewFile}
+                    onPreview={loadFilePreview}
+                    onClosePreview={() => setPreviewFile(null)}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
         </div>
+
+        {/* Agent 卡片弹窗 */}
+        {selectedMemberAgentId && (
+          <AgentDetailModal agentId={selectedMemberAgentId} onClose={() => setSelectedMemberAgentId(null)} />
+        )}
+
+        {/* 心流偷看弹窗 */}
+        {peekFlowAgentId && (
+          <FlowPeekModal
+            agentId={peekFlowAgentId}
+            agentName={req.members?.find(m => m.id === peekFlowAgentId)?.name || peekFlowAgentId}
+            loading={peekFlowLoading}
+            tab={peekFlowTab}
+            onTabChange={setPeekFlowTab}
+            flowMsgs={peekFlowMsgs}
+            monologueData={peekFlowData}
+            history={peekFlowHistory}
+            onClose={() => setPeekFlowAgentId(null)}
+          />
+        )}
       </div>
     );
   }
@@ -343,6 +429,9 @@ const { fetchRequirementDetail, requirementDetail, clearRequirementDetail, fetch
           </div>
           <button onClick={handleClose} className="text-[var(--muted)] hover:text-white text-xl ml-4 shrink-0">✕</button>
         </div>
+
+        {/* 群员列表 + 流程卡点 */}
+        <MembersAndBlockingPanel members={req.members} blockingInfo={req.blockingInfo} workflow={req.workflow} status={req.status} onPeekFlow={peekMemberFlow} onViewAgent={setSelectedMemberAgentId} />
 
         {/* Tab bar */}
         <div className="flex border-b border-white/[0.06] shrink-0 px-6">
@@ -383,7 +472,7 @@ const { fetchRequirementDetail, requirementDetail, clearRequirementDetail, fetch
                   onDelete={() => deleteRequirement(req.id)}
                 />
               )}
-              <WorkflowView workflow={req.workflow} liveStatus={req.liveStatus} />
+              <WorkflowView workflow={req.workflow} liveStatus={req.liveStatus} members={req.members} />
             </>
           )}
           {activeTab === 'chat' && (() => {
@@ -425,6 +514,26 @@ const { fetchRequirementDetail, requirementDetail, clearRequirementDetail, fetch
             </div>
           )}
         </div>
+
+        {/* Agent 卡片弹窗 */}
+        {selectedMemberAgentId && (
+          <AgentDetailModal agentId={selectedMemberAgentId} onClose={() => setSelectedMemberAgentId(null)} />
+        )}
+
+        {/* 心流偷看弹窗 */}
+        {peekFlowAgentId && (
+          <FlowPeekModal
+            agentId={peekFlowAgentId}
+            agentName={req.members?.find(m => m.id === peekFlowAgentId)?.name || peekFlowAgentId}
+            loading={peekFlowLoading}
+            tab={peekFlowTab}
+            onTabChange={setPeekFlowTab}
+            flowMsgs={peekFlowMsgs}
+            monologueData={peekFlowData}
+            history={peekFlowHistory}
+            onClose={() => setPeekFlowAgentId(null)}
+          />
+        )}
       </div>
     </div>
   );
@@ -435,7 +544,7 @@ const { fetchRequirementDetail, requirementDetail, clearRequirementDetail, fetch
  * Workflow visualization - SVG flowchart + div cards (foreignObject)
  * Multi-arrow merging: multiple incoming edges merge into one vertical line then connect to target
  */
-function WorkflowView({ workflow, liveStatus }) {
+function WorkflowView({ workflow, liveStatus, members }) {
   const { t } = useI18n();
   const containerRef = useRef(null);
   const svgRef = useRef(null);
@@ -551,6 +660,15 @@ function WorkflowView({ workflow, liveStatus }) {
     return { levels, nodePositions, edgeGroups, totalWidth, totalHeight, nodeW, nodes };
   }, [workflow, containerWidth, measuredHeights]);
 
+  // Build member avatar map { id -> avatar } (must be before conditional returns to satisfy hooks rules)
+  const memberAvatarMap = useMemo(() => {
+    const map = {};
+    if (members?.length) {
+      members.forEach(m => { if (m.avatar) map[m.id] = m.avatar; });
+    }
+    return map;
+  }, [members]);
+
   if (!workflow?.nodes?.length) {
     // planning 阶段：展示负责人头像 + 气泡（表示正在拆解任务）
     if (liveStatus?.currentAgentAvatar || liveStatus?.currentAgent) {
@@ -612,14 +730,40 @@ function WorkflowView({ workflow, liveStatus }) {
   };
 
   // Card content render function (shared by measurement container and actual render)
-  const renderCardContent = (node) => (
+  const renderCardContent = (node) => {
+    const assigneeAvatar = memberAvatarMap[node.assigneeId];
+    const reviewerAvatar = memberAvatarMap[node.reviewerId];
+    return (
     <>
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-base shrink-0">{statusIcon[node.status]}</span>
           <div className="min-w-0">
             <div className="font-medium text-sm truncate">{node.title}</div>
-            <div className="text-xs text-[var(--muted)]">👤 {node.assigneeName}{node.reviewerName ? ` · 🔍 ${node.reviewerName}` : ''}</div>
+            <div className="flex items-center gap-1 text-xs text-[var(--muted)]">
+              {assigneeAvatar ? (
+                <img src={assigneeAvatar} alt="" className="w-4 h-4 rounded-full inline-block" />
+              ) : (
+                <span className="w-4 h-4 rounded-full bg-gradient-to-br from-indigo-600 to-blue-700 flex items-center justify-center text-[8px] shrink-0">
+                  {node.assigneeName?.charAt(0) || '?'}
+                </span>
+              )}
+              <span>{node.assigneeName}</span>
+              {node.reviewerName && (
+                <>
+                  <span className="text-[var(--muted)]">·</span>
+                  <span>🔍</span>
+                  {reviewerAvatar ? (
+                    <img src={reviewerAvatar} alt="" className="w-4 h-4 rounded-full inline-block" />
+                  ) : (
+                    <span className="w-4 h-4 rounded-full bg-gradient-to-br from-purple-600 to-pink-700 flex items-center justify-center text-[8px] shrink-0">
+                      {node.reviewerName?.charAt(0) || '?'}
+                    </span>
+                  )}
+                  <span>{node.reviewerName}</span>
+                </>
+              )}
+            </div>
           </div>
         </div>
         {node.reviewRounds > 0 && (
@@ -658,7 +802,8 @@ function WorkflowView({ workflow, liveStatus }) {
         </div>
       )}
     </>
-  );
+    );
+  };
 
   // Generate connection paths: multiple incoming edges merge into one vertical line
   const renderEdges = () => {
@@ -981,6 +1126,289 @@ function OutputsView({ outputs }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+
+/**
+ * 心流偷看弹窗 — 从需求详情群员列表点🧠触发
+ * 三个 Tab：工作日志（flow）、内心独白（thoughts）、历史心流（history）
+ */
+function FlowPeekModal({ agentId, agentName, loading, tab, onTabChange, flowMsgs, monologueData, history, onClose }) {
+  const { t } = useI18n();
+  const cleanContent = (content) => {
+    if (!content) return '';
+    return content.replace(/^```[\s\S]*?```$/gm, t('reqDetail.flowPeek.codeBlock')).slice(0, 500);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-full max-w-lg mx-4 bg-[var(--card)] border border-[var(--border)] rounded-2xl shadow-2xl max-h-[80vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)] bg-purple-900/20">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">🧠</span>
+            <span className="font-medium text-sm">{t('reqDetail.flowPeek.title', { name: agentName })}</span>
+          </div>
+          <button onClick={onClose} className="text-[var(--muted)] hover:text-white transition-colors text-lg">✕</button>
+        </div>
+
+        <div className="flex border-b border-[var(--border)] px-4 bg-[var(--card)]">
+          {[
+            { id: 'flow', label: t('reqDetail.flowPeek.tabFlow'), badge: flowMsgs?.length || 0 },
+            { id: 'thoughts', label: t('reqDetail.flowPeek.tabThoughts'), badge: monologueData?.thoughts?.length || 0 },
+            { id: 'history', label: t('reqDetail.flowPeek.tabHistory'), badge: history?.length || 0 },
+          ].map(tb => (
+            <button
+              key={tb.id}
+              onClick={() => onTabChange(tb.id)}
+              className={`px-3 py-2 text-xs font-medium transition-all border-b-2 ${
+                tab === tb.id
+                  ? 'border-purple-500 text-purple-300'
+                  : 'border-transparent text-[var(--muted)] hover:text-white'
+              }`}
+            >
+              {tb.label}
+              {tb.badge > 0 && (
+                <span className="ml-1 text-[10px] bg-white/10 px-1.5 py-0.5 rounded-full">{tb.badge}</span>
+              )}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex-1 overflow-auto p-4 space-y-3">
+          {loading ? (
+            <div className="flex items-center justify-center py-8">
+              <span className="animate-spin text-2xl">🧠</span>
+              <span className="ml-2 text-sm text-[var(--muted)]">{t('reqDetail.flowPeek.loading')}</span>
+            </div>
+          ) : tab === 'flow' ? (
+            !flowMsgs?.length ? (
+              <div className="text-center py-8 text-[var(--muted)] text-sm">
+                <div className="text-3xl mb-2">📋</div>
+                <p>{t('reqDetail.flowPeek.noFlowLogs')}</p>
+                <p className="text-xs mt-1">{t('reqDetail.flowPeek.noFlowLogsHint')}</p>
+              </div>
+            ) : (
+              flowMsgs.map((msg, i) => (
+                <div key={msg.id || i} className={`rounded-xl p-3 text-sm ${
+                  msg.type === 'tool_call'
+                    ? 'bg-purple-900/20 border border-purple-500/10'
+                    : msg.type === 'output'
+                    ? 'bg-green-900/20 border border-green-500/10'
+                    : 'bg-white/5 border border-white/10'
+                }`}>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs text-[var(--muted)]">
+                      {msg.type === 'tool_call' ? '🔧' : msg.type === 'output' ? '📄' : '💬'}{' '}
+                      {msg.time ? new Date(msg.time).toLocaleTimeString() : ''}
+                    </span>
+                  </div>
+                  <div className="text-sm break-words">{cleanContent(msg.content)}</div>
+                </div>
+              ))
+            )
+          ) : tab === 'thoughts' ? (
+            monologueData ? (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${
+                    monologueData.status === 'thinking'
+                      ? 'bg-purple-500/20 text-purple-300 animate-pulse'
+                      : monologueData.decision === 'spoke'
+                      ? 'bg-green-500/20 text-green-400'
+                      : 'bg-gray-500/20 text-gray-400'
+                  }`}>
+                    {monologueData.status === 'thinking' ? t('reqDetail.flowPeek.thinking') : monologueData.decision === 'spoke' ? t('reqDetail.flowPeek.decided') : t('reqDetail.flowPeek.silent')}
+                  </span>
+                </div>
+                {monologueData.thoughts?.map((thought, ti) => (
+                  <div key={thought.id || ti} className="bg-purple-900/20 border border-purple-500/10 rounded-xl p-3">
+                    <div className="text-xs text-purple-400 mb-1">
+                      {t('reqDetail.flowPeek.thought')} #{ti + 1}
+                      {thought.timestamp && <span className="ml-2 text-[var(--muted)]">{new Date(thought.timestamp).toLocaleTimeString()}</span>}
+                    </div>
+                    <div className="text-sm">
+                      {thought.content?.startsWith('[')
+                        ? <span className="text-green-400">{thought.content}</span>
+                        : <span className="italic text-purple-200">{thought.content}</span>
+                      }
+                    </div>
+                  </div>
+                ))}
+                {monologueData.thoughts?.length === 0 && (
+                  <div className="text-center py-4 text-[var(--muted)] text-sm">
+                    <span className="animate-pulse">🧠</span> {t('reqDetail.flowPeek.organizing')}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="text-center py-8">
+                <div className="text-3xl mb-2">😴</div>
+                <p className="text-sm text-[var(--muted)]">{t('reqDetail.flowPeek.noMonologue')}</p>
+              </div>
+            )
+          ) : (
+            !history?.length ? (
+              <div className="text-center py-8 text-[var(--muted)] text-sm">{t('reqDetail.flowPeek.noHistory')}</div>
+            ) : (
+              history.slice().reverse().map((m, i) => (
+                <div key={m.id || i} className="bg-white/5 rounded-xl p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-[var(--muted)]">
+                      {m.startedAt ? new Date(m.startedAt).toLocaleString() : ''}
+                    </span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${
+                      m.decision === 'spoke' ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'
+                    }`}>
+                      {m.decision === 'spoke' ? t('reqDetail.flowPeek.spoke') : t('reqDetail.flowPeek.keptSilent')}
+                    </span>
+                  </div>
+                  {m.thoughts?.map((thought, ti) => (
+                    <div key={thought.id || ti} className="text-sm text-[var(--muted)] bg-black/20 rounded-lg p-2">
+                      {thought.content?.startsWith('[')
+                        ? <span className="text-green-400">{thought.content}</span>
+                        : <span className="italic">{thought.content}</span>
+                      }
+                    </div>
+                  ))}
+                </div>
+              ))
+            )
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+/**
+ * 群员列表 + 流程卡点面板
+ * 展示参与此需求的所有 agent，以及当前流程卡在谁身上
+ */
+function MembersAndBlockingPanel({ members, blockingInfo, workflow, status, onPeekFlow, onViewAgent }) {
+  const { t } = useI18n();
+  if (!members?.length && !blockingInfo?.length) return null;
+
+  const nodeStatusConfig = {
+    running: { label: t('reqDetail.members.running'), color: 'text-yellow-400', bg: 'bg-yellow-900/20', icon: '⚡' },
+    reviewing: { label: t('reqDetail.members.reviewing'), color: 'text-blue-400', bg: 'bg-blue-900/20', icon: '🔍' },
+    revision: { label: t('reqDetail.members.revision'), color: 'text-orange-400', bg: 'bg-orange-900/20', icon: '🔄' },
+    waiting: { label: t('reqDetail.members.waiting'), color: 'text-gray-400', bg: 'bg-gray-900/20', icon: '⏳' },
+    ready: { label: t('reqDetail.members.ready'), color: 'text-cyan-400', bg: 'bg-cyan-900/20', icon: '🟢' },
+    completed: { label: t('reqDetail.members.completed'), color: 'text-green-400', bg: 'bg-green-900/20', icon: '✅' },
+    failed: { label: t('reqDetail.members.failed'), color: 'text-red-400', bg: 'bg-red-900/20', icon: '❌' },
+  };
+
+  // 统计每个 agent 在此需求中的任务状态
+  const agentTaskMap = {};
+  if (workflow?.nodes) {
+    for (const node of workflow.nodes) {
+      if (node.assigneeId) {
+        if (!agentTaskMap[node.assigneeId]) agentTaskMap[node.assigneeId] = [];
+        agentTaskMap[node.assigneeId].push({ title: node.title, status: node.status });
+      }
+    }
+  }
+
+  return (
+    <div className="px-6 py-3 border-b border-white/[0.06] bg-[var(--card)]">
+      {/* 流程卡点 */}
+      {blockingInfo?.length > 0 && status === 'in_progress' && (
+        <div className="mb-3">
+          <div className="text-xs text-[var(--muted)] mb-1.5 font-medium">{t('reqDetail.members.blockingTitle')}</div>
+          <div className="flex flex-wrap gap-2">
+            {blockingInfo.map((b, i) => {
+              const st = nodeStatusConfig[b.status] || nodeStatusConfig.running;
+              return (
+                <div key={b.nodeId || i} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${st.bg} border-white/10`}>
+                  <span className="text-sm">{st.icon}</span>
+                  <div>
+                    <div className="text-xs font-medium">{b.nodeTitle}</div>
+                    <div className="text-[10px] text-[var(--muted)]">
+                      👤 {b.assigneeName}
+                      {b.status === 'reviewing' && b.reviewerName && (
+                        <span className="ml-1">→ 🔍 {b.reviewerName}</span>
+                      )}
+                      <span className={`ml-1 ${st.color}`}>{st.label}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* 群员列表 */}
+      {members?.length > 0 && (
+        <div>
+          <div className="text-xs text-[var(--muted)] mb-1.5 font-medium">{t('reqDetail.members.title')} {t('reqDetail.members.count', { n: members.length })}</div>
+          <div className="flex flex-wrap gap-2">
+            {members.map(m => {
+              const tasks = agentTaskMap[m.id] || [];
+              const activeTasks = tasks.filter(t => ['running', 'reviewing', 'revision'].includes(t.status));
+              const isActive = activeTasks.length > 0;
+              const completedCount = tasks.filter(t => t.status === 'completed').length;
+              return (
+                <div
+                  key={m.id}
+                  className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border transition-colors ${
+                    isActive
+                      ? 'bg-yellow-900/10 border-yellow-500/20'
+                      : 'bg-white/[0.02] border-white/[0.06] hover:bg-white/[0.04]'
+                  }`}
+                  title={tasks.length > 0 ? `任务: ${tasks.map(t => `${t.title}(${t.status})`).join(', ')}` : '暂无分配任务'}
+                >
+                  {/* 头像区域：上方🧠偷看心流，点击头像看卡片 */}
+                  <div className="relative group/avatar flex flex-col items-center">
+                    {/* 🧠 偷看心流按钮 — 悬浮头像时显示在上方 */}
+                    {onPeekFlow && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); onPeekFlow(m.id); }}
+                        className="absolute -top-3 left-1/2 -translate-x-1/2 opacity-0 group-hover/avatar:opacity-100 transition-all duration-200 text-[11px] hover:scale-125 z-10"
+                        title={t('reqDetail.members.peekFlow')}
+                      >
+                        🧠
+                      </button>
+                    )}
+                    {/* 头像 — 点击看卡片 */}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onViewAgent?.(m.id); }}
+                      className="focus:outline-none hover:ring-2 hover:ring-purple-500/50 rounded-full transition-all"
+                      title={t('reqDetail.members.viewProfile')}
+                    >
+                      {m.avatar ? (
+                        <img src={m.avatar} alt="" className="w-7 h-7 rounded-full cursor-pointer" />
+                      ) : (
+                        <div className="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-600 to-blue-700 flex items-center justify-center text-[10px] cursor-pointer">
+                          {m.name?.charAt(0) || '?'}
+                        </div>
+                      )}
+                    </button>
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs font-medium truncate">{m.name}</div>
+                    <div className="text-[10px] text-[var(--muted)] truncate">
+                      {m.role}
+                      {isActive && (
+                        <span className="ml-1 text-yellow-400 animate-pulse">{t('reqDetail.members.working')}</span>
+                      )}
+                      {!isActive && completedCount > 0 && (
+                        <span className="ml-1 text-green-400">✅{completedCount}</span>
+                      )}
+                      {tasks.length === 0 && (
+                        <span className="ml-1 text-gray-500">{t('reqDetail.members.noTask')}</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

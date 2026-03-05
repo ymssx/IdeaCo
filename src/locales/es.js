@@ -195,6 +195,17 @@ stats: { departments: 'Dptos', workers: 'Obreros', requirements: 'Requisitos' },
     chat: { noMessages: 'Sin mensajes', noMessagesHint: 'Las comunicaciones aparecerán aquí durante la ejecución' },
     outputs: { noOutputs: 'Sin resultados', noOutputsHint: 'Los resultados aparecerán tras completar tareas', noOutputsShort: 'Sin resultados', collapse: 'Colapsar ▲', expand: 'Expandir ▼' },
     files: { noChanges: 'Sin cambios de archivos', noChangesHint: 'Los archivos generados aparecerán aquí', explorer: 'Explorador', fileCount: '{n} archivos', syncing: 'Sincronizando en vivo', syncingShort: 'Sincronizando...', loading: 'Cargando...', emptyFile: '(archivo vacío)', noContent: '(sin contenido)', readFailed: '(lectura fallida)', lines: '{n} líneas', readOnly: 'Solo lectura', clickToView: 'Haz clic en un archivo para ver', syntaxHighlight: 'Resaltado de sintaxis · Sincronización en vivo' },
+    members: {
+      blockingTitle: '⏱️ Bloqueo actual', title: '👥 Miembros', count: '({n})',
+      running: 'Ejecutando', reviewing: 'Revisando', revision: 'Revisión', waiting: 'Esperando', ready: 'Listo', completed: 'Completado', failed: 'Fallido',
+      working: '⚡Trabajando', noTask: 'Sin tarea', peekFlow: 'Ver flujo', viewProfile: 'Ver perfil',
+    },
+    flowPeek: {
+      title: 'Viendo flujo de {name}', tabFlow: '📋 Registro', tabThoughts: '💭 Monólogo', tabHistory: '📜 Historial',
+      loading: 'Espiando la mente...', noFlowLogs: 'Sin registros', noFlowLogsHint: 'Las operaciones aparecerán aquí cuando el agente comience',
+      thinking: '🧠 Pensando...', decided: '💬 Decidió hablar', silent: '🤫 En silencio', thought: '💭 Pensamiento', organizing: 'Organizando ideas...',
+      noMonologue: 'Sin monólogo activo', noHistory: 'Sin historial', spoke: '💬 Habló', keptSilent: '🤫 Se mantuvo en silencio', codeBlock: '[bloque de código]',
+    },
   },
   time: { justNow: 'ahora', minutesAgo: 'hace {n}m', sun: 'Dom', mon: 'Lun', tue: 'Mar', wed: 'Mié', thu: 'Jue', fri: 'Vie', sat: 'Sáb' },
   agentChat: {

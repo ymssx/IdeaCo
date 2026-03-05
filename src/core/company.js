@@ -20,6 +20,7 @@ import { pluginRegistry } from './plugin.js';
 import { auditLogger, AuditCategory, AuditLevel } from './audit.js';
 import { chatStore } from './chat-store.js';
 import { cliBackendRegistry } from './cli-backends/index.js';
+import { groupChatLoop } from './group-chat-loop.js';
 
 /**
  * Company - AI Enterprise
@@ -69,6 +70,9 @@ export class Company {
     // Requirement manager
     this.requirementManager = new RequirementManager();
 
+    // 群聊循环引擎
+    this.groupChatLoop = groupChatLoop;
+
     // Configure provider for secretary
     let secretaryProviderConfig;
     if (secretaryConfig && secretaryConfig.providerId) {
@@ -92,6 +96,12 @@ export class Company {
       secretaryGender: secretaryConfig?.secretaryGender || 'female',
       secretaryAge: secretaryConfig?.secretaryAge || 18,
     });
+
+    // 如果秘书使用的是 CLI provider，自动设置 CLI 后端
+    if (secretaryProviderConfig.isCLI && secretaryProviderConfig.cliBackendId) {
+      this.secretary.agent.setCLIBackend(secretaryProviderConfig.cliBackendId);
+      this.secretary.agent.cliProvider = secretaryProviderConfig;
+    }
 
     // Initialize secretary's toolKit so she can use tools (shell, file ops, etc.)
     const secretaryWorkspace = this.workspaceManager.createDepartmentWorkspace('secretary', 'secretary');
@@ -189,9 +199,19 @@ Rules:
         // 尝试从 CLI 输出中解析 JSON（复用与 LLM 相同的解析逻辑）
         reply = this._parseSecretaryJSON(rawOutput, message);
       } catch (cliErr) {
-        // CLI 失败时回退到 LLM
-        console.warn(`  ⚠️ [Secretary] CLI chat failed, falling back to LLM: ${cliErr.message || cliErr.error}`);
-        reply = await this.secretary.handleBossMessage(message, this);
+        // CLI 失败时尝试回退到 LLM（仅当有可用的 LLM provider 时）
+        const hasLLM = secretaryAgent.provider && secretaryAgent.provider.enabled && secretaryAgent.provider.apiKey && !secretaryAgent.provider.apiKey.startsWith('cli');
+        if (hasLLM) {
+          console.warn(`  ⚠️ [Secretary] CLI chat failed, falling back to LLM: ${cliErr.message || cliErr.error}`);
+          reply = await this.secretary.handleBossMessage(message, this);
+        } else {
+          // 没有可用的 LLM provider，返回 CLI 错误信息
+          console.error(`  ❌ [Secretary] CLI chat failed, no LLM fallback available: ${cliErr.message || cliErr.error}`);
+          reply = {
+            content: `⚠️ CLI 执行出错：${cliErr.message || '未知错误'}。请检查 CodeBuddy CLI 是否正常运行。`,
+            action: null,
+          };
+        }
       }
     } else {
       // Let secretary analyze whether it's task assignment or casual conversation
@@ -417,17 +437,23 @@ Rules:
         );
         replyContent = cliResult.output || cliResult.errorOutput || '...';
       } catch (cliErr) {
-        // CLI 失败时回退到 LLM
-        console.warn(`  ⚠️ [${targetAgent.name}] CLI chat failed, falling back to LLM: ${cliErr.message || cliErr.error}`);
-        try {
-          const response = await llmClient.chat(targetAgent.provider, messages, {
-            temperature: 0.8,
-            maxTokens: 2048,
-          });
-          replyContent = response.content;
-          targetAgent._trackUsage(response.usage);
-        } catch (err) {
-          replyContent = `(Sorry boss, my brain froze: ${err.message})`;
+        // CLI 失败时尝试回退到 LLM（仅当有可用的 LLM provider 时）
+        const hasLLM = targetAgent.provider && targetAgent.provider.enabled && targetAgent.provider.apiKey && !targetAgent.provider.apiKey.startsWith('cli');
+        if (hasLLM) {
+          console.warn(`  ⚠️ [${targetAgent.name}] CLI chat failed, falling back to LLM: ${cliErr.message || cliErr.error}`);
+          try {
+            const response = await llmClient.chat(targetAgent.provider, messages, {
+              temperature: 0.8,
+              maxTokens: 2048,
+            });
+            replyContent = response.content;
+            targetAgent._trackUsage(response.usage);
+          } catch (err) {
+            replyContent = `(Sorry boss, my brain froze: ${err.message})`;
+          }
+        } else {
+          console.error(`  ❌ [${targetAgent.name}] CLI chat failed, no LLM fallback: ${cliErr.message || cliErr.error}`);
+          replyContent = `⚠️ CLI 执行出错：${cliErr.message || '未知错误'}。请检查 CLI 是否正常运行。`;
         }
       }
     } else {
@@ -741,7 +767,16 @@ Rules:
     // 5. Start session pruning
     sessionManager.startPruning();
 
-    // 6. Fire system startup hook
+    // 6. Start group chat loop engine
+    groupChatLoop.start(this);
+    // 为所有已存在的 Agent 启动群聊循环
+    for (const dept of this.departments.values()) {
+      for (const agent of dept.getMembers()) {
+        groupChatLoop.startAgentLoop(agent);
+      }
+    }
+
+    // 7. Fire system startup hook
     hookRegistry.trigger(HookEvent.SYSTEM_STARTUP, {
       companyName: this.name, bossName: this.bossName,
     });
@@ -860,6 +895,11 @@ Rules:
     // Background async: Agent self-intro + onboarding email + broadcast
     this._onboardAgents(agents, dept).catch(e => console.error('Onboarding process error:', e));
 
+    // 启动新员工的群聊循环
+    for (const agent of agents) {
+      groupChatLoop.startAgentLoop(agent);
+    }
+
     // Persist
     this.save();
 
@@ -940,6 +980,9 @@ const dept = this.findDepartment(departmentId);
       agent.initToolKit(dept.workspacePath, this.messageBus);
     }
 
+    // 启动群聊循环
+    groupChatLoop.startAgentLoop(agent);
+
     return agent;
   }
 
@@ -959,6 +1002,9 @@ const dept = this.findDepartment(departmentId);
       agent.initToolKit(dept.workspacePath, this.messageBus);
     }
 
+    // 启动召回员工的群聊循环
+    groupChatLoop.startAgentLoop(agent);
+
     console.log(`  🔄 [${agent.name}] Recalled from talent market, joined "${dept.name}" department`);
     return agent;
   }
@@ -971,6 +1017,9 @@ const dept = this.findDepartment(departmentId);
     if (!agent) throw new Error(`Employee not found: ${agentId}`);
 
     agent.status = 'dismissed';
+
+    // 停止群聊循环
+    groupChatLoop.stopAgentLoop(agentId);
 
     // Fire hook: agent dismissed
     hookRegistry.trigger(HookEvent.AGENT_DISMISSED, {
@@ -1139,6 +1188,10 @@ const dept = this.findDepartment(departmentId);
         this._log('Adjustment hire', `"${plan.departmentName}": hired ${newAgents.length} new employees`);
         // Background async onboarding
         this._onboardAgents(newAgents, dept).catch(e => console.error('Onboarding process error:', e));
+        // 启动新员工的群聊循环
+        for (const agent of newAgents) {
+          groupChatLoop.startAgentLoop(agent);
+        }
       }
     }
 
@@ -1444,6 +1497,15 @@ const dept = this.findDepartment(departmentId);
       'message'
     );
     this.save();
+
+    // 1.5 触发群聊循环：通知所有群成员有新消息（老板消息，每个人都应该关注）
+    const allMembers = dept.getMembers();
+    for (const member of allMembers) {
+      // 延迟触发，避免所有人同时处理
+      setTimeout(() => {
+        groupChatLoop.triggerImmediate(member.id, requirementId, { from: { id: 'boss' }, content: message }).catch(() => {});
+      }, 500 + Math.random() * 2000);
+    }
 
     // 2. Leader 异步处理 Boss 消息（用 LLM 判断是否需要调整）
     const leaderResponse = await this._leaderHandleBossMessage(leader, requirement, dept, message);
@@ -1934,6 +1996,7 @@ const dept = this.findDepartment(departmentId);
         signature: this.secretary.agent.signature,
         prompt: this.secretary.agent.prompt,
         providerId: this.secretary.agent.provider?.id,
+        cliBackend: this.secretary.agent.cliBackend || null,
         tokenUsage: { ...this.secretary.agent.tokenUsage },
         hrTokenUsage: { ...this.secretary.hrAssistant.agent.tokenUsage },
       },
@@ -1995,6 +2058,15 @@ const dept = this.findDepartment(departmentId);
     // Restore secretary signature
     if (data.secretary?.signature) {
       company.secretary.agent.signature = data.secretary.signature;
+    }
+    // 恢复秘书的 CLI 后端配置
+    if (data.secretary?.cliBackend) {
+      company.secretary.agent.setCLIBackend(data.secretary.cliBackend);
+      // 同时设置 cliProvider 引用（用于前端显示）
+      const cliProvider = company.providerRegistry.getById(data.secretary.providerId);
+      if (cliProvider && cliProvider.isCLI) {
+        company.secretary.agent.cliProvider = cliProvider;
+      }
     }
 
     // Restore secretary memory from separate memory file

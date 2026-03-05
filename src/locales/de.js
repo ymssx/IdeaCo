@@ -195,6 +195,17 @@ stats: { departments: 'Abt.', workers: 'Arbeiter', requirements: 'Anforderungen'
     chat: { noMessages: 'Keine Nachrichten', noMessagesHint: 'Kommunikation während der Ausführung erscheint hier' },
     outputs: { noOutputs: 'Keine Ergebnisse', noOutputsHint: 'Ergebnisse erscheinen nach Aufgabenabschluss', noOutputsShort: 'Keine Ergebnisse', collapse: 'Einklappen ▲', expand: 'Ausklappen ▼' },
     files: { noChanges: 'Keine Dateiänderungen', noChangesHint: 'Generierte Dateien erscheinen hier', explorer: 'Explorer', fileCount: '{n} Dateien', syncing: 'Live-Synchronisation', syncingShort: 'Synchronisiere...', loading: 'Laden...', emptyFile: '(leere Datei)', noContent: '(kein Inhalt)', readFailed: '(Lesefehler)', lines: '{n} Zeilen', readOnly: 'Nur lesen', clickToView: 'Datei anklicken zum Anzeigen', syntaxHighlight: 'Syntaxhervorhebung · Live-Sync' },
+    members: {
+      blockingTitle: '⏱️ Aktueller Blockierer', title: '👥 Mitglieder', count: '({n})',
+      running: 'Läuft', reviewing: 'Überprüfung', revision: 'Revision', waiting: 'Wartend', ready: 'Bereit', completed: 'Abgeschlossen', failed: 'Fehlgeschlagen',
+      working: '⚡Arbeitet', noTask: 'Keine Aufgabe', peekFlow: 'Flow ansehen', viewProfile: 'Profil ansehen',
+    },
+    flowPeek: {
+      title: '{name}s Flow ansehen', tabFlow: '📋 Arbeitsprotokoll', tabThoughts: '💭 Monolog', tabHistory: '📜 Verlauf',
+      loading: 'Gedanken ausspähen...', noFlowLogs: 'Keine Arbeitsprotokolle', noFlowLogsHint: 'Operationen erscheinen hier wenn der Agent beginnt',
+      thinking: '🧠 Denkt nach...', decided: '💬 Hat sich entschieden zu sprechen', silent: '🤫 Schweigt', thought: '💭 Gedanke', organizing: 'Gedanken ordnen...',
+      noMonologue: 'Kein aktiver Monolog', noHistory: 'Kein Verlauf', spoke: '💬 Hat gesprochen', keptSilent: '🤫 Blieb still', codeBlock: '[Codeblock]',
+    },
   },
   time: { justNow: 'gerade', minutesAgo: 'vor {n}m', sun: 'So', mon: 'Mo', tue: 'Di', wed: 'Mi', thu: 'Do', fri: 'Fr', sat: 'Sa' },
   agentChat: {

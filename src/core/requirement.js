@@ -80,8 +80,18 @@ export class Requirement {
     this.liveStatus.heartbeat = new Date();
   }
 
-  /** Add group chat message */
-  addGroupMessage(from, content, type = 'message') {
+  /**
+   * Add group chat message
+   * @param {object} from - 发送者信息
+   * @param {string} content - 消息内容
+   * @param {string} type - 消息类型: message | system | tool_call | output
+   * @param {string} visibility - 可见性: 'group'（广播到群聊）| 'flow'（心流，仅自己和老板可见）
+   *   - tool_call 类型默认为 'flow'（心流，干活过程不刷屏群聊）
+   *   - 其他类型默认为 'group'（广播到群聊）
+   */
+  addGroupMessage(from, content, type = 'message', visibility = null) {
+    // 自动推断 visibility：tool_call 和 output 类型默认心流，其他默认群聊
+    const resolvedVisibility = visibility || (type === 'tool_call' || type === 'output' ? 'flow' : 'group');
     this.groupChat.push({
       id: uuidv4(),
       from: {
@@ -92,6 +102,7 @@ export class Requirement {
       },
       content,
       type,  // message | system | tool_call | output
+      visibility: resolvedVisibility,  // group | flow
       time: new Date(),
     });
     // Sync update heartbeat
@@ -573,20 +584,23 @@ Requirements:
             requirement.addGroupMessage(
               agent,
               `🔨 Starting "${node.title}"! Working in parallel with ${myParallel.join(', ')} — let's sync up if needed! 💪`,
-              'message'
+              'message',
+              'flow'
             );
           } else {
             requirement.addGroupMessage(
               agent,
               `🔨 Starting to work on "${node.title}"!`,
-              'message'
+              'message',
+              'flow'
             );
           }
         } else {
           requirement.addGroupMessage(
             agent,
             `🔨 Starting to work on "${node.title}"!`,
-            'message'
+            'message',
+            'flow'
           );
         }
 
@@ -724,7 +738,7 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
                   );
                   this._recordAgentChat(reviewer, agent, `✅ Review APPROVED: ${reviewResult.comment || 'Good work!'}`);
                 } else {
-                  // Review rejected
+                  // Review rejected — 进入博弈环节
                   node.status = TaskNodeStatus.REVISION;
                   requirement.addGroupMessage(
                     reviewer,
@@ -742,50 +756,149 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
                       'system'
                     );
                   } else {
-                    // Agent revises based on feedback
-                    node.status = TaskNodeStatus.RUNNING;
-                    requirement.updateLiveStatus({
-                      currentNodeId: node.id,
-                      currentNodeTitle: `Revision: ${node.title}`,
-                      currentAgent: agent.name,
-                      currentAction: `${agent.name} is revising "${node.title}" based on review feedback (round ${node.reviewRounds})`,
-                    });
-                    requirement.addGroupMessage(
-                      agent,
-                      `🔄 @[${reviewer.id}] Got it, revising "${node.title}" based on your feedback...`,
-                      'message'
+                    // === 博弈环节：被审核人可以选择接受修改或反驳 ===
+                    const rebuttalResult = await this._assigneeRebuttal(
+                      agent, reviewer, node, currentOutput, reviewResult.feedback, requirement, node.reviewRounds
                     );
 
-                    try {
-                      const revisionResult = await this._executeRevision(
-                        agent, node, currentOutput, reviewResult.feedback, requirement, {
-                          onToolCall: ({ tool, args, status, success, error: toolErr }) => {
-                            if (status === 'start') {
-                              requirement.updateLiveStatus({
-                                currentAction: `${agent.name} (revision) calling ${tool}`,
-                                toolCallsInProgress: [...(requirement.liveStatus.toolCallsInProgress || []), tool],
-                              });
-                              if (tool === 'file_write') {
-                                const filePath = args?.path || args?.filePath || args?.file_path || '';
-                                requirement.addGroupMessage(agent, `📝 [Revision] Writing file: ${filePath}`, 'tool_call');
-                                requirement.addFileChange(agent.name, filePath, 'write');
-                              }
-                            } else if (status === 'done') {
-                              requirement.updateLiveStatus({
-                                toolCallsInProgress: (requirement.liveStatus.toolCallsInProgress || []).filter(t => t !== tool),
-                              });
-                            }
-                          },
-                          onLLMCall: ({ iteration }) => {
-                            requirement.updateLiveStatus({
-                              currentAction: `${agent.name} is revising... (iteration ${iteration})`,
-                            });
-                          },
-                        }
+                    if (rebuttalResult.accept) {
+                      // 被审核人接受意见，进行修改
+                      node.status = TaskNodeStatus.RUNNING;
+                      requirement.updateLiveStatus({
+                        currentNodeId: node.id,
+                        currentNodeTitle: `Revision: ${node.title}`,
+                        currentAgent: agent.name,
+                        currentAction: `${agent.name} is revising "${node.title}" based on review feedback (round ${node.reviewRounds})`,
+                      });
+                      requirement.addGroupMessage(
+                        agent,
+                        `🔄 @[${reviewer.id}] ${rebuttalResult.message || `Got it, revising "${node.title}" based on your feedback...`}`,
+                        'message'
                       );
-                      currentOutput = revisionResult.output || currentOutput;
-                      node.result = revisionResult;
 
+                      try {
+                        const revisionResult = await this._executeRevision(
+                          agent, node, currentOutput, reviewResult.feedback, requirement, {
+                            onToolCall: ({ tool, args, status, success, error: toolErr }) => {
+                              if (status === 'start') {
+                                requirement.updateLiveStatus({
+                                  currentAction: `${agent.name} (revision) calling ${tool}`,
+                                  toolCallsInProgress: [...(requirement.liveStatus.toolCallsInProgress || []), tool],
+                                });
+                                if (tool === 'file_write') {
+                                  const filePath = args?.path || args?.filePath || args?.file_path || '';
+                                  requirement.addGroupMessage(agent, `📝 [Revision] Writing file: ${filePath}`, 'tool_call');
+                                  requirement.addFileChange(agent.name, filePath, 'write');
+                                }
+                              } else if (status === 'done') {
+                                requirement.updateLiveStatus({
+                                  toolCallsInProgress: (requirement.liveStatus.toolCallsInProgress || []).filter(t => t !== tool),
+                                });
+                              }
+                            },
+                            onLLMCall: ({ iteration }) => {
+                              requirement.updateLiveStatus({
+                                currentAction: `${agent.name} is revising... (iteration ${iteration})`,
+                              });
+                            },
+                          }
+                        );
+                        currentOutput = revisionResult.output || currentOutput;
+                      } catch (revisionErr) {
+                        console.error(`  ❌ Revision failed for "${node.title}":`, revisionErr.message);
+                        requirement.addGroupMessage(
+                          agent,
+                          `⚠️ Revision attempt failed: ${revisionErr.message}. Proceeding with previous output.`,
+                          'message'
+                        );
+                      }
+                    } else {
+                      // 被审核人反驳！进入对峙环节
+                      requirement.addGroupMessage(
+                        agent,
+                        `💬 @[${reviewer.id}] ${rebuttalResult.message}`,
+                        'message'
+                      );
+                      this._recordAgentChat(agent, reviewer, `💬 Rebuttal: ${rebuttalResult.message}`);
+
+                      // 审核人重新评估
+                      const reEvalResult = await this._reviewerReEvaluate(
+                        reviewer, agent, node, currentOutput, reviewResult.feedback, rebuttalResult.message, requirement, node.reviewRounds
+                      );
+
+                      if (reEvalResult.convinced) {
+                        // 审核人被说服了！
+                        approved = true;
+                        requirement.addGroupMessage(
+                          reviewer,
+                          `✅ @[${agent.id}] ${reEvalResult.message || `Fair point! I'll approve "${node.title}".`}`,
+                          'message'
+                        );
+                        this._recordAgentChat(reviewer, agent, `✅ Convinced by rebuttal, approved: ${reEvalResult.message}`);
+                      } else {
+                        // 审核人坚持意见
+                        requirement.addGroupMessage(
+                          reviewer,
+                          `🤔 @[${agent.id}] ${reEvalResult.message || `I understand your point, but I still think the issues need to be addressed.`}`,
+                          'message'
+                        );
+                        this._recordAgentChat(reviewer, agent, `🤔 Not convinced: ${reEvalResult.message}`);
+
+                        // 被审核人最终还是要修改
+                        node.status = TaskNodeStatus.RUNNING;
+                        requirement.updateLiveStatus({
+                          currentNodeId: node.id,
+                          currentNodeTitle: `Revision: ${node.title}`,
+                          currentAgent: agent.name,
+                          currentAction: `${agent.name} is revising "${node.title}" after discussion (round ${node.reviewRounds})`,
+                        });
+                        requirement.addGroupMessage(
+                          agent,
+                          `🔄 @[${reviewer.id}] Alright, I'll revise "${node.title}" incorporating your feedback.`,
+                          'message'
+                        );
+
+                        try {
+                          const revisionResult = await this._executeRevision(
+                            agent, node, currentOutput, `${reviewResult.feedback}\n\n[Discussion context] Assignee argued: "${rebuttalResult.message}" but reviewer insisted: "${reEvalResult.message}"`, requirement, {
+                              onToolCall: ({ tool, args, status }) => {
+                                if (status === 'start') {
+                                  requirement.updateLiveStatus({
+                                    currentAction: `${agent.name} (revision) calling ${tool}`,
+                                    toolCallsInProgress: [...(requirement.liveStatus.toolCallsInProgress || []), tool],
+                                  });
+                                  if (tool === 'file_write') {
+                                    const filePath = args?.path || args?.filePath || args?.file_path || '';
+                                    requirement.addGroupMessage(agent, `📝 [Revision] Writing file: ${filePath}`, 'tool_call');
+                                    requirement.addFileChange(agent.name, filePath, 'write');
+                                  }
+                                } else if (status === 'done') {
+                                  requirement.updateLiveStatus({
+                                    toolCallsInProgress: (requirement.liveStatus.toolCallsInProgress || []).filter(t => t !== tool),
+                                  });
+                                }
+                              },
+                              onLLMCall: ({ iteration }) => {
+                                requirement.updateLiveStatus({
+                                  currentAction: `${agent.name} is revising after discussion... (iteration ${iteration})`,
+                                });
+                              },
+                            }
+                          );
+                          currentOutput = revisionResult.output || currentOutput;
+                        } catch (revisionErr) {
+                          console.error(`  ❌ Revision after discussion failed for "${node.title}":`, revisionErr.message);
+                          requirement.addGroupMessage(
+                            agent,
+                            `⚠️ Revision attempt failed: ${revisionErr.message}. Proceeding with previous output.`,
+                            'message'
+                          );
+                        }
+                      }
+                    }
+
+                    // 博弈/修改完成后，通知审核人重新审核（如果没有在博弈中被批准）
+                    if (!approved) {
                       requirement.addGroupMessage(
                         agent,
                         `📝 @[${reviewer.id}] Revision complete for "${node.title}", please review again.`,
@@ -795,13 +908,6 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
 
                       // Back to REVIEWING for next loop iteration
                       node.status = TaskNodeStatus.REVIEWING;
-                    } catch (revErr) {
-                      requirement.addGroupMessage(
-                        agent,
-                        `⚠️ Revision failed: ${revErr.message}. Proceeding with previous output.`,
-                        'message'
-                      );
-                      approved = true; // Force proceed on error
                     }
                   }
                 }
@@ -1184,6 +1290,171 @@ ${reviewFeedback}
     };
 
     return await agent.executeTask(revisionTask, callbacks);
+  }
+
+  /**
+   * Assignee rebuttal: after receiving review rejection, the assignee can choose to
+   * accept and revise, or push back (rebut) the reviewer's feedback.
+   * 
+   * Returns { accept: boolean, message: string }
+   * - accept=true: assignee agrees with feedback, will revise
+   * - accept=false: assignee disagrees and provides counter-arguments
+   */
+  async _assigneeRebuttal(agent, reviewer, node, currentOutput, reviewFeedback, requirement, round) {
+    if (!agent.provider?.enabled || !agent.provider?.apiKey) {
+      return { accept: true, message: 'Got it, I\'ll revise.' };
+    }
+
+    try {
+      const p = agent.personality || {};
+      const outputPreview = currentOutput?.length > 1500 ? currentOutput.slice(0, 1500) + '\n...(truncated)' : currentOutput;
+
+      const response = await llmClient.chat(agent.provider, [
+        {
+          role: 'system',
+          content: `You are "${agent.name}", working as "${agent.role}".
+Your personality: ${p.trait || 'Professional'}. Speaking style: ${p.tone || 'Normal'}.
+
+Your work on task "${node.title}" for requirement "${requirement.title}" was just reviewed and REJECTED by ${reviewer.name} (${reviewer.role}).
+
+You now have a choice — this is a professional discussion, not a hierarchy:
+1. **Accept** the feedback and revise your work (if you genuinely agree the feedback is valid)
+2. **Push back** and argue your case (if you believe your work is correct or the feedback is unfair/wrong)
+
+**Important guidelines for your decision:**
+- Be honest and professional. Don't just accept to be polite — if you genuinely believe your work is good, defend it!
+- Consider whether the reviewer's points are technically valid
+- If the feedback is about style preferences vs. actual errors, you can push back
+- If you made a genuine mistake, accept gracefully
+- When pushing back, provide SPECIFIC technical arguments, not just "I disagree"
+- Be respectful but firm — this is a professional debate between colleagues
+
+**Output format (JSON only):**
+{
+  "accept": true/false,
+  "reasoning": "Your internal reasoning about the feedback (not shown to reviewer)",
+  "message": "What you want to say to the reviewer (will be posted in group chat)"
+}`
+        },
+        {
+          role: 'user',
+          content: `Your work output:
+${outputPreview}
+
+Reviewer ${reviewer.name}'s rejection feedback:
+${reviewFeedback}
+
+This is review round ${round}. Do you accept the feedback and revise, or do you want to push back?`
+        },
+      ], { temperature: 0.7, maxTokens: 512 });
+
+      agent._trackUsage(response.usage);
+
+      const tick = String.fromCharCode(96);
+      const fence = tick + tick + tick;
+      let content = response.content?.trim() || '';
+      content = content.replace(fence + 'json', '').replace(fence, '').trim();
+
+      try {
+        const start = content.indexOf('{');
+        const end = content.lastIndexOf('}');
+        if (start !== -1 && end > start) {
+          const result = JSON.parse(content.slice(start, end + 1));
+          return {
+            accept: !!result.accept,
+            message: result.message || (result.accept ? 'Got it, I\'ll revise.' : 'I respectfully disagree with some of the feedback.'),
+          };
+        }
+      } catch {}
+
+      // Parse failure fallback: accept
+      return { accept: true, message: 'Got it, I\'ll revise based on your feedback.' };
+    } catch (e) {
+      console.error(`[AssigneeRebuttal] ${agent.name} rebuttal failed:`, e.message);
+      return { accept: true, message: 'Got it, I\'ll revise.' };
+    }
+  }
+
+  /**
+   * Reviewer re-evaluate: after the assignee pushes back with counter-arguments,
+   * the reviewer decides whether they're convinced or if they stand firm.
+   * 
+   * Returns { convinced: boolean, message: string }
+   * - convinced=true: reviewer accepts the rebuttal, work is approved
+   * - convinced=false: reviewer insists, assignee must revise
+   */
+  async _reviewerReEvaluate(reviewer, assignee, node, output, originalFeedback, rebuttalMessage, requirement, round) {
+    if (!reviewer.provider?.enabled || !reviewer.provider?.apiKey) {
+      return { convinced: false, message: 'Please address my feedback.' };
+    }
+
+    try {
+      const p = reviewer.personality || {};
+      const outputPreview = output?.length > 1000 ? output.slice(0, 1000) + '\n...(truncated)' : output;
+
+      const response = await llmClient.chat(reviewer.provider, [
+        {
+          role: 'system',
+          content: `You are "${reviewer.name}", working as "${reviewer.role}".
+Your personality: ${p.trait || 'Professional'}. Speaking style: ${p.tone || 'Normal'}.
+
+You rejected ${assignee.name}'s work on "${node.title}", but they pushed back with counter-arguments.
+Now you need to decide: were you wrong, or do you stand firm?
+
+**Guidelines:**
+- Be open-minded — good reviewers can admit when they're wrong
+- If the assignee makes valid technical points that address your concerns, be convinced
+- If the assignee is just making excuses without substance, stand firm
+- If it's a matter of style/preference rather than correctness, consider being flexible
+- Don't be stubborn for the sake of it — the goal is quality, not winning arguments
+- Be approximately 30-40% likely to be convinced if the argument has some merit
+
+**Output format (JSON only):**
+{
+  "convinced": true/false,
+  "reasoning": "Your internal reasoning (not shown to assignee)",
+  "message": "What you want to say in response (will be posted in group chat)"
+}`
+        },
+        {
+          role: 'user',
+          content: `Your original rejection feedback:
+${originalFeedback}
+
+${assignee.name}'s counter-argument:
+${rebuttalMessage}
+
+The work in question:
+${outputPreview}
+
+Are you convinced by their argument, or do you insist they need to revise?`
+        },
+      ], { temperature: 0.6, maxTokens: 512 });
+
+      reviewer._trackUsage(response.usage);
+
+      const tick = String.fromCharCode(96);
+      const fence = tick + tick + tick;
+      let content = response.content?.trim() || '';
+      content = content.replace(fence + 'json', '').replace(fence, '').trim();
+
+      try {
+        const start = content.indexOf('{');
+        const end = content.lastIndexOf('}');
+        if (start !== -1 && end > start) {
+          const result = JSON.parse(content.slice(start, end + 1));
+          return {
+            convinced: !!result.convinced,
+            message: result.message || (result.convinced ? 'You make a fair point, approved!' : 'I still think the issues need to be addressed.'),
+          };
+        }
+      } catch {}
+
+      return { convinced: false, message: 'I appreciate your perspective, but please address my feedback.' };
+    } catch (e) {
+      console.error(`[ReviewerReEvaluate] ${reviewer.name} re-evaluation failed:`, e.message);
+      return { convinced: false, message: 'Please address my feedback.' };
+    }
   }
 
   /**

@@ -160,8 +160,10 @@ When communicating with the boss, you need to:
     console.log(`\n🗂️ [Secretary] AI-analyzing requirements and designing team architecture...`);
     console.log(`   Requirement: "${requirement}"\n`);
 
-    if (!this.agent.provider || !this.agent.provider.enabled || !this.agent.provider.apiKey) {
-      throw new Error('Secretary AI is not configured. Please configure a valid API Key for the secretary provider first.');
+    // 检查是否有可用的 LLM provider（CLI provider 不能直接用于 LLM 调用）
+    const hasValidLLM = this.agent.provider && this.agent.provider.enabled && this.agent.provider.apiKey && !this.agent.provider.isCLI;
+    if (!hasValidLLM) {
+      throw new Error('Secretary AI is not configured with a valid LLM provider. Team design requires an LLM API, CLI mode is not supported for this operation.');
     }
 
     const plan = await this._aiAnalyzeRequirement(requirement);
@@ -323,8 +325,10 @@ Requirements:
       id: t.id, title: t.title, category: t.category, skills: t.skills,
     }));
 
-    if (!this.agent.provider || !this.agent.provider.enabled || !this.agent.provider.apiKey) {
-      throw new Error('Secretary AI is not configured. Please configure a valid API Key for the secretary provider first.');
+    // 检查是否有可用的 LLM provider（CLI provider 不能直接用于 LLM 调用）
+    const hasValidLLM2 = this.agent.provider && this.agent.provider.enabled && this.agent.provider.apiKey && !this.agent.provider.isCLI;
+    if (!hasValidLLM2) {
+      throw new Error('Secretary AI is not configured with a valid LLM provider. Team adjustment requires an LLM API, CLI mode is not supported for this operation.');
     }
 
     const plan = await this._aiAnalyzeAdjustment(department, currentMembers, availableRoles, adjustGoal);
@@ -582,7 +586,13 @@ Requirements:
    * Analyze whether it's task assignment, progress inquiry, or casual conversation
    */
   async handleBossMessage(message, company) {
-    if (!this.agent.provider || !this.agent.provider.enabled || !this.agent.provider.apiKey) {
+    // 检查是否有可用的 LLM provider（CLI provider 不能用于 LLM 调用）
+    const hasValidLLM = this.agent.provider && this.agent.provider.enabled && this.agent.provider.apiKey && !this.agent.provider.isCLI;
+    if (!hasValidLLM) {
+      if (this.agent.cliBackend) {
+        // CLI 模式下不应该直接调用 handleBossMessage（应该由 chatWithSecretary 处理 CLI 路径）
+        throw new Error('Secretary is in CLI mode. Please use chatWithSecretary() which handles CLI path correctly.');
+      }
       throw new Error('Secretary AI is not configured. Please configure a valid API Key for the secretary provider first.');
     }
 
@@ -1064,6 +1074,15 @@ ${memoryContext}
             success: true,
           };
         } catch (cliErr) {
+          // CLI 失败时检查是否有可用的 LLM provider 可回退
+          const hasLLM = this.agent.provider && this.agent.provider.enabled && this.agent.provider.apiKey && !this.agent.provider.isCLI;
+          if (!hasLLM) {
+            console.error(`  ❌ [Secretary] CLI task failed, no LLM fallback: ${cliErr.message || cliErr.error}`);
+            return {
+              content: `⚠️ CLI 任务执行出错：${cliErr.message || '未知错误'}。请检查 CLI 是否正常运行。`,
+              success: false,
+            };
+          }
           console.warn(`  ⚠️ [Secretary] CLI task failed, falling back to LLM: ${cliErr.message || cliErr.error}`);
           // CLI 失败时回退到 LLM
         }

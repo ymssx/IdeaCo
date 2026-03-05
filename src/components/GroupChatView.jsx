@@ -206,8 +206,86 @@ export default function GroupChatView({
   const internalChatEndRef = useRef(null);
   const chatEndRef = externalChatEndRef || internalChatEndRef;
 
-  // 合并真实消息和乐观消息
-  const allMessages = [...groupChat, ...optimisticMessages];
+  // 心流偷看相关状态
+  const [monologueAgentId, setMonologueAgentId] = useState(null);
+  const [monologueData, setMonologueData] = useState(null);
+  const [monologueHistory, setMonologueHistory] = useState([]);
+  const [monologueFlowMsgs, setMonologueFlowMsgs] = useState([]); // 工作日志（flow 消息）
+  const [monologueLoading, setMonologueLoading] = useState(false);
+  const [monologueTab, setMonologueTab] = useState('flow'); // flow | thoughts | history
+  const [activeThinking, setActiveThinking] = useState([]);
+
+  // 轮询正在思考的员工列表
+  useEffect(() => {
+    if (!requirementId) return;
+    const poll = async () => {
+      try {
+        const res = await fetch('/api/group-chat-loop?active=1');
+        const data = await res.json();
+        if (data.data) {
+          setActiveThinking(data.data.filter(a => a.groupId === requirementId));
+        }
+      } catch {}
+    };
+    poll();
+    const timer = setInterval(poll, 5000);
+    return () => clearInterval(timer);
+  }, [requirementId]);
+
+  // 偷看心流
+  const peekMonologue = async (agentId) => {
+    setMonologueAgentId(agentId);
+    setMonologueLoading(true);
+    setMonologueTab('flow');
+    try {
+      // 同时获取当前心流、历史心流、工作日志（flow 消息）
+      const [currentRes, historyRes, flowRes] = await Promise.all([
+        fetch(`/api/group-chat-loop?agentId=${agentId}&groupId=${requirementId}`),
+        fetch(`/api/group-chat-loop?agentId=${agentId}&groupId=${requirementId}&history=1`),
+        fetch(`/api/group-chat-loop?agentId=${agentId}&groupId=${requirementId}&flowMessages=1`),
+      ]);
+      const currentData = await currentRes.json();
+      const historyData = await historyRes.json();
+      const flowData = await flowRes.json();
+      setMonologueData(currentData.data);
+      setMonologueHistory(historyData.data || []);
+      setMonologueFlowMsgs(flowData.data || []);
+    } catch (err) {
+      console.error('Failed to peek monologue:', err);
+    } finally {
+      setMonologueLoading(false);
+    }
+  };
+
+  // 自动刷新当前偷看的心流和工作日志
+  useEffect(() => {
+    if (!monologueAgentId || !requirementId) return;
+    const timer = setInterval(async () => {
+      try {
+        const [res, flowRes] = await Promise.all([
+          fetch(`/api/group-chat-loop?agentId=${monologueAgentId}&groupId=${requirementId}`),
+          fetch(`/api/group-chat-loop?agentId=${monologueAgentId}&groupId=${requirementId}&flowMessages=1`),
+        ]);
+        const data = await res.json();
+        const flowData = await flowRes.json();
+        if (data.data) setMonologueData(data.data);
+        if (flowData.data) setMonologueFlowMsgs(flowData.data);
+      } catch {}
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [monologueAgentId, requirementId]);
+
+  // 合并真实消息和乐观消息（去重：如果真实消息中已包含乐观消息的内容，则移除乐观消息）
+  const realMessages = groupChat.filter(m => m.visibility !== 'flow');
+  const dedupedOptimistic = optimisticMessages.filter(opt => {
+    // 如果真实消息中已存在相同内容+相近时间的 boss 消息，说明已入库，去掉乐观消息
+    return !realMessages.some(real =>
+      real.from?.id === 'boss' &&
+      real.content === opt.content &&
+      Math.abs(new Date(real.time) - new Date(opt.time)) < 10000
+    );
+  });
+  const allMessages = [...realMessages, ...dedupedOptimistic];
 
   // 发送消息的通用逻辑
   const doSend = async () => {
@@ -232,7 +310,7 @@ export default function GroupChatView({
     try {
       await onSendMessage(requirementId, msg);
       if (fetchDetail) await fetchDetail(requirementId);
-      // API返回后清除乐观消息（真实数据已更新）
+      // API返回后清除乐观消息（真实数据已通过去重机制自动覆盖）
       setOptimisticMessages([]);
       // 再次滚动（leader回复可能已加入）
       setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
@@ -323,7 +401,7 @@ export default function GroupChatView({
                 ) : (
                   <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">👤</div>
                 )}
-                <div className="flex flex-col items-end min-w-0">
+                <div className="flex flex-col items-end min-w-0 flex-1">
                   <div className="flex items-center gap-2 mb-0.5 flex-row-reverse">
                     <span className="text-xs font-medium">{firstMsg.from?.name || bossName}</span>
                     <span className="text-[10px] text-[var(--muted)]">
@@ -331,7 +409,7 @@ export default function GroupChatView({
                     </span>
                   </div>
                   {group.messages.map((msg) => (
-                    <div key={msg.id} className="rounded-2xl rounded-br-sm px-3 py-2 text-sm inline-block max-w-[min(85%,600px)] bg-[var(--accent)] text-white mb-1">
+                    <div key={msg.id} className="rounded-2xl rounded-br-sm px-3 py-2 text-sm max-w-[min(85%,600px)] w-fit bg-[var(--accent)] text-white mb-1">
                       {renderBossContent(msg.content)}
                     </div>
                   ))}
@@ -342,18 +420,28 @@ export default function GroupChatView({
 
           return (
             <div key={`group-${gi}`} className="flex gap-2">
-              {firstMsg.from?.avatar ? (
-                <img
-                  src={firstMsg.from.avatar}
-                  alt=""
-                  className="w-8 h-8 rounded-lg bg-[var(--border)] shrink-0 mt-0.5 cursor-pointer hover:ring-2 hover:ring-[var(--accent)] transition-all"
-                  onClick={() => firstMsg.from?.id && firstMsg.from.id !== 'system' && setSelectedAgentId(firstMsg.from.id)}
-                />
-              ) : (
-                <div className={`w-8 h-8 rounded-lg ${nameToColor(firstMsg.from?.name)} flex items-center justify-center text-xs shrink-0 mt-0.5`}>
-                  {firstMsg.from?.name?.charAt(0) || '🤖'}
-                </div>
-              )}
+              <div className="relative group/avatar shrink-0">
+                {firstMsg.from?.avatar ? (
+                  <img
+                    src={firstMsg.from.avatar}
+                    alt=""
+                    className="w-8 h-8 rounded-lg bg-[var(--border)] mt-0.5 cursor-pointer hover:ring-2 hover:ring-[var(--accent)] transition-all"
+                    onClick={() => firstMsg.from?.id && firstMsg.from.id !== 'system' && setSelectedAgentId(firstMsg.from.id)}
+                  />
+                ) : (
+                  <div className={`w-8 h-8 rounded-lg ${nameToColor(firstMsg.from?.name)} flex items-center justify-center text-xs mt-0.5`}>
+                    {firstMsg.from?.name?.charAt(0) || '🤖'}
+                  </div>
+                )}
+                {/* 偷看心流按钮 - 悬浮在头像上方 */}
+                {firstMsg.from?.id && firstMsg.from.id !== 'system' && firstMsg.from.id !== 'boss' && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); peekMonologue(firstMsg.from.id); }}
+                    className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-purple-600 text-[8px] flex items-center justify-center opacity-0 group-hover/avatar:opacity-100 transition-opacity hover:bg-purple-500 shadow-lg"
+                    title={t('reqDetail.members.peekFlow')}
+                  >🧠</button>
+                )}
+              </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-0.5">
                   <span
@@ -436,6 +524,183 @@ export default function GroupChatView({
             >
               {sending ? '✉️' : t('mailbox.sendBtn')}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* 心流中的员工提示条 */}
+      {activeThinking.length > 0 && (
+        <div className="px-4 py-2 bg-purple-900/20 border-t border-purple-500/20">
+          <div className="flex items-center gap-2 text-xs text-purple-300">
+            <span className="animate-pulse">🧠</span>
+            <span>
+              {activeThinking.map((a, i) => (
+                <span key={a.agentId}>
+                  {i > 0 && '、'}
+                  <span
+                    className="text-purple-200 cursor-pointer hover:underline"
+                    onClick={() => peekMonologue(a.agentId)}
+                  >{a.agentName}</span>
+                </span>
+              ))}
+              {' '}{t('reqDetail.flowPeek.loading')}
+              <span className="text-purple-400 ml-1">({t('reqDetail.members.peekFlow')})</span>
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* 心流偷看弹窗 */}
+      {monologueAgentId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setMonologueAgentId(null)}>
+          <div className="w-full max-w-lg mx-4 bg-[var(--card)] border border-[var(--border)] rounded-2xl shadow-2xl max-h-[80vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+            {/* 头部 */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)] bg-purple-900/20">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">🧠</span>
+                <span className="font-medium text-sm">{t('reqDetail.flowPeek.title', { name: agentMap[monologueAgentId] || monologueAgentId })}</span>
+              </div>
+              <button onClick={() => setMonologueAgentId(null)} className="text-[var(--muted)] hover:text-white transition-colors text-lg">✕</button>
+            </div>
+
+            {/* Tab 切换 */}
+            <div className="flex border-b border-[var(--border)] px-4 bg-[var(--card)]">
+              {[
+                { id: 'flow', label: t('reqDetail.flowPeek.tabFlow'), badge: monologueFlowMsgs.length },
+                { id: 'thoughts', label: t('reqDetail.flowPeek.tabThoughts'), badge: monologueData?.thoughts?.length || 0 },
+                { id: 'history', label: t('reqDetail.flowPeek.tabHistory'), badge: monologueHistory.length },
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setMonologueTab(tab.id)}
+                  className={`px-3 py-2 text-xs font-medium transition-all border-b-2 ${
+                    monologueTab === tab.id
+                      ? 'border-purple-500 text-purple-300'
+                      : 'border-transparent text-[var(--muted)] hover:text-white'
+                  }`}
+                >
+                  {tab.label}
+                  {tab.badge > 0 && (
+                    <span className="ml-1 text-[10px] bg-white/10 px-1.5 py-0.5 rounded-full">{tab.badge}</span>
+                  )}
+                </button>
+              ))}
+            </div>
+
+            {/* 内容 */}
+            <div className="flex-1 overflow-auto p-4 space-y-3">
+              {monologueLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <span className="animate-spin text-2xl">🧠</span>
+                  <span className="ml-2 text-sm text-[var(--muted)]">{t('reqDetail.flowPeek.loading')}</span>
+                </div>
+              ) : monologueTab === 'flow' ? (
+                // 工作日志 — 该员工的 flow 可见性消息
+                monologueFlowMsgs.length === 0 ? (
+                  <div className="text-center py-8 text-[var(--muted)] text-sm">
+                    <div className="text-3xl mb-2">📋</div>
+                    <p>{t('reqDetail.flowPeek.noFlowLogs')}</p>
+                    <p className="text-xs mt-1">{t('reqDetail.flowPeek.noFlowLogsHint')}</p>
+                  </div>
+                ) : (
+                  monologueFlowMsgs.map((msg, i) => (
+                    <div key={msg.id || i} className={`rounded-xl p-3 text-sm ${
+                      msg.type === 'tool_call'
+                        ? 'bg-purple-900/20 border border-purple-500/10'
+                        : msg.type === 'output'
+                        ? 'bg-green-900/20 border border-green-500/10'
+                        : 'bg-white/5 border border-white/10'
+                    }`}>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs text-[var(--muted)]">
+                          {msg.type === 'tool_call' ? '🔧' : msg.type === 'output' ? '📄' : '💬'}{' '}
+                          {new Date(msg.time).toLocaleTimeString('zh')}
+                        </span>
+                      </div>
+                      <div className="text-sm break-words">
+                        {cleanMessageContent(msg.content)}
+                      </div>
+                    </div>
+                  ))
+                )
+              ) : monologueTab === 'thoughts' ? (
+                // 内心独白 — InnerMonologue 数据
+                monologueData ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${
+                        monologueData.status === 'thinking'
+                          ? 'bg-purple-500/20 text-purple-300 animate-pulse'
+                          : monologueData.decision === 'spoke'
+                          ? 'bg-green-500/20 text-green-400'
+                          : 'bg-gray-500/20 text-gray-400'
+                      }`}>
+                    {monologueData.status === 'thinking' ? t('reqDetail.flowPeek.thinking') : monologueData.decision === 'spoke' ? t('reqDetail.flowPeek.decided') : t('reqDetail.flowPeek.silent')}
+                      </span>
+                      <span className="text-xs text-[var(--muted)]">
+                        {new Date(monologueData.startedAt).toLocaleTimeString('zh')}
+                      </span>
+                    </div>
+                    {monologueData.thoughts?.map((t, ti) => (
+                      <div key={t.id || ti} className="bg-purple-900/20 border border-purple-500/10 rounded-xl p-3">
+                        <div className="text-xs text-purple-400 mb-1">
+                      {t('reqDetail.flowPeek.thought')} #{ti + 1}
+                          <span className="ml-2 text-[var(--muted)]">
+                            {new Date(t.timestamp).toLocaleTimeString('zh')}
+                          </span>
+                        </div>
+                        <div className="text-sm">
+                          {t.content.startsWith('[发送到群聊]')
+                            ? <span className="text-green-400">{t.content}</span>
+                            : <span className="italic text-purple-200">{t.content}</span>
+                          }
+                        </div>
+                      </div>
+                    ))}
+                    {monologueData.thoughts?.length === 0 && (
+                      <div className="text-center py-4 text-[var(--muted)] text-sm">
+                    <span className="animate-pulse">🧠</span> {t('reqDetail.flowPeek.organizing')}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <div className="text-3xl mb-2">😴</div>
+                <p className="text-sm text-[var(--muted)]">{t('reqDetail.flowPeek.noMonologue')}</p>
+                  </div>
+                )
+              ) : (
+                // 历史心流列表
+                monologueHistory.length === 0 ? (
+                  <div className="text-center py-8 text-[var(--muted)] text-sm">{t('reqDetail.flowPeek.noHistory')}</div>
+                ) : (
+                  monologueHistory.slice().reverse().map((m, i) => (
+                    <div key={m.id || i} className="bg-white/5 rounded-xl p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-[var(--muted)]">
+                          {new Date(m.startedAt).toLocaleString('zh')}
+                        </span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${
+                          m.decision === 'spoke'
+                            ? 'bg-green-500/20 text-green-400'
+                            : 'bg-gray-500/20 text-gray-400'
+                        }`}>
+                          {m.decision === 'spoke' ? t('reqDetail.flowPeek.spoke') : t('reqDetail.flowPeek.keptSilent')}
+                        </span>
+                      </div>
+                      {m.thoughts?.map((t, ti) => (
+                        <div key={t.id || ti} className="text-sm text-[var(--muted)] bg-black/20 rounded-lg p-2">
+                          {t.content.startsWith('[发送到群聊]')
+                            ? <span className="text-green-400">{t.content}</span>
+                            : <span className="italic">{t.content}</span>
+                          }
+                        </div>
+                      ))}
+                    </div>
+                  ))
+                )
+              )}
+            </div>
           </div>
         </div>
       )}

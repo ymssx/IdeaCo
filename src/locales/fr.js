@@ -195,6 +195,17 @@ stats: { departments: 'Dpts', workers: 'Ouvriers', requirements: 'Exigences' },
     chat: { noMessages: 'Pas de messages', noMessagesHint: "Les communications apparaîtront ici pendant l'exécution" },
     outputs: { noOutputs: 'Pas de résultats', noOutputsHint: 'Les résultats apparaîtront après la complétion des tâches', noOutputsShort: 'Aucun résultat', collapse: 'Réduire ▲', expand: 'Développer ▼' },
     files: { noChanges: 'Aucun changement de fichier', noChangesHint: "Les fichiers générés apparaîtront ici", explorer: 'Explorateur', fileCount: '{n} fichiers', syncing: 'Synchronisation en direct', syncingShort: 'Synchronisation...', loading: 'Chargement...', emptyFile: '(fichier vide)', noContent: '(pas de contenu)', readFailed: '(lecture échouée)', lines: '{n} lignes', readOnly: 'Lecture seule', clickToView: 'Cliquez sur un fichier pour voir', syntaxHighlight: 'Coloration syntaxique · Synchronisation en direct' },
+    members: {
+      blockingTitle: '⏱️ Blocage actuel', title: '👥 Membres', count: '({n})',
+      running: 'En cours', reviewing: 'En révision', revision: 'Révision', waiting: 'En attente', ready: 'Prêt', completed: 'Terminé', failed: 'Échoué',
+      working: '⚡En travail', noTask: 'Pas de tâche', peekFlow: 'Voir le flux', viewProfile: 'Voir le profil',
+    },
+    flowPeek: {
+      title: 'Flux de {name}', tabFlow: '📋 Journal', tabThoughts: '💭 Monologue', tabHistory: '📜 Historique',
+      loading: "Espionnage de l'esprit...", noFlowLogs: 'Aucun journal', noFlowLogsHint: "Les opérations apparaîtront ici quand l'agent commencera",
+      thinking: '🧠 Réflexion...', decided: '💬 A décidé de parler', silent: '🤫 Silence', thought: '💭 Pensée', organizing: 'Organisation des pensées...',
+      noMonologue: 'Pas de monologue actif', noHistory: "Pas d'historique", spoke: '💬 A parlé', keptSilent: '🤫 Est resté silencieux', codeBlock: '[bloc de code]',
+    },
   },
   time: { justNow: "à l'instant", minutesAgo: 'il y a {n}m', sun: 'Dim', mon: 'Lun', tue: 'Mar', wed: 'Mer', thu: 'Jeu', fri: 'Ven', sat: 'Sam' },
   agentChat: {

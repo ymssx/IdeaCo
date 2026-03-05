@@ -375,8 +375,25 @@ export class CLIBackendRegistry {
       .map(arg => arg.replace('{prompt}', ''))
       .filter(arg => arg.length > 0);
 
-    // 4. 构建执行环境
-    const env = { ...process.env, ...config.customEnv };
+    // 4. 构建执行环境（每个 agent 独立的 XDG 目录，避免 CLI 记忆共享）
+    const agentConfigDir = path.join(agentDir, '.config');
+    const agentDataDir = path.join(agentDir, '.local', 'share');
+    const agentStateDir = path.join(agentDir, '.local', 'state');
+    const agentCacheDir = path.join(agentDir, '.cache');
+    // 确保隔离目录存在
+    for (const dir of [agentConfigDir, agentDataDir, agentStateDir, agentCacheDir]) {
+      if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    }
+    const env = {
+      ...process.env,
+      ...config.customEnv,
+      // 通过 XDG 环境变量隔离 CLI 工具的配置/记忆/状态/缓存目录
+      // 这样 CodeBuddy/Claude Code 等 CLI 会将 memories、sessions 等存在 agent 自己的目录下
+      XDG_CONFIG_HOME: agentConfigDir,
+      XDG_DATA_HOME: agentDataDir,
+      XDG_STATE_HOME: agentStateDir,
+      XDG_CACHE_HOME: agentCacheDir,
+    };
     const cwd = config.workingDirSupport ? agentDir : workspaceDir;
 
     // 5. 确保工作目录存在
