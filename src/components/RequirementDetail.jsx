@@ -287,13 +287,13 @@ const { fetchRequirementDetail, requirementDetail, clearRequirementDetail, fetch
               onClick={() => restartRequirement(req.id)}
               className="text-xs px-3 py-1.5 rounded-lg bg-blue-600/15 hover:bg-blue-600/25 text-blue-400 border border-blue-500/20 transition-colors flex items-center gap-1"
             >
-              🔄 {t('reqDetail.live.restart')}
+              {t('reqDetail.live.restart')}
             </button>
             <button
               onClick={() => { if (confirm(t('reqDetail.live.confirmDelete'))) deleteRequirement(req.id); }}
               className="text-xs px-3 py-1.5 rounded-lg bg-red-600/15 hover:bg-red-600/25 text-red-400 border border-red-500/20 transition-colors flex items-center gap-1"
             >
-              🗑 {t('reqDetail.live.deleteReq')}
+              {t('reqDetail.live.deleteReq')}
             </button>
           </div>
         </div>
@@ -1427,7 +1427,7 @@ function LiveStatusPanel({ liveStatus, requirementId, requirementStatus, onResta
             disabled={operating}
             className="text-[11px] px-3 py-1 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/30 transition-colors disabled:opacity-50 flex items-center gap-1"
           >
-            {operating ? t('reqDetail.live.restarting') : t('reqDetail.live.restart')}
+            {operating ? t('reqDetail.live.restarting') :  t('reqDetail.live.restart')}
           </button>
           {!confirmDelete ? (
             <button

@@ -294,7 +294,7 @@ export default function DepartmentDetail() {
                           onClick={(e) => { e.stopPropagation(); if (confirm(t('reqDetail.live.confirmDelete'))) deleteRequirement(req.id); }}
                           className="text-[10px] px-1.5 py-0.5 rounded bg-red-600/15 hover:bg-red-600/25 text-red-400 transition-colors"
                           title={t('reqDetail.live.deleteReq')}
-                        >🗑</button>
+                        >🗑️</button>
                       </div>
                     </div>
                   </div>
