@@ -91,7 +91,7 @@ export default function RequirementDetail({ requirementId, onClose }) {
 const { fetchRequirementDetail, requirementDetail, clearRequirementDetail, fetchWorkspaceFile, navigateBack, activeRequirementId, deleteRequirement, restartRequirement, sendGroupChatMessage, company } = useStore();
   const reqId = requirementId || activeRequirementId;
   const isPage = !onClose; // If no onClose is passed, it is standalone page mode
-  const [activeTab, setActiveTab] = useState('workflow'); // workflow | outputs | files
+  const [activeTab, setActiveTab] = useState('workflow'); // workflow | files
   const chatEndRef = useRef(null);
   const pollRef = useRef(null);
   const [previewFile, setPreviewFile] = useState(null); // { path, content, loading }
@@ -328,8 +328,7 @@ const { fetchRequirementDetail, requirementDetail, clearRequirementDetail, fetch
             <div className="flex border-b border-white/[0.06] shrink-0 px-6 bg-[var(--card)]">
               {[
                 { id: 'workflow', label: t('reqDetail.tabs.workflow'), badge: req.workflow?.nodes?.length },
-                { id: 'outputs', label: t('reqDetail.tabs.outputs'), badge: req.outputs?.length },
-                { id: 'files', label: t('reqDetail.tabs.files'), badge: req.liveStatus?.recentFileChanges?.length || 0 },
+                { id: 'files', label: t('reqDetail.tabs.files'), badge: new Set((req.liveStatus?.recentFileChanges || []).filter(f => f.filePath).map(f => f.filePath.replace(/^\.[\/\\]/, ''))).size },
               ].map(tab => (
                 <button
                   key={tab.id}
@@ -364,7 +363,6 @@ const { fetchRequirementDetail, requirementDetail, clearRequirementDetail, fetch
                   <WorkflowView workflow={req.workflow} liveStatus={req.liveStatus} members={req.members} />
                 </>
               )}
-              {activeTab === 'outputs' && <OutputsView outputs={req.outputs || []} />}
               {activeTab === 'files' && (
                 <div className="flex-1 min-h-0">
                   <FilesView
@@ -446,8 +444,7 @@ const { fetchRequirementDetail, requirementDetail, clearRequirementDetail, fetch
           {[
             { id: 'workflow', label: t('reqDetail.tabs.workflow'), badge: req.workflow?.nodes?.length },
             { id: 'chat', label: t('reqDetail.tabs.chat'), badge: req.groupChat?.length },
-            { id: 'outputs', label: t('reqDetail.tabs.outputs'), badge: req.outputs?.length },
-            { id: 'files', label: t('reqDetail.tabs.files'), badge: req.liveStatus?.recentFileChanges?.length || 0 },
+            { id: 'files', label: t('reqDetail.tabs.files'), badge: new Set((req.liveStatus?.recentFileChanges || []).filter(f => f.filePath).map(f => f.filePath.replace(/^\.[\/\\]/, ''))).size },
           ].map(tab => (
             <button
               key={tab.id}
@@ -509,7 +506,6 @@ const { fetchRequirementDetail, requirementDetail, clearRequirementDetail, fetch
               />
             );
           })()}
-          {activeTab === 'outputs' && <OutputsView outputs={req.outputs || []} />}
           {activeTab === 'files' && (
             <div className="flex-1 min-h-0">
               <FilesView
@@ -1047,100 +1043,6 @@ function WorkflowView({ workflow, liveStatus, members }) {
 
 
 /**
- * Outputs view
- */
-function OutputsView({ outputs }) {
-  const { t } = useI18n();
-  const [expandedId, setExpandedId] = useState(null);
-
-  if (outputs.length === 0) {
-    return (
-      <div className="flex items-center justify-center py-16 text-[var(--muted)]">
-        <div className="text-center">
-          <div className="text-4xl mb-2">📦</div>
-          <p>{t('reqDetail.outputs.noOutputsShort')}</p>
-        </div>
-      </div>
-    );
-  }
-
-  const typeIcon = {
-    text: '📝',
-    code: '💻',
-    image: '🖼️',
-    file: '📁',
-  };
-
-  return (
-    <div className="p-4 space-y-3">
-      {outputs.map((output) => {
-        const isExpanded = expandedId === output.id;
-
-        return (
-          <div
-            key={output.id}
-            className="bg-[var(--background)] border border-[var(--border)] rounded-xl overflow-hidden"
-          >
-            {/* Header */}
-            <div
-              className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-white/5 transition-colors"
-              onClick={() => setExpandedId(isExpanded ? null : output.id)}
-            >
-              <div className="flex items-center gap-3">
-                <span className="text-lg">{typeIcon[output.outputType] || '📄'}</span>
-                <div>
-                  <div className="text-sm font-medium">{output.agentName}</div>
-                  <div className="text-xs text-[var(--muted)]">{output.role}</div>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className={`text-[10px] px-2 py-0.5 rounded ${
-                  output.outputType === 'code' ? 'bg-purple-900/30 text-purple-400' :
-                  output.outputType === 'image' ? 'bg-pink-900/30 text-pink-400' :
-                  'bg-blue-900/30 text-blue-400'
-                }`}>
-                  {output.outputType}
-                </span>
-                <span className="text-[var(--muted)] text-xs">{isExpanded ? t('reqDetail.outputs.collapse') : t('reqDetail.outputs.expand')}</span>
-              </div>
-            </div>
-
-            {/* Content */}
-            {isExpanded && (
-              <div className="px-4 pb-4 border-t border-white/[0.06]">
-                {output.outputType === 'code' ? (
-                  <pre className="mt-3 bg-black/30 rounded-lg p-4 overflow-auto text-xs font-mono text-green-300 max-h-96 leading-relaxed">
-                    {output.content}
-                  </pre>
-                ) : output.outputType === 'image' && output.content?.startsWith('http') ? (
-                  <div className="mt-3">
-                    <img src={output.content} alt="output image" className="max-w-full rounded-lg" />
-                  </div>
-                ) : (
-                  <div className="mt-3 text-sm text-[var(--foreground)] whitespace-pre-wrap leading-relaxed">
-                    {output.content}
-                  </div>
-                )}
-                {output.metadata?.toolResults?.length > 0 && (
-                  <div className="mt-3 flex gap-1 flex-wrap">
-                    {output.metadata.toolResults.map((t, i) => (
-                      <span key={i} className="text-[10px] bg-purple-900/20 text-purple-400 px-1.5 py-0.5 rounded">
-                        🔧 {t.tool}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-
-/**
  * 心流偷看弹窗 — 从需求详情群员列表点🧠触发
  * 三个 Tab：工作日志（flow）、内心独白（thoughts）、历史心流（history）
  */
@@ -1567,25 +1469,72 @@ function LiveStatusPanel({ liveStatus, requirementId, requirementStatus, onResta
  */
 function FilesView({ fileChanges, departmentId, previewFile, onPreview, onClosePreview }) {
   const { t } = useI18n();
+  const { fetchWorkspaceFiles } = useStore();
   const [sidebarWidth, setSidebarWidth] = useState(260);
   const [isResizing, setIsResizing] = useState(false);
   const [openTabs, setOpenTabs] = useState([]); // Open tabs [{path, name}]
   const [collapsedDirs, setCollapsedDirs] = useState(new Set());
   const resizeRef = useRef(null);
+  const [wsFiles, setWsFiles] = useState([]); // Workspace files from API
+  const [wsLoading, setWsLoading] = useState(false);
 
-  // Deduplicate by file path, keep latest only
+  // Load workspace files on mount and when departmentId changes
+  useEffect(() => {
+    if (!departmentId) return;
+    let cancelled = false;
+    setWsLoading(true);
+    (async () => {
+      try {
+        const files = await fetchWorkspaceFiles(departmentId);
+        if (!cancelled && Array.isArray(files)) {
+          // Flatten the file tree from workspace API into a flat list
+          const flat = [];
+          const walk = (entries, prefix = '') => {
+            for (const entry of entries) {
+              const fullPath = prefix ? `${prefix}/${entry.name}` : entry.name;
+              if (entry.type === 'file') {
+                flat.push({ filePath: entry.path || fullPath, agentName: null, action: 'existing', time: entry.modifiedAt });
+              }
+              if (entry.type === 'directory' && entry.children) {
+                walk(entry.children, fullPath);
+              }
+            }
+          };
+          walk(files);
+          setWsFiles(flat);
+        }
+      } catch {
+        // silently fail — recentFileChanges will still work as fallback
+      }
+      if (!cancelled) setWsLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [departmentId, fetchWorkspaceFiles]);
+
+  // Merge recentFileChanges with workspace files, deduplicate by normalized path
   const uniqueFiles = useMemo(() => {
+    const normalizePath = (p) => p ? p.replace(/^\.[\\/]/, '') : '';
     const files = [];
     const seen = new Set();
+    // recentFileChanges take priority (has agent info, more recent)
     for (let i = fileChanges.length - 1; i >= 0; i--) {
       const fc = fileChanges[i];
-      if (!seen.has(fc.filePath)) {
-        seen.add(fc.filePath);
+      const normed = normalizePath(fc.filePath);
+      if (normed && !seen.has(normed)) {
+        seen.add(normed);
         files.unshift(fc);
       }
     }
+    // Then add workspace files that weren't in recentFileChanges
+    for (const wf of wsFiles) {
+      const normed = normalizePath(wf.filePath);
+      if (normed && !seen.has(normed)) {
+        seen.add(normed);
+        files.push(wf);
+      }
+    }
     return files;
-  }, [fileChanges]);
+  }, [fileChanges, wsFiles]);
 
   // Build file tree structure
   const fileTree = useMemo(() => {
@@ -1686,14 +1635,24 @@ function FilesView({ fileChanges, departmentId, previewFile, onPreview, onCloseP
     return iconMap[ext] || '📄';
   };
 
-  // Empty state
-  if (fileChanges.length === 0 && !previewFile) {
+  // Empty state — check merged file list, not just fileChanges
+  if (uniqueFiles.length === 0 && !previewFile && !wsLoading) {
     return (
       <div className="flex items-center justify-center py-16 text-[var(--muted)]">
         <div className="text-center">
           <div className="text-4xl mb-2">📁</div>
           <p>{t('reqDetail.files.noChanges')}</p>
           <p className="text-xs mt-1">{t('reqDetail.files.noChangesHint')}</p>
+        </div>
+      </div>
+    );
+  }
+  if (uniqueFiles.length === 0 && wsLoading) {
+    return (
+      <div className="flex items-center justify-center py-16 text-[var(--muted)]">
+        <div className="text-center">
+          <div className="text-2xl mb-2 animate-pulse">⏳</div>
+          <p>{t('reqDetail.files.loading')}</p>
         </div>
       </div>
     );
@@ -1760,14 +1719,14 @@ function FilesView({ fileChanges, departmentId, previewFile, onPreview, onCloseP
     <div className="flex h-full min-h-[400px] overflow-hidden">
       {/* Left: file explorer */}
       <div
-        className="shrink-0 border-r border-[var(--border)] bg-[var(--card)] flex flex-col"
+        className="shrink-0 bg-[var(--card)] flex flex-col"
         style={{ width: sidebarWidth }}
       >
         {/* Sidebar title */}
-        <div className="px-3 py-2 text-[10px] font-semibold tracking-wider text-[var(--muted)] uppercase border-b border-[var(--border)] flex items-center justify-between">
+        <div className="px-3 py-2 text-[10px] font-semibold tracking-wider text-[var(--muted)] uppercase flex items-center justify-between">
           <span>{t('reqDetail.files.explorer')}</span>
-          <span className="text-[10px] normal-case font-normal bg-white/10 px-1.5 py-0.5 rounded">
-            {t('reqDetail.files.fileCount', { n: uniqueFiles.length })}
+          <span className="text-[10px] normal-case font-normal text-[var(--muted)]/60">
+            {uniqueFiles.length}
           </span>
         </div>
 
@@ -1785,11 +1744,6 @@ function FilesView({ fileChanges, departmentId, previewFile, onPreview, onCloseP
           )}
         </div>
 
-        {/* Sidebar bottom status */}
-        <div className="px-3 py-1.5 border-t border-[var(--border)] text-[10px] text-[var(--muted)] flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-          <span>{t('reqDetail.files.syncing')}</span>
-        </div>
       </div>
 
       {/* Drag resize handle */}
@@ -1805,13 +1759,13 @@ function FilesView({ fileChanges, departmentId, previewFile, onPreview, onCloseP
       <div className="flex-1 flex flex-col min-w-0 min-h-0 bg-[var(--background)]">
         {/* Open tabs */}
         {openTabs.length > 0 && (
-          <div className="flex border-b border-[var(--border)] bg-[var(--card)] overflow-x-auto shrink-0">
+          <div className="flex bg-[var(--card)] overflow-x-auto shrink-0">
             {openTabs.map(tab => {
               const isActive = previewFile?.path === tab.path;
               return (
                 <div
                   key={tab.path}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs cursor-pointer border-r border-[var(--border)] min-w-0 group transition-colors ${
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs cursor-pointer min-w-0 group transition-colors ${
                     isActive
                       ? 'bg-[var(--background)] text-[var(--foreground)]'
                       : 'text-[var(--muted)] hover:bg-[var(--card-hover)]'
@@ -1839,7 +1793,7 @@ function FilesView({ fileChanges, departmentId, previewFile, onPreview, onCloseP
         {previewFile ? (
           <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
             {/* Breadcrumb path bar */}
-            <div className="flex items-center justify-between px-3 py-1 bg-[var(--card)] border-b border-[var(--border)] text-[10px] text-[var(--muted)]">
+            <div className="flex items-center justify-between px-3 py-1 bg-[var(--card)] text-[10px] text-[var(--muted)]">
               <div className="flex items-center gap-1 truncate">
                 {previewFile.path?.split('/').filter(Boolean).map((seg, i, arr) => (
                   <span key={i} className="flex items-center gap-1">
@@ -1900,7 +1854,7 @@ function FilesView({ fileChanges, departmentId, previewFile, onPreview, onCloseP
             </div>
 
             {/* Bottom status bar */}
-            <div className="flex items-center justify-between px-3 py-1 bg-[var(--card)] border-t border-[var(--border)] text-[10px] text-[var(--muted)]">
+            <div className="flex items-center justify-between px-3 py-1 bg-[var(--card)] text-[10px] text-[var(--muted)]">
               <div className="flex items-center gap-3">
                 <span>{getLanguage(previewFile.path).toUpperCase()}</span>
                 <span>UTF-8</span>
@@ -1919,7 +1873,7 @@ function FilesView({ fileChanges, departmentId, previewFile, onPreview, onCloseP
           <div className="flex-1 flex items-center justify-center text-[var(--muted)]">
             <div className="text-center">
               <div className="text-6xl mb-4 opacity-20">{ }</div>
-              <div className="w-16 h-16 mx-auto mb-4 rounded-xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-center">
+              <div className="w-16 h-16 mx-auto mb-4 rounded-xl bg-white/[0.03] flex items-center justify-center">
                 <span className="text-3xl opacity-40">📝</span>
               </div>
               <p className="text-sm">{t('reqDetail.files.clickToView')}</p>

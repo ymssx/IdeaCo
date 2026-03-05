@@ -72,9 +72,9 @@ export class Requirement {
       action,
       time: new Date(),
     });
-    // Keep only last 20 entries
-    if (this.liveStatus.recentFileChanges.length > 20) {
-      this.liveStatus.recentFileChanges = this.liveStatus.recentFileChanges.slice(-20);
+    // Keep only last 100 entries (more generous to ensure files tab shows all files)
+    if (this.liveStatus.recentFileChanges.length > 100) {
+      this.liveStatus.recentFileChanges = this.liveStatus.recentFileChanges.slice(-100);
     }
     this.liveStatus.lastActiveAt = new Date();
     this.liveStatus.heartbeat = new Date();
@@ -937,13 +937,32 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
           // Record output (use node.result which may have been updated by revision)
           const finalResult = node.result || result;
           if (finalResult.output) {
-          // Determine output type
+            // Determine output type
             const outputType = this._detectOutputType(finalResult);
             requirement.addOutput(
               agent.id, agent.name, agent.role,
               outputType, finalResult.output,
               { toolResults: finalResult.toolResults, duration: finalResult.duration }
             );
+          } else if (finalResult.toolResults?.length > 0) {
+            // Even if output text is empty, if tools were used (e.g. file_write),
+            // still record an output entry so it shows in the Outputs tab
+            const fileWrites = (finalResult.toolResults || []).filter(t => t.tool === 'file_write');
+            if (fileWrites.length > 0) {
+              const filePaths = fileWrites.map(t => t.args?.path || t.args?.filePath || t.args?.file_path || 'unknown').join(', ');
+              requirement.addOutput(
+                agent.id, agent.name, agent.role,
+                'code', `[Files written] ${filePaths}`,
+                { toolResults: finalResult.toolResults, duration: finalResult.duration }
+              );
+            } else {
+              const toolNames = finalResult.toolResults.map(t => t.tool).join(', ');
+              requirement.addOutput(
+                agent.id, agent.name, agent.role,
+                'text', `[Tools used] ${toolNames}`,
+                { toolResults: finalResult.toolResults, duration: finalResult.duration }
+              );
+            }
           }
 
           // Group chat notification: completed
