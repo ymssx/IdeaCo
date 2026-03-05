@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useStore } from '@/lib/client-store';
 import { useI18n } from '@/lib/i18n';
 import SystemMonitor from './SystemMonitor';
+import CachedAvatar from './CachedAvatar';
 
 export default function Overview() {
   const { company, planDepartment, confirmPlan, pendingPlan, setPendingPlan, loading, setActiveTab, fetchRequirements, navigateToRequirement } = useStore();
@@ -150,7 +151,7 @@ export default function Overview() {
                 {dept.members.slice(0, 3).map((m) => (
                   <div key={m.id} className="flex items-center justify-between text-xs">
                     <div className="flex items-center gap-1">
-                      <img src={m.avatar} alt="" className="w-4 h-4 rounded-full" />
+                      <CachedAvatar src={m.avatar} alt="" className="w-4 h-4 rounded-full" />
                       <span className="text-[var(--muted)]">{m.name}</span>
                     </div>
                     <span className="text-green-400">${(m.tokenUsage?.totalCost || 0).toFixed(4)}</span>
@@ -313,7 +314,7 @@ export default function Overview() {
                 <div className="flex items-center gap-2">
                   <div className="flex -space-x-2">
                     {dept.members.slice(0, 5).map((m) => (
-                      <img key={m.id} src={m.avatar} alt={m.name} title={`${m.name} (${m.role})`} className="w-7 h-7 rounded-full border-2 border-[var(--card)] bg-[var(--border)]" />
+                      <CachedAvatar key={m.id} src={m.avatar} alt={m.name} title={`${m.name} (${m.role})`} className="w-7 h-7 rounded-full border-2 border-[var(--card)] bg-[var(--border)]" />
                     ))}
                   </div>
                   <span className="text-xs text-[var(--muted)]">{t('overview.departments.workers', { n: dept.members.length })}</span>

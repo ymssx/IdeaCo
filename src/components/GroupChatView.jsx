@@ -6,6 +6,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { parseFileReferences, FileRefList } from './FileReference';
 import AgentDetailModal from './AgentDetailModal';
+import CachedAvatar from './CachedAvatar';
 
 // ============ 共享工具函数 ============
 
@@ -409,7 +410,7 @@ content: `⚠️ ${t('mailbox.sendFailed')}: ${err.message}`,
             return (
               <div key={`group-${gi}`} className="flex gap-2 flex-row-reverse">
                 {bossAvatar ? (
-                  <img src={bossAvatar} alt="boss" className="w-8 h-8 rounded-lg bg-[var(--border)] shrink-0 mt-0.5" />
+                  <CachedAvatar src={bossAvatar} alt="boss" className="w-8 h-8 rounded-lg bg-[var(--border)] shrink-0 mt-0.5" />
                 ) : (
                   <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">👤</div>
                 )}
@@ -507,7 +508,7 @@ content: `⚠️ ${t('mailbox.sendFailed')}: ${err.message}`,
         {sending && leaderInfo && (
           <div className="flex gap-2">
             {leaderInfo.avatar ? (
-              <img src={leaderInfo.avatar} alt={leaderInfo.name} className="w-8 h-8 rounded-lg bg-[var(--border)] shrink-0 mt-0.5" />
+              <CachedAvatar src={leaderInfo.avatar} alt={leaderInfo.name} className="w-8 h-8 rounded-lg bg-[var(--border)] shrink-0 mt-0.5" />
             ) : (
               <div className={`w-8 h-8 rounded-lg ${nameToColor(leaderInfo.name)} flex items-center justify-center text-xs shrink-0 mt-0.5`}>
                 {leaderInfo.name?.charAt(0) || '🤖'}

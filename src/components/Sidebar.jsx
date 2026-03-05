@@ -6,6 +6,7 @@ import { getAvatarUrl } from '@/lib/avatar';
 import { useI18n, LanguageSelector } from '@/lib/i18n';
 import SecretarySettings from './SecretarySettings';
 import BossProfileModal from './BossProfileModal';
+import CachedAvatar from './CachedAvatar';
 
 export default function Sidebar() {
   const { company, activeTab, setActiveTab, setChatOpen, chatOpen, chatMinimized, setChatMinimized } = useStore();
@@ -39,7 +40,7 @@ export default function Sidebar() {
             title={t('bossProfile.editAvatar')}
           >
             {company.bossAvatar ? (
-              <img src={company.bossAvatar} alt="boss" className="w-10 h-10 rounded-lg" />
+              <CachedAvatar src={company.bossAvatar} alt="boss" className="w-10 h-10 rounded-lg" />
             ) : (
               <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center text-lg font-bold">
                 {company.name.charAt(0)}
@@ -118,7 +119,7 @@ export default function Sidebar() {
               key={item.id}
               onClick={() => setActiveTab(item.id)}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all ${
-                isActive || (item.id === 'requirements' && activeTab === 'requirement-detail')
+                isActive || (item.id === 'requirements' && activeTab === 'requirement-detail') || (item.id === 'departments' && activeTab === 'department-detail')
                   ? 'bg-[var(--accent)]/10 text-[var(--accent)] font-medium'
                   : 'text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-white/5'
               }`}

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useStore } from '@/lib/client-store';
 import AgentDetailModal from './AgentDetailModal';
 import { useI18n } from '@/lib/i18n';
+import CachedAvatar from './CachedAvatar';
 
 /**
  * Tree node - recursive render (clickable for detail)
@@ -24,7 +25,7 @@ function TreeNode({ node, allMembers, depth = 0, onClickAgent }) {
             : 'bg-[var(--card)] border-[var(--border)]'
         }`}
       >
-        <img src={node.avatar} alt={node.name} className="w-12 h-12 rounded-full bg-[var(--border)] mb-1" />
+        <CachedAvatar src={node.avatar} alt={node.name} className="w-12 h-12 rounded-full bg-[var(--border)] mb-1" />
         <div className="text-sm font-medium text-center">{node.name}</div>
         <div className="text-[10px] text-[var(--muted)]">
           {node.gender === 'female' ? '👩' : '👨'}{node.age ? ` ${node.age}` : ''} · {node.role}
@@ -81,7 +82,7 @@ export default function OrgTree({ embedded = false }) {
         {/* Boss */}
         <div className="flex flex-col items-center p-4 rounded-xl bg-gradient-to-br from-yellow-900/30 to-red-900/20 border border-yellow-500/30 shadow-lg shadow-yellow-500/10 mb-2">
           {company.bossAvatar ? (
-            <img src={company.bossAvatar} alt="boss" className="w-12 h-12 rounded-full bg-[var(--border)] mb-1" />
+            <CachedAvatar src={company.bossAvatar} alt="boss" className="w-12 h-12 rounded-full bg-[var(--border)] mb-1" />
           ) : (
             <div className="text-3xl mb-1">👑</div>
           )}
@@ -92,7 +93,7 @@ export default function OrgTree({ embedded = false }) {
 
         {/* Secretary */}
         <div className="flex flex-col items-center p-3 rounded-xl bg-gradient-to-br from-purple-900/20 to-pink-900/20 border border-purple-500/20 mb-2">
-          <img src={company.secretary?.avatar} alt="secretary" className="w-10 h-10 rounded-full bg-[var(--border)] mb-1" />
+          <CachedAvatar src={company.secretary?.avatar} alt="secretary" className="w-10 h-10 rounded-full bg-[var(--border)] mb-1" />
           <div className="text-sm font-medium">{company.secretary?.name}</div>
           <div className="text-[10px] text-purple-400">
 {company.secretary?.gender === 'female' ? '👩' : '👨'}{company.secretary?.age ? ` ${t('display.ageYears', { n: company.secretary.age })}` : ''} · {t('orgTree.secretary')}

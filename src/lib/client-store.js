@@ -90,6 +90,25 @@ chatMinimized: false,
     });
   },
 
+  // === Department Detail Navigation ===
+  activeDepartmentId: null,
+  navigateToDepartment: (deptId) => {
+    const { activeTab } = get();
+    set({
+      previousTab: activeTab === 'department-detail' ? get().previousTab : activeTab,
+      activeTab: 'department-detail',
+      activeDepartmentId: deptId,
+    });
+  },
+  navigateBackFromDepartment: () => {
+    const { previousTab } = get();
+    set({
+      activeTab: previousTab || 'departments',
+      activeDepartmentId: null,
+      previousTab: null,
+    });
+  },
+
   // === Company Operations ===
   fetchCompany: async () => {
     try {
@@ -652,6 +671,21 @@ chatMinimized: false,
   },
 
   // === Requirement Operations ===
+  createRequirement: async (departmentId, title, description, workspaceDir) => {
+    set({ loading: true, error: null });
+    try {
+      const data = await apiCall('/requirements', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'create', departmentId, title, description, workspaceDir: workspaceDir || undefined }),
+      });
+      set({ loading: false });
+      return data.data;
+    } catch (e) {
+      set({ error: e.message, loading: false });
+      throw e;
+    }
+  },
+
   deleteRequirement: async (id) => {
     try {
       await apiCall(`/requirements?id=${id}`, { method: 'DELETE' });

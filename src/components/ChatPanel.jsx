@@ -7,6 +7,7 @@ import { useI18n } from '@/lib/i18n';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { parseFileReferences, FileRefList } from './FileReference';
+import CachedAvatar from './CachedAvatar';
 
 export default function ChatPanel() {
   const { company, chatWithSecretary, chatOpen, setChatOpen, chatMinimized, setChatMinimized } = useStore();
@@ -149,7 +150,7 @@ export default function ChatPanel() {
           <div key={i} className={`flex gap-2 ${msg.role === 'boss' ? 'flex-row-reverse' : ''}`}>
             {msg.role === 'boss' ? (
               company?.bossAvatar ? (
-                <img src={company.bossAvatar} alt="boss" className="w-7 h-7 rounded-full bg-[var(--border)] shrink-0 mt-0.5" />
+                <CachedAvatar src={company.bossAvatar} alt="boss" className="w-7 h-7 rounded-full bg-[var(--border)] shrink-0 mt-0.5" />
               ) : (
                 <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">
                   👤

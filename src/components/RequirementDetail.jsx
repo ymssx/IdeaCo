@@ -5,6 +5,7 @@ import { useStore } from '@/lib/client-store';
 import { useI18n } from '@/lib/i18n';
 import GroupChatView from './GroupChatView';
 import AgentDetailModal from './AgentDetailModal';
+import CachedAvatar from './CachedAvatar';
 
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
@@ -681,7 +682,7 @@ function WorkflowView({ workflow, liveStatus, members }) {
         <div className="flex items-start gap-3 px-6 py-8">
           <div className="relative shrink-0">
             {liveStatus.currentAgentAvatar ? (
-              <img src={liveStatus.currentAgentAvatar} alt="" className="w-10 h-10 rounded-full bg-[var(--border)]" />
+              <CachedAvatar src={liveStatus.currentAgentAvatar} alt="" className="w-10 h-10 rounded-full bg-[var(--border)]" />
             ) : (
               <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-sm">🤖</div>
             )}
@@ -747,7 +748,7 @@ function WorkflowView({ workflow, liveStatus, members }) {
             <div className="font-medium text-sm truncate">{node.title}</div>
             <div className="flex items-center gap-1 text-xs text-[var(--muted)]">
               {assigneeAvatar ? (
-                <img src={assigneeAvatar} alt="" className="w-4 h-4 rounded-full inline-block" />
+                <CachedAvatar src={assigneeAvatar} alt="" className="w-4 h-4 rounded-full inline-block" />
               ) : (
                 <span className="w-4 h-4 rounded-full bg-gradient-to-br from-indigo-600 to-blue-700 flex items-center justify-center text-[8px] shrink-0">
                   {node.assigneeName?.charAt(0) || '?'}
@@ -759,7 +760,7 @@ function WorkflowView({ workflow, liveStatus, members }) {
                   <span className="text-[var(--muted)]">·</span>
                   <span>🔍</span>
                   {reviewerAvatar ? (
-                    <img src={reviewerAvatar} alt="" className="w-4 h-4 rounded-full inline-block" />
+                    <CachedAvatar src={reviewerAvatar} alt="" className="w-4 h-4 rounded-full inline-block" />
                   ) : (
                     <span className="w-4 h-4 rounded-full bg-gradient-to-br from-purple-600 to-pink-700 flex items-center justify-center text-[8px] shrink-0">
                       {node.reviewerName?.charAt(0) || '?'}
@@ -1283,7 +1284,7 @@ function MembersAndBlockingPanel({ members, blockingInfo, workflow, status, onPe
                       title={t('reqDetail.members.viewProfile')}
                     >
                       {m.avatar ? (
-                        <img src={m.avatar} alt="" className="w-7 h-7 rounded-full cursor-pointer" />
+                        <CachedAvatar src={m.avatar} alt="" className="w-7 h-7 rounded-full cursor-pointer" />
                       ) : (
                         <div className="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-600 to-blue-700 flex items-center justify-center text-[10px] cursor-pointer">
                           {m.name?.charAt(0) || '?'}

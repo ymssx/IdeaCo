@@ -208,11 +208,13 @@ When the boss communicates with you, you need to:
     emptyHint: "Create one — the secretary will help you build a tireless AI team",
     viewDetail: 'Click to view details →',
     members: '{n} members',
+    'members.count': '{n} members',
     // Detail modal
     detail: {
       members: '👥 Department Members',
       requirements: '📋 Requirements',
       reports: '📊 Project Reports',
+      back: 'Back to Structure',
       adjustBtn: '🔧 Adjust Staffing',
       disbandBtn: '💣 Disband Department',
       performance: 'Performance {score}',
@@ -275,6 +277,22 @@ When the boss communicates with you, you need to:
     },
     orgTree: {
       title: '🌳 Company Org Tree',
+    },
+    newReq: {
+      btn: '📋 New Requirement',
+      title: '📋 New Requirement',
+      nameLabel: 'Requirement Title',
+      namePlaceholder: 'e.g., Build a user login page',
+      descLabel: 'Description',
+      descPlaceholder: 'Describe in detail what you need — the clearer the description, the better the execution...',
+      workspaceDirLabel: '📁 Custom Working Directory (optional)',
+      workspaceDirPlaceholder: 'e.g., /Users/xxx/my-project (leave empty for default workspace)',
+      workspaceDirHint: '💡 Specify a local folder as the working directory for this requirement. Agents will read/write files there.',
+      submitBtn: '🚀 Create & Execute',
+      creating: '⏳ Creating...',
+      browseTitle: 'Select Working Directory',
+      selectDir: 'Select This Directory',
+      emptyDir: 'No subdirectories in this folder',
     },
   },
 

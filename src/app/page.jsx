@@ -7,6 +7,7 @@ import SetupWizard from '@/components/SetupWizard';
 import Sidebar from '@/components/Sidebar';
 import Overview from '@/components/Overview';
 import DepartmentView from '@/components/DepartmentView';
+import DepartmentDetail from '@/components/DepartmentDetail';
 import Mailbox from '@/components/Mailbox';
 import MessagesView from '@/components/MessagesView';
 import RequirementsBoard from '@/components/RequirementsBoard';
@@ -43,6 +44,7 @@ export default function Home() {
       case 'requirements': return <RequirementsBoard />;
       case 'requirement-detail': return <RequirementDetail />;
       case 'departments': return <DepartmentView />;
+      case 'department-detail': return <DepartmentDetail />;
       case 'mailbox': return <Mailbox />;
       case 'messages': return <MessagesView />;
       default: return <Overview />;

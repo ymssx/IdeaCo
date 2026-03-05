@@ -126,6 +126,54 @@ export async function POST(request) {
   const body = await request.json();
   const { action, id } = body;
 
+  // Create a new requirement for a department (with optional custom workspace dir)
+  if (action === 'create') {
+    const { departmentId, title, description, workspaceDir } = body;
+    if (!departmentId || !title) {
+      return NextResponse.json({ error: 'departmentId and title are required' }, { status: 400 });
+    }
+
+    const dept = company.findDepartment(departmentId);
+    if (!dept) {
+      return NextResponse.json({ error: 'Department not found' }, { status: 404 });
+    }
+
+    // If custom workspaceDir provided, override department workspace
+    if (workspaceDir) {
+      const path = await import('path');
+      const { existsSync, mkdirSync } = await import('fs');
+      const resolved = path.default.resolve(workspaceDir);
+      if (!existsSync(resolved)) {
+        mkdirSync(resolved, { recursive: true });
+      }
+      dept.workspacePath = resolved;
+    }
+
+    // Async task execution, return immediately
+    const taskTitle = title;
+    const taskDescription = description || title;
+    company.assignTaskToDepartment(departmentId, taskDescription, taskTitle).catch(e => {
+      console.error('Create requirement execution failed:', e.message);
+    });
+
+    // Brief wait for requirement creation
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // Find newly created requirement
+    const allReqs = company.requirementManager.listAll();
+    const newReq = allReqs.find(r => r.title === taskTitle && r.departmentId === departmentId);
+
+    return NextResponse.json({
+      data: {
+        success: true,
+        id: newReq?.id || null,
+        title: taskTitle,
+        departmentId,
+        workspaceDir: workspaceDir || null,
+      }
+    });
+  }
+
   // Boss sends a message in group chat
   if (action === 'boss_message') {
     const { id: reqId, message: bossMsg } = body;

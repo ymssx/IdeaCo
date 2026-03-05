@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useStore } from '@/lib/client-store';
 import { getAvatarChoices } from '@/lib/avatar';
 import { useI18n } from '@/lib/i18n';
+import CachedAvatar from './CachedAvatar';
 
 export default function SecretarySettings({ onClose }) {
   const { t } = useI18n();
@@ -39,13 +40,10 @@ export default function SecretarySettings({ onClose }) {
   const refreshAvatarDebounced = useCallback((g, a) => {
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     debounceTimer.current = setTimeout(() => {
-      const choices = getAvatarChoices(20, g, a);
+      const choices = getAvatarChoices(24, g, a);
       setAvatarChoices(choices);
-      if (choices.length > 0 && !selectedAvatar) {
-        setSelectedAvatar(choices[0]);
-      }
     }, 300);
-  }, [selectedAvatar]);
+  }, []);
 
   useEffect(() => {
     refreshAvatarDebounced(gender, age);
@@ -58,7 +56,7 @@ export default function SecretarySettings({ onClose }) {
 
   // Shuffle avatar choices
   const refreshChoices = () => {
-    const choices = getAvatarChoices(20, gender, age);
+    const choices = getAvatarChoices(24, gender, age);
     setAvatarChoices(choices);
   };
 
@@ -89,11 +87,11 @@ export default function SecretarySettings({ onClose }) {
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 !m-0" onClick={onClose}>
-      <div className="card max-w-2xl w-full mx-4 max-h-[85vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+      <div className="card max-w-2xl w-full mx-4 max-h-[92vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-[var(--border)]">
           <div className="flex items-center gap-3">
-            <img src={previewAvatar} alt="secretary" className="w-12 h-12 rounded-full bg-[var(--border)]" />
+            <CachedAvatar src={previewAvatar} alt="secretary" className="w-14 h-14 rounded-full bg-[var(--border)]" />
             <div>
               <h2 className="text-lg font-bold">{t('secretarySettings.title')}</h2>
               <p className="text-xs text-[var(--muted)]">{t('secretarySettings.subtitle')}</p>
@@ -205,21 +203,21 @@ export default function SecretarySettings({ onClose }) {
               >{t('secretarySettings.refreshAvatar')}</button>
             </div>
 {/* Avatar grid */}
-            <div className="grid grid-cols-5 gap-2 max-h-48 overflow-auto pr-1">
+            <div className="grid grid-cols-8 gap-1.5 overflow-auto pr-1">
               {avatarChoices.map((choice) => (
                 <button
                   key={choice.id}
                   onClick={() => setSelectedAvatar(choice)}
-                  className={`p-1.5 rounded-lg border transition-all flex flex-col items-center gap-0.5 ${
+                  className={`relative aspect-square rounded-lg transition-all overflow-hidden ${
                     selectedAvatar?.id === choice.id
-                      ? 'border-[var(--accent)] bg-[var(--accent)]/10 ring-1 ring-[var(--accent)]/30'
-                      : 'border-[var(--border)] hover:border-[var(--accent)]/40'
+                      ? 'bg-[var(--accent)] p-1 scale-[1.02]'
+                      : 'bg-[var(--border)] hover:bg-[var(--accent)]/30 hover:scale-[1.03]'
                   }`}
                 >
                   <img
                     src={choice.url}
                     alt="avatar"
-                    className="w-9 h-9 rounded-full bg-[var(--border)]"
+                    className="w-full h-full object-cover rounded-md"
                   />
                 </button>
               ))}

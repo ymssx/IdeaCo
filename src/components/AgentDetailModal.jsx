@@ -6,6 +6,7 @@ import { useI18n } from '@/lib/i18n';
 import AgentChatModal from './AgentChatModal';
 import AgentSpyModal from './AgentSpyModal';
 import ReactMarkdown from 'react-markdown';
+import CachedAvatar from './CachedAvatar';
 
 export default function AgentDetailModal({ agentId, onClose }) {
   const { t } = useI18n();
@@ -65,7 +66,7 @@ export default function AgentDetailModal({ agentId, onClose }) {
         {/* Header */}
         <div className="flex items-start gap-4 pb-4 border-b border-[var(--border)]">
           <div className="relative shrink-0">
-            <img src={agent.avatar} alt={agent.name} className="w-16 h-16 rounded-full bg-[var(--border)]" />
+            <CachedAvatar src={agent.avatar} alt={agent.name} className="w-24 h-24 rounded-full bg-[var(--border)]" />
             {agent.avgScore >= 80 && (
               <span className="absolute -top-1 -right-1 text-base animate-pulse drop-shadow-lg" title="高绩效员工">🌸</span>
             )}

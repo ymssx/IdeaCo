@@ -9,6 +9,7 @@ import remarkGfm from 'remark-gfm';
 import { useI18n } from '@/lib/i18n';
 import { parseFileReferences, FileRefList } from './FileReference';
 import GroupChatView from './GroupChatView';
+import CachedAvatar from './CachedAvatar';
 
 // Markdown render component mapping for chat bubbles
 /**
@@ -710,7 +711,7 @@ for (const agent of (dept.members || dept.agents || [])) {
               {sending && sendingTargetId === activeChat.agentId && (
                 <div className="flex gap-2">
                   {activeChat.agentAvatar ? (
-                    <img src={activeChat.agentAvatar} alt="" className="w-8 h-8 rounded-full bg-[var(--border)] shrink-0" />
+                    <CachedAvatar src={activeChat.agentAvatar} alt="" className="w-8 h-8 rounded-full bg-[var(--border)] shrink-0" />
                   ) : (
                     <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-xs shrink-0">💬</div>
                   )}
@@ -813,7 +814,7 @@ for (const agent of (dept.members || dept.agents || [])) {
                           onClick={() => { setShowGroupMembers(false); setSelectedAgent(m.id); }}
                         >
                           {m.avatar ? (
-                            <img src={m.avatar} alt="" className="w-8 h-8 rounded-full bg-[var(--border)]" />
+                            <CachedAvatar src={m.avatar} alt="" className="w-8 h-8 rounded-full bg-[var(--border)]" />
                           ) : (
                             <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-600 to-blue-700 flex items-center justify-center text-xs">🤖</div>
                           )}
@@ -924,7 +925,7 @@ function MessageBubble({ isMe, avatar, name, content, time, action, subject, age
   return (
     <div className={`flex gap-2 ${isMe ? 'flex-row-reverse' : ''}`}>
       {!isMe ? (
-        <img
+        <CachedAvatar
           src={avatar}
           alt=""
           className={`w-8 h-8 rounded-full bg-[var(--border)] shrink-0 mt-0.5 ${
@@ -934,7 +935,7 @@ function MessageBubble({ isMe, avatar, name, content, time, action, subject, age
         />
       ) : (
         bossAvatar ? (
-          <img src={bossAvatar} alt="boss" className="w-8 h-8 rounded-full bg-[var(--border)] shrink-0 mt-0.5" />
+          <CachedAvatar src={bossAvatar} alt="boss" className="w-8 h-8 rounded-full bg-[var(--border)] shrink-0 mt-0.5" />
         ) : (
           <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">
             👤

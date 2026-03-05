@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useStore } from '@/lib/client-store';
 import { getAvatarChoices } from '@/lib/avatar';
 import { useI18n } from '@/lib/i18n';
+import CachedAvatar from './CachedAvatar';
 
 export default function BossProfileModal({ onClose }) {
   const { t } = useI18n();
@@ -57,7 +58,7 @@ export default function BossProfileModal({ onClose }) {
         <div className="flex items-center justify-between pb-4 border-b border-[var(--border)]">
           <div className="flex items-center gap-3">
             {previewAvatar ? (
-              <img src={previewAvatar} alt="boss" className="w-12 h-12 rounded-full bg-[var(--border)]" />
+              <CachedAvatar src={previewAvatar} alt="boss" className="w-12 h-12 rounded-full bg-[var(--border)]" />
             ) : (
               <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-xl font-bold">
                 👑

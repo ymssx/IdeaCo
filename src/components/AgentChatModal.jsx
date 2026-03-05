@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useStore } from '@/lib/client-store';
 import { useI18n } from '@/lib/i18n';
 import ReactMarkdown from 'react-markdown';
+import CachedAvatar from './CachedAvatar';
 
 export default function AgentChatModal({ agentId, agentName, agentAvatar, agentRole, agentSignature, agentDepartment, onClose }) {
   const { t } = useI18n();
@@ -95,7 +96,7 @@ export default function AgentChatModal({ agentId, agentName, agentAvatar, agentR
       <div className="card max-w-lg w-full mx-4 h-[70vh] flex flex-col" onClick={e => e.stopPropagation()}>
         {/* Header */}
         <div className="flex items-center gap-3 -mx-4 -mt-4 px-4 py-3 border-b border-[var(--border)] shrink-0">
-          <img src={agentAvatar} alt={agentName} className="w-10 h-10 rounded-full bg-[var(--border)]" />
+          <CachedAvatar src={agentAvatar} alt={agentName} className="w-10 h-10 rounded-full bg-[var(--border)]" />
           <div className="flex-1 min-w-0">
             <div className="text-sm font-semibold flex items-center gap-2">
               {agentName}
@@ -135,14 +136,14 @@ export default function AgentChatModal({ agentId, agentName, agentAvatar, agentR
                   {/* Avatar */}
                   {isBoss ? (
                     bossAvatar ? (
-                      <img src={bossAvatar} alt="boss" className="w-7 h-7 rounded-full bg-[var(--border)] shrink-0 mt-0.5" />
+                      <CachedAvatar src={bossAvatar} alt="boss" className="w-7 h-7 rounded-full bg-[var(--border)] shrink-0 mt-0.5" />
                     ) : (
                       <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">
                         👤
                       </div>
                     )
                   ) : (
-                    <img src={agentAvatar} alt={agentName} className="w-7 h-7 rounded-full bg-[var(--border)] shrink-0 mt-0.5" />
+                    <CachedAvatar src={agentAvatar} alt={agentName} className="w-7 h-7 rounded-full bg-[var(--border)] shrink-0 mt-0.5" />
                   )}
 
                   {/* Bubble */}
@@ -175,7 +176,7 @@ export default function AgentChatModal({ agentId, agentName, agentAvatar, agentR
           )}
           {sending && (
             <div className="flex gap-2">
-              <img src={agentAvatar} alt={agentName} className="w-7 h-7 rounded-full bg-[var(--border)] shrink-0 mt-0.5" />
+              <CachedAvatar src={agentAvatar} alt={agentName} className="w-7 h-7 rounded-full bg-[var(--border)] shrink-0 mt-0.5" />
               <div className="bg-[var(--background)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm">
 <span className="animate-pulse">💭 {t('agentChat.typing')}</span>
               </div>

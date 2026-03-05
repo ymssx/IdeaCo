@@ -7,6 +7,7 @@ import { useI18n } from '@/lib/i18n';
 import AgentDetailModal from './AgentDetailModal';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import CachedAvatar from './CachedAvatar';
 
 // 复用 Mailbox 的 Markdown 渲染组件映射
 const chatMarkdownComponents = {
@@ -298,7 +299,7 @@ export default function AgentSpyModal({ agentId, agentName, agentAvatar, onClose
                 {/* 聊天对象信息 header */}
                 <div className="flex items-center gap-3 px-4 py-2.5 border-b border-[var(--border)] shrink-0 bg-[var(--background)]/30">
                   {selectedConv.peerAvatar ? (
-                    <img src={selectedConv.peerAvatar} alt="" className="w-8 h-8 rounded-full bg-[var(--border)]" />
+                    <CachedAvatar src={selectedConv.peerAvatar} alt="" className="w-8 h-8 rounded-full bg-[var(--border)]" />
                   ) : (
                     <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-sm">
                       {selectedConv.type === 'boss-agent' ? '👤' : '🤖'}
@@ -381,7 +382,7 @@ export default function AgentSpyModal({ agentId, agentName, agentAvatar, onClose
                           {/* Avatar */}
                           {isRight ? (
                             agentAvatar ? (
-                              <img src={agentAvatar} alt="" className="w-7 h-7 rounded-full bg-[var(--border)] shrink-0 mt-0.5 cursor-pointer hover:ring-2 hover:ring-[var(--accent)] transition-all" onClick={() => setSelectedAgentId(agentId)} />
+                              <CachedAvatar src={agentAvatar} alt="" className="w-7 h-7 rounded-full bg-[var(--border)] shrink-0 mt-0.5 cursor-pointer hover:ring-2 hover:ring-[var(--accent)] transition-all" onClick={() => setSelectedAgentId(agentId)} />
                             ) : (
                               <div className="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-xs shrink-0 mt-0.5">🤖</div>
                             )
