@@ -32,4 +32,5 @@ export { KnowledgeManager, knowledgeManager, KnowledgeType, EntryType } from './
 export { ChatStore, chatStore } from './chat-store.js';
 export { CLIBackendRegistry, cliBackendRegistry, CLIBackendState } from './cli-backends/index.js';
 export { GroupChatLoop, groupChatLoop } from './group-chat-loop.js';
+export { TeamManager, Team, Sprint, SprintStatus } from './team.js';
 export { setPromptLocale, getPromptLocaleCode, getPromptLocale } from './prompt-locale.js';

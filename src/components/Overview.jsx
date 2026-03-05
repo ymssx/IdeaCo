@@ -7,20 +7,22 @@ import SystemMonitor from './SystemMonitor';
 import CachedAvatar from './CachedAvatar';
 
 export default function Overview() {
-  const { company, planDepartment, confirmPlan, pendingPlan, setPendingPlan, loading, setActiveTab, fetchRequirements, navigateToRequirement } = useStore();
+  const { company, planDepartment, confirmPlan, pendingPlan, setPendingPlan, loading, setActiveTab, fetchRequirements, navigateToRequirement, fetchTeams, navigateToTeam } = useStore();
   const { t } = useI18n();
   const [activeSubTab, setActiveSubTab] = useState('dashboard');
   const [showCreate, setShowCreate] = useState(false);
   const [deptName, setDeptName] = useState('');
   const [deptMission, setDeptMission] = useState('');
   const [requirements, setRequirements] = useState([]);
+  const [teams, setTeams] = useState([]);
   const [activeReqId, setActiveReqId] = useState(null); // unused, kept for compat
 
   if (!company) return null;
 
-  // Load requirements list
+  // Load requirements list and teams
   useEffect(() => {
     fetchRequirements().then(setRequirements);
+    fetchTeams().then(setTeams);
   }, [company]);
 
   // Step 1: Generate recruitment plan
@@ -286,6 +288,62 @@ export default function Overview() {
       )}
 
       {/* Requirement detail is now a standalone page, no longer using modal */}
+
+      {/* Teams */}
+      {teams.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-semibold">{t('overview.teams.title')}</h2>
+            <span className="text-xs text-[var(--muted)]">{t('overview.teams.count', { n: teams.length })}</span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {teams.map((team) => {
+              const statusCfg = {
+                active: { color: 'text-green-400', bg: 'bg-green-900/30', icon: '🟢' },
+                archived: { color: 'text-gray-400', bg: 'bg-gray-900/30', icon: '📦' },
+              };
+              const st = statusCfg[team.status] || statusCfg.active;
+
+              return (
+                <div
+                  key={team.id}
+                  className="card cursor-pointer hover:border-[var(--accent)]/30 transition-all"
+                  onClick={() => navigateToTeam(team.id)}
+                >
+                  <div className="flex items-start justify-between mb-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-lg shrink-0">👥</span>
+                      <span className="font-medium text-sm truncate">{team.name}</span>
+                    </div>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${st.bg} ${st.color} shrink-0`}>{st.icon} {team.status}</span>
+                  </div>
+                  <p className="text-xs text-[var(--muted)] line-clamp-2 mb-3">{team.description || t('team.noDescription')}</p>
+                  <div className="flex items-center justify-between text-[10px] text-[var(--muted)]">
+                    <div className="flex items-center gap-3">
+                      <span>🏢 {team.departmentName}</span>
+                      <span>👤 {t('overview.teams.members', { n: team.memberIds?.length || 0 })}</span>
+                      {team.sprintCount > 0 && <span>🔄 {t('overview.teams.sprints', { n: team.sprintCount })}</span>}
+                    </div>
+                  </div>
+                  {team.skills?.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {team.skills.slice(0, 4).map((s, i) => (
+                        <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-blue-900/20 text-blue-400">{s}</span>
+                      ))}
+                      {team.skills.length > 4 && <span className="text-[10px] text-[var(--muted)]">+{team.skills.length - 4}</span>}
+                    </div>
+                  )}
+                  {team.leaderName && (
+                    <div className="mt-2 text-[10px] text-[var(--muted)]">
+                      👔 {team.leaderName}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Department list */}
       <div>

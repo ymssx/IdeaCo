@@ -12,7 +12,12 @@ async function apiCall(url, options = {}) {
     headers: { 'Content-Type': 'application/json' },
     ...options,
   });
-  const data = await res.json();
+  let data;
+  try {
+    data = await res.json();
+  } catch {
+    throw new Error(`Server error (${res.status}): invalid response`);
+  }
   if (!res.ok) throw new Error(data.error || 'Request failed');
   return data;
 }
@@ -108,6 +113,29 @@ chatMinimized: false,
       previousTab: null,
     });
   },
+
+  // === Team Detail Navigation ===
+  activeTeamId: null,
+  activeSprintId: null,
+  navigateToTeam: (teamId) => {
+    const { activeTab } = get();
+    set({
+      previousTab: activeTab === 'team-detail' ? get().previousTab : activeTab,
+      activeTab: 'team-detail',
+      activeTeamId: teamId,
+      activeSprintId: null,
+    });
+  },
+  navigateBackFromTeam: () => {
+    const { previousTab } = get();
+    set({
+      activeTab: previousTab || 'departments',
+      activeTeamId: null,
+      activeSprintId: null,
+      previousTab: null,
+    });
+  },
+  setActiveSprintId: (sprintId) => set({ activeSprintId: sprintId }),
 
   // === Company Operations ===
   fetchCompany: async () => {
@@ -763,4 +791,145 @@ chatMinimized: false,
   },
 
   clearRequirementDetail: () => set({ requirementDetail: null }),
+
+  // === Team Operations ===
+  fetchTeams: async (departmentId) => {
+    try {
+      const query = departmentId ? `?departmentId=${departmentId}` : '';
+      const data = await apiCall(`/teams${query}`);
+      return data.data || [];
+    } catch (e) {
+      return [];
+    }
+  },
+
+  fetchTeamDetail: async (teamId) => {
+    try {
+      const data = await apiCall(`/teams?id=${teamId}`);
+      return data.data;
+    } catch (e) {
+      set({ error: e.message });
+      return null;
+    }
+  },
+
+  createTeam: async (departmentId, name, memberIds, leaderId, description) => {
+    set({ loading: true, error: null });
+    try {
+      const data = await apiCall('/teams', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'create', departmentId, name, memberIds, leaderId, description }),
+      });
+      set({ loading: false });
+      return data.data;
+    } catch (e) {
+      set({ error: e.message, loading: false });
+      throw e;
+    }
+  },
+
+  updateTeam: async (teamId, updates) => {
+    try {
+      const data = await apiCall('/teams', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'update', teamId, ...updates }),
+      });
+      return data.data;
+    } catch (e) {
+      set({ error: e.message });
+      throw e;
+    }
+  },
+
+  deleteTeam: async (teamId) => {
+    try {
+      await apiCall(`/teams?id=${teamId}`, { method: 'DELETE' });
+      return true;
+    } catch (e) {
+      set({ error: e.message });
+      throw e;
+    }
+  },
+
+  // Sprint operations
+  createSprint: async (teamId, title, goal) => {
+    set({ loading: true, error: null });
+    try {
+      const data = await apiCall('/teams', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'create_sprint', teamId, title, goal }),
+      });
+      set({ loading: false });
+      return data.data;
+    } catch (e) {
+      set({ error: e.message, loading: false });
+      throw e;
+    }
+  },
+
+  discussSprint: async (teamId, sprintId) => {
+    set({ loading: true, error: null });
+    try {
+      const data = await apiCall('/teams', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'discuss_sprint', teamId, sprintId }),
+      });
+      set({ loading: false });
+      return data.data;
+    } catch (e) {
+      set({ error: e.message, loading: false });
+      throw e;
+    }
+  },
+
+  approveSprint: async (teamId, sprintId) => {
+    set({ loading: true, error: null });
+    try {
+      const data = await apiCall('/teams', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'approve_sprint', teamId, sprintId }),
+      });
+      set({ loading: false });
+      return data.data;
+    } catch (e) {
+      set({ error: e.message, loading: false });
+      throw e;
+    }
+  },
+
+  fetchSprintDetail: async (teamId, sprintId) => {
+    try {
+      const data = await apiCall(`/teams?teamId=${teamId}&sprintId=${sprintId}`);
+      return data.data;
+    } catch (e) {
+      set({ error: e.message });
+      return null;
+    }
+  },
+
+  sendSprintMessage: async (teamId, sprintId, message) => {
+    try {
+      const data = await apiCall('/teams', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'sprint_message', teamId, sprintId, message }),
+      });
+      return data.data;
+    } catch (e) {
+      set({ error: e.message });
+      throw e;
+    }
+  },
+
+  deleteSprint: async (teamId, sprintId) => {
+    try {
+      await apiCall('/teams', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'delete_sprint', teamId, sprintId }),
+      });
+      return true;
+    } catch (e) {
+      set({ error: e.message });
+      throw e;
+    }
+  },
 }));

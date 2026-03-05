@@ -17,6 +17,7 @@ export default function DepartmentDetail() {
     activeDepartmentId, planAdjustment, confirmAdjustment,
     disbandDepartment, pendingPlan, setPendingPlan,
     deleteRequirement, restartRequirement,
+    createTeam, fetchTeams, navigateToTeam,
   } = useStore();
 
   // Sub-modals
@@ -45,6 +46,14 @@ export default function DepartmentDetail() {
   const [browseParentPath, setBrowseParentPath] = useState(null);
   const [browseLoading, setBrowseLoading] = useState(false);
 
+  // Team creation form
+  const [showNewTeam, setShowNewTeam] = useState(false);
+  const [teamName, setTeamName] = useState('');
+  const [teamDesc, setTeamDesc] = useState('');
+  const [selectedMembers, setSelectedMembers] = useState([]);
+  const [selectedLeader, setSelectedLeader] = useState('');
+  const [deptTeams, setDeptTeams] = useState([]);
+
   const fetchDirs = async (dirPath) => {
     setBrowseLoading(true);
     try {
@@ -64,6 +73,7 @@ export default function DepartmentDetail() {
   useEffect(() => {
     if (activeDepartmentId) {
       fetchDepartmentRequirements(activeDepartmentId).then(setDeptRequirements);
+      fetchTeams(activeDepartmentId).then(teams => setDeptTeams(teams || []));
     }
   }, [activeDepartmentId]);
 
@@ -97,6 +107,22 @@ export default function DepartmentDetail() {
         navigateToRequirement(result.id);
       }
       fetchDepartmentRequirements(activeDepartmentId).then(setDeptRequirements);
+    } catch (e) { /* handled */ }
+  };
+
+  const handleCreateTeam = async () => {
+    if (!teamName || selectedMembers.length === 0 || !selectedLeader) return;
+    try {
+      const result = await createTeam(activeDepartmentId, teamName, selectedMembers, selectedLeader, teamDesc);
+      setShowNewTeam(false);
+      setTeamName('');
+      setTeamDesc('');
+      setSelectedMembers([]);
+      setSelectedLeader('');
+      if (result?.id) {
+        navigateToTeam(result.id);
+      }
+      fetchTeams(activeDepartmentId).then(teams => setDeptTeams(teams || []));
     } catch (e) { /* handled */ }
   };
 
@@ -161,6 +187,10 @@ export default function DepartmentDetail() {
               {t('dept.newReq.btn')}
             </button>
             <button
+              className="text-xs bg-purple-900/20 text-purple-400 hover:bg-purple-900/40 px-3 py-1.5 rounded-lg transition-colors"
+              onClick={() => { setShowNewTeam(true); setTeamName(''); setTeamDesc(''); setSelectedMembers([]); setSelectedLeader(''); }}
+            >{t('team.newTeamBtn')}</button>
+            <button
               className="text-xs bg-blue-900/20 text-blue-400 hover:bg-blue-900/40 px-3 py-1.5 rounded-lg transition-colors"
               onClick={() => { setShowAdjust(true); setAdjustGoal(''); setPendingPlan(null); }}
             >{t('dept.detail.adjustBtn')}</button>
@@ -176,6 +206,7 @@ export default function DepartmentDetail() {
           <span>💰 ${(dept.tokenUsage?.totalCost || 0).toFixed(4)}</span>
           <span>🔢 {(dept.tokenUsage?.totalTokens || 0).toLocaleString()} tokens</span>
           <span>📋 {deptRequirements.length} {t('dept.detail.requirements')}</span>
+          <span>👥 {deptTeams.length} {t('team.teamsCount')}</span>
         </div>
       </div>
 
@@ -240,6 +271,95 @@ export default function DepartmentDetail() {
                 onClick={handleCreateRequirement}
               >
                 {loading ? t('dept.newReq.creating') : t('dept.newReq.submitBtn')}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* New team form (expandable card) */}
+        {showNewTeam && (
+          <div className="card border-purple-500/30 animate-fade-in space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-semibold">👥 {t('team.newTeamBtn')}</h3>
+              <button onClick={() => setShowNewTeam(false)} className="text-[var(--muted)] hover:text-white text-lg">✕</button>
+            </div>
+            <div>
+              <label className="block text-sm mb-1 text-[var(--muted)]">{t('team.nameLabel')}</label>
+              <input
+                className="input w-full"
+                placeholder={t('team.namePlaceholder')}
+                value={teamName}
+                onChange={e => setTeamName(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <div>
+              <label className="block text-sm mb-1 text-[var(--muted)]">{t('team.descLabel')}</label>
+              <textarea
+                className="input w-full h-16 resize-none"
+                placeholder={t('team.descPlaceholder')}
+                value={teamDesc}
+                onChange={e => setTeamDesc(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="block text-sm mb-1 text-[var(--muted)]">{t('team.selectMembers')}</label>
+              <div className="flex flex-wrap gap-1.5 max-h-40 overflow-auto">
+                {dept.members.map(member => {
+                  const selected = selectedMembers.includes(member.id);
+                  return (
+                    <label
+                      key={member.id}
+                      className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full cursor-pointer text-xs transition-all border ${
+                        selected
+                          ? 'bg-purple-900/30 border-purple-500/50 text-purple-300'
+                          : 'bg-white/5 border-transparent hover:bg-white/10 text-[var(--foreground)]'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        onChange={e => {
+                          if (e.target.checked) {
+                            setSelectedMembers(prev => [...prev, member.id]);
+                          } else {
+                            setSelectedMembers(prev => prev.filter(id => id !== member.id));
+                            if (selectedLeader === member.id) setSelectedLeader('');
+                          }
+                        }}
+                        className="hidden"
+                      />
+                      <CachedAvatar src={member.avatar} alt={member.name} className="w-5 h-5 rounded-full" />
+                      <span>{member.name}</span>
+                      {selected && <span className="text-purple-400">✓</span>}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+            {selectedMembers.length > 0 && (
+              <div>
+                <label className="block text-sm mb-1 text-[var(--muted)]">{t('team.selectLeader')}</label>
+                <select
+                  className="input w-full"
+                  value={selectedLeader}
+                  onChange={e => setSelectedLeader(e.target.value)}
+                >
+                  <option value="">{t('team.selectLeaderPlaceholder')}</option>
+                  {dept.members.filter(m => selectedMembers.includes(m.id)).map(m => (
+                    <option key={m.id} value={m.id}>{m.name} - {m.role}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <div className="flex justify-end gap-2">
+              <button className="btn-secondary" onClick={() => setShowNewTeam(false)}>{t('common.cancel')}</button>
+              <button
+                className="btn-primary"
+                disabled={!teamName || selectedMembers.length === 0 || !selectedLeader || loading}
+                onClick={handleCreateTeam}
+              >
+                {loading ? t('common.loading') : t('team.createBtn')}
               </button>
             </div>
           </div>
@@ -317,6 +437,72 @@ export default function DepartmentDetail() {
           )}
         </div>
 
+        {/* Teams list */}
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-[var(--muted)] uppercase tracking-wider">👥 {t('team.teamsTitle')}</h2>
+            {!showNewTeam && (
+              <button
+                className="text-xs text-purple-400 hover:underline"
+                onClick={() => { setShowNewTeam(true); setTeamName(''); setTeamDesc(''); setSelectedMembers([]); setSelectedLeader(''); }}
+              >
+                + {t('team.newTeamBtn')}
+              </button>
+            )}
+          </div>
+          {deptTeams.length > 0 ? (
+            <div className="space-y-2">
+              {deptTeams.map(team => {
+                const teamMembers = (team.memberIds || [])
+                  .map(mid => dept.members.find(m => m.id === mid))
+                  .filter(Boolean);
+                return (
+                <div
+                  key={team.id}
+                  className="card cursor-pointer hover:border-purple-500/30 transition-all"
+                  onClick={() => navigateToTeam(team.id)}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">👥</span>
+                      <span className="text-sm font-medium">{team.name}</span>
+                      {team.leaderName && (
+                        <span className="text-[10px] bg-yellow-900/30 text-yellow-400 px-1.5 py-0.5 rounded">👔 {team.leaderName}</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center -space-x-1.5">
+                        {teamMembers.slice(0, 5).map(m => (
+                          <CachedAvatar key={m.id} src={m.avatar} alt={m.name} className="w-5 h-5 rounded-full ring-1 ring-[var(--card)]" />
+                        ))}
+                        {teamMembers.length > 5 && (
+                          <span className="w-5 h-5 rounded-full bg-white/10 ring-1 ring-[var(--card)] flex items-center justify-center text-[8px] text-[var(--muted)]">+{teamMembers.length - 5}</span>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-[var(--muted)]">🔄 {team.sprintCount || 0}</span>
+                    </div>
+                  </div>
+                  {team.description && <p className="text-xs text-[var(--muted)] mt-1 truncate">{team.description}</p>}
+                </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="card text-center py-6 text-[var(--muted)]">
+              <div className="text-2xl mb-2">👥</div>
+              <p className="text-sm">{t('team.noTeams')}</p>
+              {!showNewTeam && (
+                <button
+                  className="btn-secondary mt-3 text-sm"
+                  onClick={() => { setShowNewTeam(true); setTeamName(''); setTeamDesc(''); setSelectedMembers([]); setSelectedLeader(''); }}
+                >
+                  {t('team.newTeamBtn')}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
         {/* Member list */}
         <div>
           <h2 className="text-sm font-semibold text-[var(--muted)] uppercase tracking-wider mb-3">{t('dept.detail.members')}</h2>
@@ -329,7 +515,7 @@ export default function DepartmentDetail() {
               >
                 <div className="flex items-start gap-3">
                   <div className="relative shrink-0">
-                    <CachedAvatar src={member.avatar} alt={member.name} className="w-10 h-10 rounded-full bg-[var(--border)]" />
+                    <CachedAvatar src={member.avatar} alt={member.name} className="w-12 h-12 rounded-full bg-[var(--border)]" />
                     {member.avgScore >= 80 && (
                       <span className="absolute -top-1 -right-1 text-xs animate-pulse drop-shadow-lg">🌸</span>
                     )}

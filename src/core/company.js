@@ -13,6 +13,7 @@ import { llmClient } from './llm-client.js';
 import { loadAgentMemory, saveAgentMemory } from './memory-store.js';
 import { Memory } from './memory.js';
 import { RequirementManager, RequirementStatus } from './requirement.js';
+import { TeamManager, SprintStatus } from './team.js';
 import { hookRegistry, HookEvent } from './hooks.js';
 import { sessionManager } from './session.js';
 import { cronScheduler } from './cron.js';
@@ -69,6 +70,9 @@ export class Company {
 
     // Requirement manager
     this.requirementManager = new RequirementManager();
+
+    // Team manager
+    this.teamManager = new TeamManager();
 
     // 群聊循环引擎
     this.groupChatLoop = groupChatLoop;
@@ -1932,6 +1936,7 @@ Reply in the same language the Boss used. Be concise but warm.`
       // Boss-Agent 私聊会话列表
       agentChatSessions: this._getAgentChatSessions(),
       requirements: this.requirementManager.listAll().map(r => r.serialize()),
+      teams: this.teamManager.listAll().map(t => t.serialize()),
       logs: this.logs.slice(-50),
     };
   }
@@ -2062,6 +2067,7 @@ const dept = this.findDepartment(departmentId);
       },
       messageBusMessages: this.messageBus.messages.slice(-500).map(m => m.toJSON()),
       requirements: this.requirementManager.serialize(),
+      teams: this.teamManager.serialize(),
       cronJobs: cronScheduler.serialize(),
       cliBackends: cliBackendRegistry.serialize(),
       savedAt: new Date(),
@@ -2208,6 +2214,11 @@ const dept = this.findDepartment(departmentId);
     // Restore requirement manager
     if (data.requirements) {
       company.requirementManager = RequirementManager.deserialize(data.requirements);
+    }
+
+    // Restore team manager
+    if (data.teams) {
+      company.teamManager = TeamManager.deserialize(data.teams);
     }
 
     // Restore cron jobs

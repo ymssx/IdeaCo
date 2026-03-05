@@ -12,6 +12,7 @@ import Mailbox from '@/components/Mailbox';
 import MessagesView from '@/components/MessagesView';
 import RequirementsBoard from '@/components/RequirementsBoard';
 import RequirementDetail from '@/components/RequirementDetail';
+import TeamDetail from '@/components/TeamDetail';
 import ChatPanel from '@/components/ChatPanel';
 
 export default function Home() {
@@ -45,6 +46,7 @@ export default function Home() {
       case 'requirement-detail': return <RequirementDetail />;
       case 'departments': return <DepartmentView />;
       case 'department-detail': return <DepartmentDetail />;
+      case 'team-detail': return <TeamDetail />;
       case 'mailbox': return <Mailbox />;
       case 'messages': return <MessagesView />;
       default: return <Overview />;
