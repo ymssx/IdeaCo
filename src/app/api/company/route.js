@@ -1,17 +1,21 @@
 import { NextResponse } from 'next/server';
 import { getCompany, setCompany, resetCompany } from '@/lib/store';
-import { Company } from '@/core/index.js';
+import { Company, setPromptLocale, getPromptLocaleCode } from '@/core/index.js';
 
 export async function GET() {
   const company = getCompany();
-  return NextResponse.json({ data: company ? company.getFullState() : null });
+  return NextResponse.json({ data: company ? company.getFullState() : null, promptLocale: getPromptLocaleCode() });
 }
 
 export async function POST(request) {
   try {
-    const { companyName, bossName, secretaryConfig } = await request.json();
+    const { companyName, bossName, secretaryConfig, promptLocale } = await request.json();
     if (!companyName) {
       return NextResponse.json({ error: 'Please enter company name' }, { status: 400 });
+    }
+    // Set prompt locale for AI employee chat (default: 'en')
+    if (promptLocale) {
+      setPromptLocale(promptLocale);
     }
     const company = new Company(companyName, bossName || 'Boss', {
       ...secretaryConfig,
@@ -43,6 +47,10 @@ export async function PUT(request) {
   }
   try {
     const body = await request.json();
+    // Support prompt locale change via PUT
+    if (body.promptLocale) {
+      setPromptLocale(body.promptLocale);
+    }
     if (typeof company.updateBossProfile !== 'function') {
       // Fallback: server might have a stale instance without this method, apply directly
       if (body.avatar) company.bossAvatar = body.avatar;

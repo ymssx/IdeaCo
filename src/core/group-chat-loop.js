@@ -15,19 +15,28 @@
 import { v4 as uuidv4 } from 'uuid';
 import EventEmitter from 'eventemitter3';
 import { llmClient } from './llm-client.js';
+import { getPromptLocale, getTraitStyle, getAgeStyle, getFewShotExamples, getFallbackReplies } from './prompt-locale.js';
 
 // Default configuration
 const DEFAULT_CONFIG = {
-  pollIntervalMs: 10000,          // Poll every 10 seconds
+  pollIntervalMinMs: 30000,        // Min poll interval (30s)
+  pollIntervalMaxMs: 300000,       // Max poll interval (5min)
   idleChatThresholdMs: 3600000,   // 1 hour of inactivity considered idle
   maxInnerMonologueLen: 5,        // Max 5 rounds of inner monologue per flow
-  maxGroupMessagesPerTurn: 3,     // Max 3 messages per turn sent to group
-  debounceMs: 2000,               // 2-second debounce after being @mentioned (wait for consecutive messages)
-  antiSpamWindowMs: 120000,       // 2-minute sliding window for anti-spam
-  antiSpamMaxMessages: 3,         // Max messages per agent per group in the anti-spam window
-  cooldownAfterSpeakMs: 15000,    // 15-second cooldown after speaking before speaking again
-  selfCheckIntervalMs: 60000,     // 60-second interval for workflow self-check
-  stuckThresholdMs: 120000,       // 2 minutes: task running longer than this triggers self-check nudge
+  maxGroupMessagesPerTurn: 1,     // Max 1 message per turn sent to group（防止刷屏）
+  debounceMs: 3000,               // 3-second debounce after being @mentioned (wait for consecutive messages)
+  antiSpamWindowMs: 300000,       // 5-minute sliding window for anti-spam（需求群）
+  antiSpamMaxMessages: 2,         // Max messages per agent per group in the anti-spam window（需求群）
+  cooldownAfterSpeakMs: 60000,    // 60-second cooldown after speaking before speaking again（需求群）
+  selfCheckIntervalMs: 120000,    // 120-second interval for workflow self-check
+  stuckThresholdMs: 180000,       // 3 minutes: task running longer than this triggers self-check nudge
+  // 部门闲聊群 — 稍宽松但仍有节制
+  deptAntiSpamWindowMs: 600000,   // 10-minute sliding window
+  deptAntiSpamMaxMessages: 4,     // 10分钟内最多4条消息
+  deptCooldownAfterSpeakMs: 30000, // 30-second cooldown
+  deptIdleChatThresholdMs: 600000, // 10分钟空闲才主动发起话题
+  // Topic saturation threshold: if LLM reports topicSaturation >= this, force silence
+  topicSaturationThreshold: 7,    // Score 7+ = topic is exhausted, don't speak
 };
 
 /**
@@ -101,6 +110,12 @@ export class GroupChatLoop extends EventEmitter {
     // Last self-check timestamp per Agent per group: `${agentId}:${groupId}` => Date
     this._lastSelfCheck = new Map();
 
+    // Per-agent per-group visible message count at last processing: `${agentId}:${groupId}:lastProcessed` => number
+    this._lastProcessedVisible = new Map();
+
+    // Per-agent per-group monologue summary (agent's own context memory): `${agentId}:${groupId}` => string[]
+    this._agentMemory = new Map();
+
     // Company reference (injected externally)
     this.company = null;
 
@@ -127,12 +142,14 @@ export class GroupChatLoop extends EventEmitter {
     this.running = false;
     // Clean up all timers
     for (const [agentId, timerId] of this._pollTimers) {
-      clearInterval(timerId);
+      clearTimeout(timerId);
     }
     this._pollTimers.clear();
     this._processing.clear();
     this._recentSpeaks.clear();
     this._lastSelfCheck.clear();
+    this._lastProcessedVisible.clear();
+    // 注意：不清理 _agentMemory，因为记忆应该跨 stop/start 保留
     console.log('⏹️ GroupChatLoop: Chat loop engine stopped');
     this.emit('stopped');
   }
@@ -147,14 +164,22 @@ export class GroupChatLoop extends EventEmitter {
     if (!this.running) return;
     if (this._pollTimers.has(agent.id)) return; // Already polling
 
-    const timerId = setInterval(() => {
-      this._agentPollCycle(agent).catch(err => {
-        console.error(`  ❌ [GroupChatLoop] Agent ${agent.name} poll error:`, err.message);
-      });
-    }, this.config.pollIntervalMs);
-
-    this._pollTimers.set(agent.id, timerId);
-    console.log(`  🔄 [GroupChatLoop] ${agent.name} joined chat loop (${this.config.pollIntervalMs}ms)`);
+    // 使用随机间隔轮询，而非固定间隔，让行为更自然
+    const scheduleNext = () => {
+      if (!this.running) return;
+      const delay = this.config.pollIntervalMinMs + Math.random() * (this.config.pollIntervalMaxMs - this.config.pollIntervalMinMs);
+      const timerId = setTimeout(async () => {
+        try {
+          await this._agentPollCycle(agent);
+        } catch (err) {
+          console.error(`  ❌ [GroupChatLoop] Agent ${agent.name} poll error:`, err.message);
+        }
+        scheduleNext();
+      }, delay);
+      this._pollTimers.set(agent.id, timerId);
+    };
+    scheduleNext();
+    console.log(`  🔄 [GroupChatLoop] ${agent.name} joined chat loop (${this.config.pollIntervalMinMs}-${this.config.pollIntervalMaxMs}ms random)`);
   }
 
   /**
@@ -164,17 +189,18 @@ export class GroupChatLoop extends EventEmitter {
   stopAgentLoop(agentId) {
     const timerId = this._pollTimers.get(agentId);
     if (timerId) {
-      clearInterval(timerId);
+      clearTimeout(timerId);
       this._pollTimers.delete(agentId);
     }
   }
 
   /**
-   * Immediately trigger Agent to process messages (when @mentioned or in DM)
+   * 触发 Agent 处理群聊消息（被 @mention、boss 发消息等）
+   * 不再立即处理，而是随机延迟后通过正常的心流流程处理，让节奏更自然
    * 
    * @param {string} agentId - Agent ID
    * @param {string} groupId - Group chat ID (requirementId)
-   * @param {object} triggerMessage - The triggering message
+   * @param {object} triggerMessage - The triggering message (for context, not used directly)
    */
   async triggerImmediate(agentId, groupId, triggerMessage) {
     if (!this.running || !this.company) return;
@@ -182,10 +208,18 @@ export class GroupChatLoop extends EventEmitter {
     const agent = this._findAgent(agentId);
     if (!agent) return;
 
-    // Debounce: wait a moment to see if there are consecutive messages
-    await this._delay(this.config.debounceMs);
+    // 随机延迟 10s-3min 后处理，和正常轮询节奏一致，不再立即响应
+    const delay = this.config.pollIntervalMinMs + Math.random() * (this.config.pollIntervalMaxMs - this.config.pollIntervalMinMs);
+    console.log(`  📨 [GroupChatLoop] ${agent.name} will check ${groupId} in ${Math.round(delay / 1000)}s`);
 
-    await this._processGroupMessages(agent, groupId, true /* isMentioned */);
+    setTimeout(async () => {
+      try {
+        if (!this.running) return;
+        await this._processGroupMessages(agent, groupId, false /* 不设置 isMentioned，让心流自行决定 */);
+      } catch (err) {
+        console.error(`  ❌ [GroupChatLoop] ${agent.name} delayed trigger error:`, err.message);
+      }
+    }, delay);
   }
 
   /**
@@ -259,12 +293,14 @@ export class GroupChatLoop extends EventEmitter {
 
   /**
    * Get all group chats an Agent participates in
-   * Currently group chat = Requirement's group chat, participants = department members
+   * Includes: 1) Requirement work group chats  2) Department general chat groups
    */
   _getAgentGroups(agent) {
     if (!this.company) return [];
 
     const groups = [];
+
+    // 1. Requirement work group chats
     const requirements = this.company.requirementManager.listAll();
 
     for (const req of requirements) {
@@ -280,9 +316,24 @@ export class GroupChatLoop extends EventEmitter {
         id: req.id,
         title: req.title,
         departmentId: req.departmentId,
-        type: 'work',  // work (work group) | chat (chat group) — currently all work groups
+        type: 'work',
         messages: req.groupChat || [],
         requirement: req,
+      });
+    }
+
+    // 2. Department general chat groups (every department has one)
+    for (const dept of this.company.departments.values()) {
+      if (!dept.agents.has(agent.id)) continue;
+      if (dept.status === 'disbanded') continue;
+
+      groups.push({
+        id: `dept-${dept.id}`,
+        title: `${dept.name} 部门群`,
+        departmentId: dept.id,
+        type: 'chat',
+        messages: dept.groupChat || [],
+        department: dept,
       });
     }
 
@@ -347,17 +398,77 @@ export class GroupChatLoop extends EventEmitter {
     this._processing.add(key);
 
     try {
-      const requirement = this.company.requirementManager.get(groupId);
-      if (!requirement) return;
+      // Determine group type: department chat (dept-xxx) or requirement work chat
+      const isDeptChat = groupId.startsWith('dept-');
+      let dept, chatTarget, recentMessages, contextTitle;
 
-      const dept = this.company.findDepartment(requirement.departmentId);
-      if (!dept) return;
+      // 获取所有非 flow 消息，并区分"已读上下文"和"未读新消息"
+      let allVisibleMessages;
+      if (isDeptChat) {
+        const deptId = groupId.replace('dept-', '');
+        dept = this.company.findDepartment(deptId);
+        if (!dept) return;
+        chatTarget = dept;  // addGroupMessage target
+        contextTitle = `${dept.name} 部门群`;
+        allVisibleMessages = (dept.groupChat || []).filter(m => m.visibility !== 'flow');
+      } else {
+        const requirement = this.company.requirementManager.get(groupId);
+        if (!requirement) return;
+        dept = this.company.findDepartment(requirement.departmentId);
+        if (!dept) return;
+        chatTarget = requirement;
+        contextTitle = requirement.title;
+        allVisibleMessages = (requirement.groupChat || []).filter(m => m.visibility !== 'flow');
+      }
 
-      // 1. Get recent group chat context (only broadcast messages, flow messages are private)
-      const recentMessages = (requirement.groupChat || [])
-        .filter(m => m.visibility !== 'flow')
-        .slice(-20);
+      // 用 lastReadIndex 区分已读和未读
+      // 注意：lastReadIndex 记录的是 groupChat 原始数组的 index（含 flow 消息）
+      // 这里我们使用上一次心流处理时的消息快照数量来区分
+      const contextKey = `${agent.id}:${groupId}:lastProcessed`;
+      const lastProcessedCount = this._lastProcessedVisible.get(contextKey) || 0;
       
+      // 已读上下文：之前处理过的消息（最多保留最近10条作为上下文）
+      const readContext = allVisibleMessages.slice(0, lastProcessedCount).slice(-10);
+      // 未读新消息：自上次处理后的新消息
+      const unreadNew = allVisibleMessages.slice(lastProcessedCount);
+      
+      // 更新已处理数量
+      this._lastProcessedVisible.set(contextKey, allVisibleMessages.length);
+      
+      // 合并为最终的 recentMessages（带已读/未读标记）
+      recentMessages = [
+        ...readContext.map(m => ({ ...m, _isRead: true })),
+        ...unreadNew.map(m => ({ ...m, _isRead: false })),
+      ];
+      
+      // 如果没有未读新消息（例如 triggerImmediate 重复触发），跳过
+      if (unreadNew.length === 0 && !isMentioned) {
+        return;
+      }
+
+      // 1.5 随机短暂等待（5-20秒），让不同 agent 错开处理时间
+      // 这样先处理的 agent 的回复会出现在后处理 agent 的上下文中
+      const jitter = 5000 + Math.random() * 15000;
+      await this._delay(jitter);
+
+      // 1.6 等待后重新拉取最新消息（可能已有其他 agent 回复了）
+      let freshVisibleMessages;
+      if (isDeptChat) {
+        freshVisibleMessages = (chatTarget.groupChat || []).filter(m => m.visibility !== 'flow');
+      } else {
+        freshVisibleMessages = (chatTarget.groupChat || []).filter(m => m.visibility !== 'flow');
+      }
+      // 如果有新消息出现（其他 agent 先回复了），更新上下文
+      if (freshVisibleMessages.length > allVisibleMessages.length) {
+        const extraMessages = freshVisibleMessages.slice(allVisibleMessages.length);
+        recentMessages = [
+          ...recentMessages,
+          ...extraMessages.map(m => ({ ...m, _isRead: false })),
+        ];
+        // 更新已处理计数
+        this._lastProcessedVisible.set(contextKey, freshVisibleMessages.length);
+      }
+
       // 2. Create flow state
       const monologue = new InnerMonologue(agent.id, agent.name, groupId);
       this._activeMonologues.set(key, monologue);
@@ -371,16 +482,59 @@ export class GroupChatLoop extends EventEmitter {
 
       // 3. Call LLM for flow thinking
       const thinkingResult = await this._agentThink(
-        agent, requirement, dept, recentMessages, isMentioned, monologue
+        agent, { id: groupId, title: contextTitle }, dept, recentMessages, isMentioned, monologue
       );
 
-      // 4. Decide whether to speak based on flow result
+      // 3.5. 如果独白为空（fallback 模式），用 reason 补充一条
+      if (monologue.thoughts.length === 0 && thinkingResult.reason) {
+        monologue.addThought(thinkingResult.reason);
+      }
+
+      // 3.6. 将内心独白写入群聊消息流（type='monologue', visibility='flow'）
+      //      前端通过 API 过滤 type==='monologue' 获取（老板偷看功能）
+      const innerThoughtsContent = thinkingResult.innerThoughts || thinkingResult.reason || null;
+      if (innerThoughtsContent) {
+        chatTarget.addGroupMessage(
+          {
+            id: agent.id,
+            name: agent.name,
+            avatar: agent.avatar,
+            role: agent.role,
+          },
+          innerThoughtsContent,
+          'monologue',
+          'flow'
+        );
+      }
+
+    // 4. Topic saturation gate: if LLM reports high saturation, force silence
+    //    This replaces the old random silence — now based on the AI's own assessment of topic exhaustion
+    const topicSaturation = thinkingResult.topicSaturation || 0;
+    if (thinkingResult.shouldSpeak && topicSaturation >= this.config.topicSaturationThreshold && !isMentioned) {
+      console.log(`  🎯 [GroupChatLoop] ${agent.name} silenced by topic saturation (score=${topicSaturation} >= ${this.config.topicSaturationThreshold})`);
+      thinkingResult.shouldSpeak = false;
+      thinkingResult.reason = `Topic saturation: ${topicSaturation}/10 — topic is exhausted, staying quiet`;
+      monologue.addThought(getPromptLocale().prompt.monologue.topicSaturated(topicSaturation));
+    }
+
+      // 4.1. Cooldown 检查：如果刚说过话，强制静默
+      if (thinkingResult.shouldSpeak) {
+        const spamRecheck = this._getSpamInfo(agent.id, groupId, isDeptChat);
+        if (spamRecheck.isOnCooldown) {
+          console.log(`  🕐 [GroupChatLoop] ${agent.name} on cooldown, suppressing`);
+          thinkingResult.shouldSpeak = false;
+          thinkingResult.reason = 'On cooldown after recent speak';
+          monologue.addThought(getPromptLocale().prompt.monologue.cooldownSilence);
+        }
+      }
+
+      // 4.2. Decide whether to speak based on flow result
       if (thinkingResult.shouldSpeak) {
         const messagesToSend = thinkingResult.messages || [];
         
         for (const msg of messagesToSend.slice(0, this.config.maxGroupMessagesPerTurn)) {
-          // Send to group chat
-          requirement.addGroupMessage(
+          // Send to group chat (works for both requirement and department)
+          chatTarget.addGroupMessage(
             {
               id: agent.id,
               name: agent.name,
@@ -399,13 +553,16 @@ export class GroupChatLoop extends EventEmitter {
           // Record this speak event for anti-spam tracking
           this._recordSpeak(agent.id, groupId);
 
-          // Trigger immediate processing for other employees (if message @mentions someone)
-          const mentionedIds = this._extractMentions(msg.content, dept);
-          for (const mentionedId of mentionedIds) {
-            // Delayed trigger to avoid simultaneous processing — use longer delay to reduce chat loops
+          // 触发同群所有其他员工的心流循环（包括被 @mention 的和未被 @mention 的）
+          // 全部走随机延迟，让不同员工在不同时间点看到消息，节奏更自然
+          const allGroupMembers = dept.getMembers();
+          for (const member of allGroupMembers) {
+            if (member.id === agent.id) continue;  // 跳过自己
+            // 随机延迟 30s-5min，和正常轮询节奏一致，不要太快
+            const nudgeDelay = this.config.pollIntervalMinMs + Math.random() * (this.config.pollIntervalMaxMs - this.config.pollIntervalMinMs);
             setTimeout(() => {
-              this.triggerImmediate(mentionedId, groupId, msg).catch(() => {});
-            }, 3000 + Math.random() * 5000);
+              this._nudgeAgentForGroup(member.id, groupId).catch(() => {});
+            }, nudgeDelay);
           }
         }
 
@@ -430,6 +587,26 @@ export class GroupChatLoop extends EventEmitter {
 
       // Remove from active list
       this._activeMonologues.delete(key);
+
+      // 6. 保存 Agent 记忆（内心独白摘要，用于下次心流思考时的上下文）
+      const memoryKey = `${agent.id}:${groupId}`;
+      if (!this._agentMemory.has(memoryKey)) {
+        this._agentMemory.set(memoryKey, []);
+      }
+      const memory = this._agentMemory.get(memoryKey);
+      // 取最后一条内心独白（不含 [Sent to group] 和 [Self-regulation] 前缀的）作为记忆
+      const memoryThoughts = monologue.thoughts
+        .filter(t => !t.content.startsWith('[Sent to group]') && !t.content.startsWith('[Self-regulation]'))
+        .map(t => t.content);
+      if (memoryThoughts.length > 0) {
+        const summary = memoryThoughts[memoryThoughts.length - 1];
+        const action = monologue.decision === 'spoke' ? '[spoke]' : '[silent]';
+        memory.push(`${action} ${summary.slice(0, 200)}`);
+        // 只保留最近 10 条记忆
+        if (memory.length > 10) {
+          this._agentMemory.set(memoryKey, memory.slice(-10));
+        }
+      }
 
       // Notify frontend
       this.emit('monologue:end', {
@@ -466,103 +643,95 @@ export class GroupChatLoop extends EventEmitter {
       role: a.role,
     }));
 
-    // Build chat context
-    const chatContext = recentMessages.map(msg => {
+    // Build chat context — 区分已读上下文和未读新消息
+    const readMessages = recentMessages.filter(m => m._isRead);
+    const unreadMessages = recentMessages.filter(m => !m._isRead);
+    
+    const formatMsg = (msg) => {
       const senderName = msg.from?.name || 'Unknown';
       const time = new Date(msg.time).toLocaleTimeString('zh', { hour: '2-digit', minute: '2-digit' });
       if (msg.type === 'system') return `[System] ${msg.content}`;
-      return `[${time}] ${senderName}: ${msg.content}`;
-    }).join('\n');
+      const selfMark = msg.from?.id === agent.id ? ' (you)' : '';
+      return `[${time}] ${senderName}${selfMark}: ${msg.content}`;
+    };
+
+    // 检测是否有其他同事已经对同一批消息做了回复（防止重复回复）
+    const loc = getPromptLocale();
+    const colleagueReplies = unreadMessages.filter(m => 
+      m.from?.id !== agent.id && m.from?.id !== 'boss' && members.some(mem => mem.id === m.from?.id)
+    );
+    const dedupeWarning = colleagueReplies.length > 0
+      ? loc.prompt.context.dedupeWarning(
+          colleagueReplies.length,
+          colleagueReplies.map(m => `- ${m.from?.name}: "${(m.content || '').slice(0, 80)}"`).join('\n')
+        )
+      : '';
+
+    // 为每个 agent 生成一个随机的"思考角度种子"，强制不同 agent 从不同角度切入
+    const angles = loc.prompt.angles;
+    const myAngle = angles[Math.floor(Math.random() * angles.length)];
+    const angleHint = loc.prompt.context.angleHint(myAngle);
+    
+    let chatContext = '';
+    if (readMessages.length > 0) {
+      chatContext += loc.prompt.context.readHeader + '\n';
+      chatContext += readMessages.map(formatMsg).join('\n');
+      chatContext += '\n\n';
+    }
+    if (unreadMessages.length > 0) {
+      chatContext += loc.prompt.context.unreadHeader + '\n';
+      chatContext += unreadMessages.map(formatMsg).join('\n');
+    } else {
+      chatContext += loc.prompt.context.noNewMessages;
+    }
+    chatContext += dedupeWarning;
+    chatContext += angleHint;
+
+    // Agent 记忆：之前的内心独白摘要（连续上下文）
+    const memoryKey = `${agent.id}:${requirement.id}`;
+    const agentMemory = this._agentMemory.get(memoryKey) || [];
+    const memoryContext = agentMemory.length > 0
+      ? `\n\n**🧠 Your previous thoughts in this group (your memory):**\n${agentMemory.slice(-5).map((m, i) => `${i + 1}. ${m}`).join('\n')}`
+      : '';
 
     const p = agent.personality;
 
     // Build anti-spam context info
     const groupId = requirement.id;
-    const spamInfo = this._getSpamInfo(agent.id, groupId);
+    const isDeptChat = groupId.startsWith('dept-');
+    const spamInfo = this._getSpamInfo(agent.id, groupId, isDeptChat);
 
-    const systemPrompt = `You are "${agent.name}", position: "${agent.role}".
-Your personality traits: ${p.trait}
-Your speaking style: ${p.tone}
-Your personal signature: ${agent.signature}
+    // 根据群类型构建不同的 prompt
+    const systemPrompt = isDeptChat
+      ? this._buildDeptChatPrompt(agent, p, requirement, members, memoryContext, spamInfo, isMentioned)
+      : this._buildWorkChatPrompt(agent, p, requirement, members, memoryContext, spamInfo, isMentioned);
+    // 获取当前正在思考的其他 agent（让 LLM 知道不是只有自己在看这条消息）
+    const thinkingPeers = [];
+    for (const [mKey, mono] of this._activeMonologues) {
+      if (mono.groupId === groupId && mono.agentId !== agent.id && mono.status === 'thinking') {
+        thinkingPeers.push(mono.agentName);
+      }
+    }
+    const thinkingInfo = thinkingPeers.length > 0
+      ? loc.prompt.context.thinkingPeers(thinkingPeers.join(', '))
+      : '';
 
-You are in a work group chat about the requirement "${requirement.title}".
-Group members: ${members.map(m => `${m.name}(${m.role})`).join(', ')}
-
-You are currently in a "flow" thinking state. Your inner monologue is not visible to group members (but the boss might peek at what you're thinking).
-
-**🧠 Inner Monologue Rules (Very Important!):**
-You MUST write genuine, rich, and deep inner thoughts in the innerThoughts field. This is your private thinking space — express yourself honestly, like writing a diary.
-- Analyze and evaluate group messages ("XX has a good point / is wrong because...")
-- Express your real emotions and feelings ("This worries me a bit...", "Great!", "Honestly I think this plan has issues")
-- Make professional judgments and reasoning ("From a technical perspective...", "Based on my experience...")
-- Self-reflect and plan ("I should next...", "I may have overlooked...")
-- Evaluate colleagues ("XX's approach is clever", "XX might not have considered...")
-- You can complain, doubt, hesitate — the more authentic the better
-- innerThoughts should be 2-5 sentences, don't just write one dismissive sentence!
-- ⚠️ innerThoughts must NEVER be empty or contain only "nothing" or "no thoughts"
-
-**� When You SHOULD Speak (important — don't stay silent when it matters!):**
-- You have a **real progress update**: "I finished module X", "Found a bug in Y", "API integration is done"
-- You found a **blocker** or problem: "I'm stuck on X because...", "This approach won't work because..."
-- You have a **concrete deliverable** to share: code output, design decision, test results
-- You have a **substantive disagreement**: "I think we should do X instead because..."
-- The boss or a colleague asked you a **direct question** — answer it
-- You've been **working on a task for a while** and the team needs a status update
-- The group chat has been quiet and you have meaningful progress to share
-
-**🚫 When You Should NOT Speak:**
-${spamInfo.recentCount > 0 ? `⚠️ You have already sent ${spamInfo.recentCount} message(s) in the last 2 minutes. ` : ''}${spamInfo.isOnCooldown ? '🛑 You JUST spoke recently — prefer staying silent unless you have key progress.' : ''}
-- Empty acknowledgements: "Got it", "OK", "Sounds good", "Agreed" — these are noise
-- Restating what others already said
-- "I'm thinking", "I'm checking the file" — don't narrate your process
-- Chat loops: if you see back-and-forth going in circles, break the cycle by staying silent
-- Rhetorical or general questions that don't need YOUR specific input
-- Being polite for the sake of being polite
-
-**🎯 Stay On Topic — Requirement Focus:**
-- This is a WORK group for requirement "${requirement.title}". Keep messages focused on completing this requirement.
-- If the conversation has drifted off-topic, either stay silent or steer back to the requirement.
-
-**⚖️ Balance Rule — The Key Principle:**
-- The group chat is for COLLABORATION. Sharing progress and results is ESSENTIAL for the team to function.
-- DO speak when you have something that helps the team: progress, results, problems, decisions.
-- DON'T speak when you'd just be making noise: acknowledgements, echoes, process narration.
-- When in doubt about trivial stuff, stay silent. When in doubt about work progress, SPEAK UP.
-
-${isMentioned ? '📌 You were @mentioned — prioritize replying, especially if it\'s a direct question or request. But if you truly have nothing to add, it\'s OK to stay silent.' : ''}
-
-Reply in the following JSON format (return JSON only, no other content):
-{
-  "innerThoughts": "[Required! 2-5 sentences] Your inner monologue, including: honest views on messages, emotional reactions, professional analysis, evaluation of colleagues/boss, next steps, etc.",
-  "shouldSpeak": true/false,
-  "reason": "Why you should/shouldn't speak",
-  "messages": [
-    { "content": "Message content to send to group (use @[agentId] format to @ someone)" }
-  ]
-}
-
-If not speaking, messages should be an empty array [].
-Each message should have real value — don't send empty pleasantries.
-Write messages using your personality and speaking style.`;
-
-    const userPrompt = `Here are the recent messages in the group chat:
-
-${chatContext || '(No messages yet)'}
-
-Please enter flow thinking and decide whether to speak.`;
+    const userPrompt = isDeptChat
+      ? loc.prompt.userPrompt.deptChat(chatContext, thinkingInfo, agent.name, agent.age, agent.personality.trait)
+      : loc.prompt.userPrompt.workChat(chatContext, thinkingInfo, agent.name, agent.age, agent.personality.trait);
 
     try {
-      // Check if Agent has an available LLM
-      if (!agent.provider || !agent.provider.enabled || !agent.provider.apiKey) {
-        // No LLM available, use simple fallback rules
-        return this._fallbackThink(agent, isMentioned, recentMessages);
+      // Check if Agent has an available LLM (CLI providers can't do chat)
+      if (!agent.provider || !agent.provider.enabled || !agent.provider.apiKey || agent.provider.isCLI) {
+        // No LLM available or CLI-only provider, use simple fallback rules
+        return this._fallbackThink(agent, groupId, isMentioned, recentMessages);
       }
 
       const response = await llmClient.chat(agent.provider, [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ], {
-        temperature: 0.8,
+        temperature: 0.95,
         maxTokens: 1024,
       });
 
@@ -592,18 +761,17 @@ Please enter flow thinking and decide whether to speak.`;
       }
 
       // Record inner monologue (must have content)
-      if (result.innerThoughts && result.innerThoughts.trim()) {
-        monologue.addThought(result.innerThoughts.trim());
-      } else if (result.reason) {
-        // Fallback: if innerThoughts is empty, use reason as inner monologue
-        monologue.addThought(`[Inner thought] ${result.reason}`);
-      } else {
-        monologue.addThought(`[Read group messages, processing...]`);
-      }
+      const thoughtContent = (result.innerThoughts && result.innerThoughts.trim())
+        ? result.innerThoughts.trim()
+        : result.reason
+          ? `[Inner thought] ${result.reason}`
+          : `[Read group messages, processing...]`;
+      monologue.addThought(thoughtContent);
 
       // Anti-spam gate: if agent has been speaking too frequently, suppress output
-      const spamCheck = this._getSpamInfo(agent.id, requirement.id);
-      if (result.shouldSpeak && spamCheck.recentCount >= this.config.antiSpamMaxMessages) {
+      const spamCheck = this._getSpamInfo(agent.id, requirement.id, isDeptChat);
+      const maxMessages = isDeptChat ? this.config.deptAntiSpamMaxMessages : this.config.antiSpamMaxMessages;
+      if (result.shouldSpeak && spamCheck.recentCount >= maxMessages) {
         console.log(`  🔇 [GroupChatLoop] ${agent.name} suppressed (anti-spam: ${spamCheck.recentCount} msgs in window)`);
         result.shouldSpeak = false;
         result.reason = `Anti-spam: already sent ${spamCheck.recentCount} messages recently, staying silent`;
@@ -620,21 +788,123 @@ Please enter flow thinking and decide whether to speak.`;
         shouldSpeak: !!result.shouldSpeak,
         messages: (result.messages || []).filter(m => m.content && m.content.trim()),
         reason: result.reason || '',
+        innerThoughts: thoughtContent,
+        topicSaturation: typeof result.topicSaturation === 'number' ? result.topicSaturation : 0,
       };
 
     } catch (error) {
       console.warn(`  ⚠️ [GroupChatLoop] ${agent.name} LLM think error:`, error.message);
-      return this._fallbackThink(agent, isMentioned, recentMessages);
+      return this._fallbackThink(agent, groupId, isMentioned, recentMessages);
     }
   }
 
   /**
-   * Fallback flow logic when LLM is unavailable
+   * 构建部门闲聊群的 system prompt — 鼓励自然互动、放松限制
    */
-  _fallbackThink(agent, isMentioned, recentMessages) {
+  _buildDeptChatPrompt(agent, p, requirement, members, memoryContext, spamInfo, isMentioned) {
+    const loc = getPromptLocale();
+    const genderLabel = loc.prompt.genderLabel[agent.gender] || loc.prompt.genderLabel.male;
+    const ageStyle = getAgeStyle(agent.age);
+    const traitStyle = getTraitStyle(p.trait);
+    const fewShot = getFewShotExamples(p.trait);
+    const memberList = members.map(m => `${m.name}(${m.role})`).join(', ');
+    const pt = loc.prompt.deptChat;
+    return `${traitStyle}
+
+${pt.intro(agent.name, genderLabel, agent.age, agent.role, p.tone, p.quirk, agent.signature)}
+
+${pt.ageIntro}
+${ageStyle}
+
+---
+
+${pt.groupContext(requirement.title, memberList)}
+${memoryContext}
+
+${pt.examplesHeader}
+
+${fewShot}
+
+${pt.rules(spamInfo.recentCount, isMentioned)}
+
+${pt.topicSaturation}
+
+${pt.outputFormat}
+
+${pt.antiAIWarning(agent.age)}`;
+  }
+
+  /**
+   * 构建需求工作群的 system prompt   */
+  _buildWorkChatPrompt(agent, p, requirement, members, memoryContext, spamInfo, isMentioned) {
+    const loc = getPromptLocale();
+    const genderLabel = loc.prompt.genderLabel[agent.gender] || loc.prompt.genderLabel.male;
+    const ageStyle = getAgeStyle(agent.age);
+    const traitStyle = getTraitStyle(p.trait);
+    const fewShot = getFewShotExamples(p.trait);
+    const memberList = members.map(m => `${m.name}(${m.role})`).join(', ');
+    const pt = loc.prompt.workChat;
+    return `${traitStyle}
+
+${pt.intro(agent.name, genderLabel, agent.age, agent.role, p.tone, p.quirk, agent.signature)}
+
+${pt.ageIntro}
+${ageStyle}
+
+---
+
+${pt.groupContext(requirement.title, memberList)}
+${memoryContext}
+
+${pt.examplesHeader}
+
+${fewShot}
+
+${pt.shouldSpeak}
+
+${pt.shouldNotSpeak(spamInfo.recentCount, spamInfo.isOnCooldown, isMentioned)}
+
+${pt.topicSaturation}
+
+${pt.outputFormat}
+
+${pt.antiAIWarning(agent.age)}`;
+  }
+
+  /**
+   * 根据年龄返回对应的说话风格描述 — delegates to prompt-locale
+   */
+  _getAgeStyle(age) {
+    return getAgeStyle(age);
+  }
+
+  /**
+   * 根据性格类型返回第一人称的角色锚定文本 — delegates to prompt-locale
+   */
+  _getTraitStyle(trait) {
+    return getTraitStyle(trait);
+  }
+
+  /**
+   * 根据性格类型返回场景化的 few-shot 示例 — delegates to prompt-locale
+   */
+  _getFewShotExamples(trait) {
+    return getFewShotExamples(trait);
+  }
+
+  /**
+   * Fallback flow logic when LLM is unavailable
+   * @param {object} agent
+   * @param {string} groupId - 群聊 ID
+   * @param {boolean} isMentioned
+   * @param {Array} recentMessages
+   */
+  _fallbackThink(agent, groupId, isMentioned, recentMessages) {
     // Even in fallback mode, respect anti-spam limits
-    const spamCheck = this._getSpamInfo(agent.id, recentMessages[0]?.groupId || '');
-    if (spamCheck.recentCount >= this.config.antiSpamMaxMessages) {
+    const isDeptChat = groupId.startsWith('dept-');
+    const spamCheck = this._getSpamInfo(agent.id, groupId, isDeptChat);
+    const maxMessages = isDeptChat ? this.config.deptAntiSpamMaxMessages : this.config.antiSpamMaxMessages;
+    if (spamCheck.recentCount >= maxMessages) {
       return {
         shouldSpeak: false,
         messages: [],
@@ -642,13 +912,38 @@ Please enter flow thinking and decide whether to speak.`;
       };
     }
 
-    // Check if the last message was from the boss AND is a direct question
+    // 根据性格选取不同的 fallback 回复 — from prompt-locale
+    const trait = agent.personality?.trait || '';
+    const replies = getFallbackReplies(trait);
+
+    // 部门闲聊群：fallback 模式下也更主动回复
+    if (isDeptChat) {
+      const lastMsg = recentMessages[recentMessages.length - 1];
+      if (lastMsg && lastMsg.from?.id !== agent.id) {
+        return {
+          shouldSpeak: true,
+          messages: [{ content: replies.dept }],
+          reason: 'Department chat fallback: casual reply to colleague',
+        };
+      }
+    }
+
+    // Check if the last message was from the boss
     const lastMsg = recentMessages[recentMessages.length - 1];
-    if (lastMsg && lastMsg.from?.id === 'boss' && isMentioned) {
+    if (lastMsg && lastMsg.from?.id === 'boss') {
       return {
         shouldSpeak: true,
-        messages: [{ content: `Understood, I'll look into it.` }],
-        reason: 'Boss directly mentioned me, using fallback reply',
+        messages: [{ content: replies.boss }],
+        reason: 'Boss sent a message in the group, using fallback reply',
+      };
+    }
+
+    // If explicitly @mentioned, give a brief acknowledgement
+    if (isMentioned) {
+      return {
+        shouldSpeak: true,
+        messages: [{ content: replies.mention }],
+        reason: 'Mentioned by someone, using fallback reply',
       };
     }
 
@@ -657,6 +952,17 @@ Please enter flow thinking and decide whether to speak.`;
       messages: [],
       reason: 'LLM unavailable, staying silent in fallback mode to avoid noise',
     };
+  }
+
+  /**
+   * 柔和地触发 agent 检查某个群聊的新消息（不设置 isMentioned，让 agent 自己决定是否回复）
+   * 与 triggerImmediate 的区别：这里不设置 isMentioned，紧跟性更低
+   */
+  async _nudgeAgentForGroup(agentId, groupId) {
+    if (!this.running || !this.company) return;
+    const agent = this._findAgent(agentId);
+    if (!agent) return;
+    await this._processGroupMessages(agent, groupId, false /* isMentioned */);
   }
 
   // ========================================================================
@@ -676,14 +982,17 @@ Please enter flow thinking and decide whether to speak.`;
 
   /**
    * Get anti-spam info for an agent in a group
+   * @param {boolean} isDeptChat - 是否部门闲聊群（使用更宽松的限制）
    * @returns {{ recentCount: number, isOnCooldown: boolean }}
    */
-  _getSpamInfo(agentId, groupId) {
+  _getSpamInfo(agentId, groupId, isDeptChat = false) {
     const key = `${agentId}:${groupId}`;
     const timestamps = this._recentSpeaks.get(key) || [];
     const now = Date.now();
-    const windowStart = now - this.config.antiSpamWindowMs;
-    const cooldownStart = now - this.config.cooldownAfterSpeakMs;
+    const windowMs = isDeptChat ? this.config.deptAntiSpamWindowMs : this.config.antiSpamWindowMs;
+    const cooldownMs = isDeptChat ? this.config.deptCooldownAfterSpeakMs : this.config.cooldownAfterSpeakMs;
+    const windowStart = now - windowMs;
+    const cooldownStart = now - cooldownMs;
 
     // Clean up old timestamps outside the window
     const recentTimestamps = timestamps.filter(t => t > windowStart);
@@ -787,16 +1096,20 @@ Please enter flow thinking and decide whether to speak.`;
     if (!lastActivity) return;
 
     const idleMs = Date.now() - lastActivity.getTime();
-    if (idleMs < this.config.idleChatThresholdMs) return;
+    // 部门群使用更短的闲置阈值
+    const threshold = group.type === 'chat' ? this.config.deptIdleChatThresholdMs : this.config.idleChatThresholdMs;
+    if (idleMs < threshold) return;
 
     // Only proactively speak in chat groups
     if (group.type !== 'chat') return;
 
     // Random probability to decide whether to speak (avoid all Agents speaking at once)
-    if (Math.random() > 0.1) return; // 10% probability
+    // 部门群用较低的概率（15%），不要太频繁主动发起
+    if (Math.random() > 0.15) return;
 
-    // TODO: Call LLM to generate topics
+    // 触发一次心流思考，让 LLM 自行决定是否主动发起话题
     console.log(`  💬 [GroupChatLoop] ${agent.name} considering initiating a topic in idle group ${group.title}`);
+    await this._processGroupMessages(agent, group.id, false);
   }
 
   /**
@@ -868,12 +1181,19 @@ Please enter flow thinking and decide whether to speak.`;
    * Serialize state (for persistence)
    */
   serialize() {
-    // Only save lastReadIndex, the rest is runtime state
     const lastReadIndex = {};
     for (const [key, val] of this._lastReadIndex) {
       lastReadIndex[key] = val;
     }
-    return { lastReadIndex };
+    const lastProcessedVisible = {};
+    for (const [key, val] of this._lastProcessedVisible) {
+      lastProcessedVisible[key] = val;
+    }
+    const agentMemory = {};
+    for (const [key, val] of this._agentMemory) {
+      agentMemory[key] = val;
+    }
+    return { lastReadIndex, lastProcessedVisible, agentMemory };
   }
 
   /**
@@ -884,6 +1204,16 @@ Please enter flow thinking and decide whether to speak.`;
     if (data.lastReadIndex) {
       for (const [key, val] of Object.entries(data.lastReadIndex)) {
         this._lastReadIndex.set(key, val);
+      }
+    }
+    if (data.lastProcessedVisible) {
+      for (const [key, val] of Object.entries(data.lastProcessedVisible)) {
+        this._lastProcessedVisible.set(key, val);
+      }
+    }
+    if (data.agentMemory) {
+      for (const [key, val] of Object.entries(data.agentMemory)) {
+        this._agentMemory.set(key, val);
       }
     }
   }

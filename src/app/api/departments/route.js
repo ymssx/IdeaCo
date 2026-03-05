@@ -53,6 +53,27 @@ export async function POST(request) {
       const result = company.disbandDepartment(departmentId, reason || 'Boss decision');
       return NextResponse.json({ success: true, data: company.getFullState(), result });
 
+    } else if (action === 'boss_message') {
+      // Boss sends message to department group chat
+      const { departmentId, message } = await request.json();
+      if (!departmentId || !message) {
+        return NextResponse.json({ error: 'Department ID and message are required' }, { status: 400 });
+      }
+      const result = company.sendBossDeptGroupMessage(departmentId, message);
+      return NextResponse.json({ success: true, data: result });
+
+    } else if (action === 'dept_chat') {
+      // Get department group chat messages
+      const { departmentId } = await request.json();
+      if (!departmentId) {
+        return NextResponse.json({ error: 'Department ID is required' }, { status: 400 });
+      }
+      const dept = company.findDepartment(departmentId);
+      if (!dept) {
+        return NextResponse.json({ error: 'Department not found' }, { status: 404 });
+      }
+      return NextResponse.json({ success: true, data: { groupChat: dept.groupChat || [] } });
+
     } else {
       // Generate recruitment plan
       const { name, mission } = await request.json();

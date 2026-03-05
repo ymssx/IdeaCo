@@ -17,6 +17,30 @@ export class Department {
     this.tasks = [];              // Department task list
     this.status = 'preparing';    // preparing | active | completed | disbanded
     this.createdAt = new Date();
+    this.groupChat = [];          // 部门群聊消息列表
+  }
+
+  /**
+   * 添加部门群聊消息
+   * @param {object} from - 发送者 { id, name, avatar, role }
+   * @param {string} content - 消息内容
+   * @param {string} type - 消息类型: message | system
+   * @param {string} visibility - 可见性: 'group'(广播) | 'flow'(仅worklog)
+   */
+  addGroupMessage(from, content, type = 'message', visibility = 'group') {
+    this.groupChat.push({
+      id: uuidv4(),
+      from: {
+        id: from.id || 'system',
+        name: from.name || 'System',
+        avatar: from.avatar || null,
+        role: from.role || null,
+      },
+      content,
+      type,
+      visibility,
+      time: new Date(),
+    });
   }
 
   /** Add an Agent to the department */

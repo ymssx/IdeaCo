@@ -476,35 +476,27 @@ Requirements:
     // === Set up message bus listener for real-time agent-to-agent communication ===
     const messageBus = department.company?.messageBus || null;
     const messageHandler = async (message) => {
-      // When an agent sends a message via send_message tool, auto-reply from receiver
+      // When an agent sends a message via send_message tool,
+      // post it to the group chat with @mention, then let GroupChatLoop
+      // handle the response through the normal flow/monologue mechanism.
+      // This ensures all replies go through the heartflow thinking process.
       const receiverAgent = department.agents.get(message.to);
       const senderAgent = department.agents.get(message.from);
       if (!receiverAgent || !senderAgent) return;
-      if (receiverAgent.status === 'working') return; // Don't interrupt working agents
 
       // Show the sent message in group chat with @mention
       const groupMsg = `@[${receiverAgent.id}] ${message.content}`;
       requirement.addGroupMessage(senderAgent, groupMsg, 'message');
       this._recordAgentChat(senderAgent, receiverAgent, message.content);
 
-      // Auto-reply from receiver (non-blocking)
+      // Trigger the receiver's GroupChatLoop to process via heartflow
+      // instead of auto-replying directly (bypassing flow thinking)
       try {
-        const reply = await receiverAgent.handleMessage(message);
-        if (reply) {
-          const replyMsg = `@[${senderAgent.id}] ${reply}`;
-          requirement.addGroupMessage(receiverAgent, replyMsg, 'message');
-          this._recordAgentChat(receiverAgent, senderAgent, reply);
-
-          // Also send reply back via message bus
-          if (messageBus) {
-            messageBus.send({
-              from: receiverAgent.id,
-              to: senderAgent.id,
-              content: reply,
-              type: 'feedback',
-            });
-          }
-        }
+        const { groupChatLoop } = await import('./group-chat-loop.js');
+        groupChatLoop.triggerImmediate(receiverAgent.id, requirement.id, {
+          content: groupMsg,
+          from: senderAgent,
+        }).catch(() => {});
       } catch (e) {
         // Non-blocking
       }
@@ -989,18 +981,17 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
                 // Persist to agent-to-agent chatStore
                 this._recordAgentChat(agent, downAgent, mentionMsg);
 
-                // Non-blocking: let downstream agent respond asynchronously
-                this._agentCollabReply(
-                  downAgent, agent, node.title, finalResult.output, requirement
-                ).then(reply => {
-                  if (reply) {
-                    const replyMsg = `@[${agent.id}] ${reply}`;
-                    requirement.addGroupMessage(downAgent, replyMsg, 'message');
-                    this._recordAgentChat(downAgent, agent, replyMsg);
-                  }
-                }).catch(e => {
-                  console.log(`[Collaboration] ${downAgent.name} reply failed: ${e.message}`);
-                });
+                // Trigger downstream agent's GroupChatLoop to process via heartflow
+                // instead of auto-replying directly (bypassing flow thinking)
+                try {
+                  const { groupChatLoop } = await import('./group-chat-loop.js');
+                  groupChatLoop.triggerImmediate(downAgent.id, requirement.id, {
+                    content: mentionMsg,
+                    from: agent,
+                  }).catch(() => {});
+                } catch (e) {
+                  // Non-blocking
+                }
               }
             }
           }
@@ -1015,6 +1006,17 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
               const syncMsg = `@[${peerAgent.id}] Just finished my part "${node.title}" ✅ — how's yours going?`;
               requirement.addGroupMessage(agent, syncMsg, 'message');
               this._recordAgentChat(agent, peerAgent, syncMsg);
+
+              // Trigger peer's GroupChatLoop to process via heartflow
+              try {
+                const { groupChatLoop } = await import('./group-chat-loop.js');
+                groupChatLoop.triggerImmediate(peerAgent.id, requirement.id, {
+                  content: syncMsg,
+                  from: agent,
+                }).catch(() => {});
+              } catch (e) {
+                // Non-blocking
+              }
             }
           }
 

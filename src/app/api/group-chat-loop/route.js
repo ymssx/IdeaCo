@@ -45,15 +45,31 @@ export async function GET(request) {
   if (agentId && groupId) {
     // 获取某员工在某群的心流消息（工作过程中的 flow 消息）
     const flowMessages = url.searchParams.get('flowMessages');
-    if (flowMessages) {
-      const requirement = company.requirementManager.get(groupId);
-      if (!requirement) {
-        return NextResponse.json({ data: [] });
+    const monologueMessages = url.searchParams.get('monologueMessages');
+    if (flowMessages || monologueMessages) {
+      // 支持需求群聊和部门群聊的 flow 消息查询
+      let chatMessages = [];
+      if (groupId.startsWith('dept-')) {
+        const deptId = groupId.replace('dept-', '');
+        const dept = company.findDepartment(deptId);
+        chatMessages = dept?.groupChat || [];
+      } else {
+        const requirement = company.requirementManager.get(groupId);
+        chatMessages = requirement?.groupChat || [];
       }
-      // 返回该员工在此群的所有 flow 可见性消息
-      const agentFlowMsgs = (requirement.groupChat || [])
-        .filter(m => m.visibility === 'flow' && m.from?.id === agentId)
-        .slice(-50); // 最多返回最近 50 条
+
+      if (monologueMessages) {
+        // 返回该员工在此群的所有内心独白消息（type === 'monologue'）
+        const agentMonologueMsgs = chatMessages
+          .filter(m => m.type === 'monologue' && m.from?.id === agentId)
+          .slice(-50);
+        return NextResponse.json({ data: agentMonologueMsgs });
+      }
+
+      // 返回该员工在此群的工作日志（flow 可见性，排除 monologue）
+      const agentFlowMsgs = chatMessages
+        .filter(m => m.visibility === 'flow' && m.type !== 'monologue' && m.from?.id === agentId)
+        .slice(-50);
       return NextResponse.json({ data: agentFlowMsgs });
     }
 

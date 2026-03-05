@@ -101,9 +101,10 @@ const { fetchRequirementDetail, requirementDetail, clearRequirementDetail, fetch
   const [peekFlowAgentId, setPeekFlowAgentId] = useState(null);
   const [peekFlowData, setPeekFlowData] = useState(null);
   const [peekFlowMsgs, setPeekFlowMsgs] = useState([]);
+  const [peekFlowThoughtMsgs, setPeekFlowThoughtMsgs] = useState([]); // 内心独白消息（monologue 类型）
   const [peekFlowHistory, setPeekFlowHistory] = useState([]);
   const [peekFlowLoading, setPeekFlowLoading] = useState(false);
-  const [peekFlowTab, setPeekFlowTab] = useState('flow');
+  const [peekFlowTab, setPeekFlowTab] = useState('thoughts');
 
   // Save reqId to ref to avoid reading stale value in closure
   const reqIdRef = useRef(reqId);
@@ -171,19 +172,22 @@ const { fetchRequirementDetail, requirementDetail, clearRequirementDetail, fetch
   const peekMemberFlow = useCallback(async (agentId) => {
     setPeekFlowAgentId(agentId);
     setPeekFlowLoading(true);
-    setPeekFlowTab('flow');
+    setPeekFlowTab('thoughts');
     try {
-      const [currentRes, historyRes, flowRes] = await Promise.all([
+      const [currentRes, historyRes, flowRes, thoughtRes] = await Promise.all([
         fetch(`/api/group-chat-loop?agentId=${agentId}&groupId=${reqId}`),
         fetch(`/api/group-chat-loop?agentId=${agentId}&groupId=${reqId}&history=1`),
         fetch(`/api/group-chat-loop?agentId=${agentId}&groupId=${reqId}&flowMessages=1`),
+        fetch(`/api/group-chat-loop?agentId=${agentId}&groupId=${reqId}&monologueMessages=1`),
       ]);
       const currentData = await currentRes.json();
       const historyData = await historyRes.json();
       const flowData = await flowRes.json();
+      const thoughtData = await thoughtRes.json();
       setPeekFlowData(currentData.data);
       setPeekFlowHistory(historyData.data || []);
       setPeekFlowMsgs(flowData.data || []);
+      setPeekFlowThoughtMsgs(thoughtData.data || []);
     } catch (err) {
       console.error('Failed to peek flow:', err);
     } finally {
@@ -196,14 +200,17 @@ const { fetchRequirementDetail, requirementDetail, clearRequirementDetail, fetch
     if (!peekFlowAgentId || !reqId) return;
     const timer = setInterval(async () => {
       try {
-        const [res, flowRes] = await Promise.all([
+        const [res, flowRes, thoughtRes] = await Promise.all([
           fetch(`/api/group-chat-loop?agentId=${peekFlowAgentId}&groupId=${reqId}`),
           fetch(`/api/group-chat-loop?agentId=${peekFlowAgentId}&groupId=${reqId}&flowMessages=1`),
+          fetch(`/api/group-chat-loop?agentId=${peekFlowAgentId}&groupId=${reqId}&monologueMessages=1`),
         ]);
         const data = await res.json();
         const flowData = await flowRes.json();
+        const thoughtData = await thoughtRes.json();
         if (data.data) setPeekFlowData(data.data);
         if (flowData.data) setPeekFlowMsgs(flowData.data);
+        if (thoughtData.data) setPeekFlowThoughtMsgs(thoughtData.data);
       } catch {}
     }, 3000);
     return () => clearInterval(timer);
@@ -388,6 +395,7 @@ const { fetchRequirementDetail, requirementDetail, clearRequirementDetail, fetch
             onTabChange={setPeekFlowTab}
             flowMsgs={peekFlowMsgs}
             monologueData={peekFlowData}
+            monologueThoughtMsgs={peekFlowThoughtMsgs}
             history={peekFlowHistory}
             onClose={() => setPeekFlowAgentId(null)}
           />
@@ -530,6 +538,7 @@ const { fetchRequirementDetail, requirementDetail, clearRequirementDetail, fetch
             onTabChange={setPeekFlowTab}
             flowMsgs={peekFlowMsgs}
             monologueData={peekFlowData}
+            monologueThoughtMsgs={peekFlowThoughtMsgs}
             history={peekFlowHistory}
             onClose={() => setPeekFlowAgentId(null)}
           />
@@ -1135,7 +1144,7 @@ function OutputsView({ outputs }) {
  * 心流偷看弹窗 — 从需求详情群员列表点🧠触发
  * 三个 Tab：工作日志（flow）、内心独白（thoughts）、历史心流（history）
  */
-function FlowPeekModal({ agentId, agentName, loading, tab, onTabChange, flowMsgs, monologueData, history, onClose }) {
+function FlowPeekModal({ agentId, agentName, loading, tab, onTabChange, flowMsgs, monologueData, monologueThoughtMsgs, history, onClose }) {
   const { t } = useI18n();
   const cleanContent = (content) => {
     if (!content) return '';
@@ -1155,8 +1164,8 @@ function FlowPeekModal({ agentId, agentName, loading, tab, onTabChange, flowMsgs
 
         <div className="flex border-b border-[var(--border)] px-4 bg-[var(--card)]">
           {[
+            { id: 'thoughts', label: t('reqDetail.flowPeek.tabThoughts'), badge: monologueThoughtMsgs?.length || 0 },
             { id: 'flow', label: t('reqDetail.flowPeek.tabFlow'), badge: flowMsgs?.length || 0 },
-            { id: 'thoughts', label: t('reqDetail.flowPeek.tabThoughts'), badge: monologueData?.thoughts?.length || 0 },
             { id: 'history', label: t('reqDetail.flowPeek.tabHistory'), badge: history?.length || 0 },
           ].map(tb => (
             <button
@@ -1209,43 +1218,35 @@ function FlowPeekModal({ agentId, agentName, loading, tab, onTabChange, flowMsgs
               ))
             )
           ) : tab === 'thoughts' ? (
-            monologueData ? (
+            monologueThoughtMsgs?.length > 0 ? (
               <div className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${
-                    monologueData.status === 'thinking'
-                      ? 'bg-purple-500/20 text-purple-300 animate-pulse'
-                      : monologueData.decision === 'spoke'
-                      ? 'bg-green-500/20 text-green-400'
-                      : 'bg-gray-500/20 text-gray-400'
-                  }`}>
-                    {monologueData.status === 'thinking' ? t('reqDetail.flowPeek.thinking') : monologueData.decision === 'spoke' ? t('reqDetail.flowPeek.decided') : t('reqDetail.flowPeek.silent')}
-                  </span>
-                </div>
-                {monologueData.thoughts?.map((thought, ti) => (
-                  <div key={thought.id || ti} className="bg-purple-900/20 border border-purple-500/10 rounded-xl p-3">
-                    <div className="text-xs text-purple-400 mb-1">
-                      {t('reqDetail.flowPeek.thought')} #{ti + 1}
-                      {thought.timestamp && <span className="ml-2 text-[var(--muted)]">{new Date(thought.timestamp).toLocaleTimeString()}</span>}
+                {/* 如果当前正在思考，显示状态提示 */}
+                {monologueData?.status === 'thinking' && (
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 animate-pulse">
+                      {t('reqDetail.flowPeek.thinking')}
+                    </span>
+                  </div>
+                )}
+                {monologueThoughtMsgs.slice().reverse().map((msg, i) => (
+                  <div key={msg.id || i} className="bg-purple-900/20 border border-purple-500/10 rounded-xl p-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs text-purple-400">🧠 内心独白</span>
+                      <span className="text-xs text-[var(--muted)]">
+                        {msg.time ? new Date(msg.time).toLocaleTimeString() : ''}
+                      </span>
                     </div>
-                    <div className="text-sm">
-                      {thought.content?.startsWith('[')
-                        ? <span className="text-green-400">{thought.content}</span>
-                        : <span className="italic text-purple-200">{thought.content}</span>
-                      }
+                    <div className="text-sm italic text-purple-200 whitespace-pre-wrap">
+                      {cleanContent(msg.content)}
                     </div>
                   </div>
                 ))}
-                {monologueData.thoughts?.length === 0 && (
-                  <div className="text-center py-4 text-[var(--muted)] text-sm">
-                    <span className="animate-pulse">🧠</span> {t('reqDetail.flowPeek.organizing')}
-                  </div>
-                )}
               </div>
             ) : (
               <div className="text-center py-8">
                 <div className="text-3xl mb-2">😴</div>
                 <p className="text-sm text-[var(--muted)]">{t('reqDetail.flowPeek.noMonologue')}</p>
+                <p className="text-xs text-[var(--muted)] mt-1">该员工还没有产生内心独白</p>
               </div>
             )
           ) : (

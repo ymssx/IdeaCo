@@ -699,5 +699,33 @@ chatMinimized: false,
     }
   },
 
+  // 部门群聊：发送消息
+  sendDeptGroupChatMessage: async (departmentId, message) => {
+    try {
+      const data = await apiCall('/departments?action=boss_message', {
+        method: 'POST',
+        body: JSON.stringify({ departmentId, message }),
+      });
+      return data.data;
+    } catch (e) {
+      set({ error: e.message });
+      throw e;
+    }
+  },
+
+  // 部门群聊：获取消息列表
+  fetchDeptGroupChat: async (departmentId) => {
+    try {
+      const data = await apiCall('/departments?action=dept_chat', {
+        method: 'POST',
+        body: JSON.stringify({ departmentId }),
+      });
+      return data.data;
+    } catch (e) {
+      set({ error: e.message });
+      throw e;
+    }
+  },
+
   clearRequirementDetail: () => set({ requirementDetail: null }),
 }));

@@ -1636,6 +1636,40 @@ const dept = this.findDepartment(departmentId);
   }
 
   /**
+   * Boss 在部门群聊中发消息
+   * @param {string} departmentId - 部门 ID
+   * @param {string} message - 消息内容
+   */
+  sendBossDeptGroupMessage(departmentId, message) {
+    const dept = this.findDepartment(departmentId);
+    if (!dept) throw new Error('Department not found');
+
+    // 1. 将 Boss 消息加入部门群聊
+    dept.addGroupMessage(
+      {
+        id: 'boss',
+        name: this.bossName || 'Boss',
+        avatar: this.bossAvatar || null,
+        role: 'Boss',
+      },
+      message,
+      'message'
+    );
+    this.save();
+
+    // 2. 触发群聊循环：通知所有部门成员有新消息
+    const allMembers = dept.getMembers();
+    for (const member of allMembers) {
+      // 延迟触发，避免所有人同时处理
+      setTimeout(() => {
+        groupChatLoop.triggerImmediate(member.id, `dept-${dept.id}`, { from: { id: 'boss' }, content: message }).catch(() => {});
+      }, 500 + Math.random() * 2000);
+    }
+
+    return { groupChat: dept.groupChat };
+  }
+
+  /**
    * Leader 使用 LLM 处理 Boss 在群聊中的消息
    * @private
    */
@@ -1793,6 +1827,7 @@ Reply in the same language the Boss used. Be concise but warm.`
         status: dept.status,
         leader: dept.leader,
         workspacePath: dept.workspacePath || null,
+        groupChat: dept.groupChat || [],
         members,
         tokenUsage: { totalTokens: deptTokens, totalCost: deptCost },
       });
@@ -1969,6 +2004,7 @@ const dept = this.findDepartment(departmentId);
         leader: dept.leader,
         workspacePath: dept.workspacePath,
         createdAt: dept.createdAt,
+        groupChat: (dept.groupChat || []).slice(-200),
         members,
       });
     });
@@ -2106,6 +2142,7 @@ const dept = this.findDepartment(departmentId);
       dept.leader = deptData.leader;
       dept.workspacePath = deptData.workspacePath;
       dept.createdAt = deptData.createdAt ? new Date(deptData.createdAt) : new Date();
+      dept.groupChat = deptData.groupChat || [];
 
       // Restore Agents
       for (const agentData of (deptData.members || [])) {

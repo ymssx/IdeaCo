@@ -16,7 +16,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { securityGuard } from './audit.js';
 import { pluginRegistry, HookPoint } from './plugin.js';
-import { chatStore } from './chat-store.js';
+// chatStore recording is handled centrally by requirement.js messageHandler
 
 const execAsync = promisify(exec);
 
@@ -347,27 +347,8 @@ export class AgentToolKit {
       type: type || 'task',
     });
 
-    // Also persist to chatStore for agent-to-agent chat history
-    try {
-      const ids = [this.agentId, targetAgentId].sort();
-      const sessionId = `agent-agent-${ids[0]}-${ids[1]}`;
-      chatStore.createSession(sessionId, {
-        title: `Agent Chat`,
-        participants: [this.agentId, targetAgentId],
-        type: 'agent-agent',
-      });
-      chatStore.appendMessage(sessionId, {
-        role: 'agent',
-        content,
-        time: new Date(),
-        fromAgentId: this.agentId,
-        fromAgentName: this.agentName || this.agentId,
-        toAgentId: targetAgentId,
-        toAgentName: targetAgentId, // Will be resolved by frontend/company
-      });
-    } catch (e) {
-      // Non-blocking: chatStore failure shouldn't block the tool
-    }
+    // chatStore 记录由 requirement.js messageHandler 中的 _recordAgentChat 统一处理
+    // 避免双重记录
 
     return `Message sent to ${targetAgentId}`;
   }

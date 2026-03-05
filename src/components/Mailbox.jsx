@@ -193,6 +193,7 @@ export default function Mailbox() {
     navigateToRequirement, fetchRequirements, fetchRequirementDetail,
     chatWithAgent, fetchAgentChatHistory, markAgentChatRead,
     sendGroupChatMessage,
+    sendDeptGroupChatMessage, fetchDeptGroupChat,
   } = useStore();
 
   const [activeChat, setActiveChat] = useState(null); // { type: 'secretary' } | { type: 'agent-chat', agentId, ... }
@@ -205,6 +206,8 @@ export default function Mailbox() {
   const [requirements, setRequirements] = useState([]); // Requirements list (for group chat sessions)
   const [activeReqChat, setActiveReqChat] = useState(null); // Current active requirement group chat
   const [reqChatDetail, setReqChatDetail] = useState(null); // Requirement group chat detail
+  const [activeDeptChat, setActiveDeptChat] = useState(null); // Current active department group chat
+  const [deptChatDetail, setDeptChatDetail] = useState(null); // Department group chat detail
   const [agentChatMessages, setAgentChatMessages] = useState([]); // Agent 1-on-1 chat messages
   const [agentChatLoading, setAgentChatLoading] = useState(false); // Agent chat loading state
   const [showGroupMembers, setShowGroupMembers] = useState(false); // 群聊成员弹窗
@@ -255,6 +258,36 @@ for (const agent of (dept.members || dept.agents || [])) {
     };
   }, [activeReqChat]);
 
+  // Department group chat polling
+  const deptChatPollRef = useRef(null);
+  useEffect(() => {
+    if (deptChatPollRef.current) clearInterval(deptChatPollRef.current);
+    if (activeDeptChat) {
+      const loadDetail = () => {
+        fetchDeptGroupChat(activeDeptChat).then(data => {
+          if (data) {
+            // 合并部门基础信息
+            const dept = (company?.departments || []).find(d => d.id === activeDeptChat);
+            setDeptChatDetail({
+              ...data,
+              id: activeDeptChat,
+              name: dept?.name || '',
+              members: dept?.members || [],
+              leader: dept?.leader,
+            });
+          }
+        });
+      };
+      loadDetail();
+      deptChatPollRef.current = setInterval(loadDetail, 3000);
+    } else {
+      setDeptChatDetail(null);
+    }
+    return () => {
+      if (deptChatPollRef.current) clearInterval(deptChatPollRef.current);
+    };
+  }, [activeDeptChat]);
+
   // Sync secretary chat history
   useEffect(() => {
     if (company?.chatHistory) {
@@ -287,12 +320,12 @@ for (const agent of (dept.members || dept.agents || [])) {
   }, [activeChat]);
 
   // Build conversation list: sorted by latest message time
-  const allConversations = buildConversations(secretary, secretaryHistory, requirements, t, agentChatSessions);
+  const allConversations = buildConversations(secretary, secretaryHistory, requirements, t, agentChatSessions, company?.departments || []);
 
   // Filter conversations by category
   const conversations = allConversations.filter(conv => {
     if (chatFilter === 'all') return true;
-    if (chatFilter === 'group') return conv.type === 'requirement';
+    if (chatFilter === 'group') return conv.type === 'requirement' || conv.type === 'department';
     if (chatFilter === 'private') return conv.type === 'secretary' || conv.type === 'agent-chat';
     if (chatFilter === 'important') return conv.type === 'secretary' || conv.type === 'requirement';
     return true;
@@ -372,9 +405,15 @@ for (const agent of (dept.members || dept.agents || [])) {
     if (conv.type === 'secretary') {
       setActiveChat({ type: 'secretary' });
       setActiveReqChat(null);
+      setActiveDeptChat(null);
     } else if (conv.type === 'requirement') {
       setActiveChat({ type: 'requirement', id: conv.requirementId });
       setActiveReqChat(conv.requirementId);
+      setActiveDeptChat(null);
+    } else if (conv.type === 'department') {
+      setActiveChat({ type: 'department', id: conv.departmentId, name: conv.name });
+      setActiveDeptChat(conv.departmentId);
+      setActiveReqChat(null);
     } else if (conv.type === 'agent-chat') {
       setActiveChat({
         type: 'agent-chat',
@@ -386,6 +425,7 @@ for (const agent of (dept.members || dept.agents || [])) {
         agentDepartment: conv.departmentName,
       });
       setActiveReqChat(null);
+      setActiveDeptChat(null);
       // 标记为已读（持久化到后端）
       markAgentChatRead(conv.agentId);
       // 加载聊天历史
@@ -438,7 +478,7 @@ for (const agent of (dept.members || dept.agents || [])) {
         <div className="flex-1 overflow-auto">
           {conversations.map((conv) => {
             const isActive = activeChat?.type === conv.type &&
-              (conv.type === 'secretary' || (conv.type === 'requirement' && activeChat?.id === conv.requirementId) || (conv.type === 'agent-chat' && activeChat?.agentId === conv.agentId));
+              (conv.type === 'secretary' || (conv.type === 'requirement' && activeChat?.id === conv.requirementId) || (conv.type === 'department' && activeChat?.id === conv.departmentId) || (conv.type === 'agent-chat' && activeChat?.agentId === conv.agentId));
 
             return (
               <div
@@ -452,16 +492,24 @@ for (const agent of (dept.members || dept.agents || [])) {
               >
                 {/* Avatar */}
                 <div className="relative shrink-0">
-                  {conv.isRequirement ? (
+                {conv.isRequirement ? (
                     <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-cyan-600 flex items-center justify-center text-sm font-bold">
                       {(conv.role || '💬').charAt(0)}
                     </div>
-                  ) : (
+                  ) : conv.isDepartment ? (
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-lg">
+                      🏢
+                    </div>
+                  ) : conv.avatar ? (
                     <img
                       src={conv.avatar}
                       alt={conv.name}
                       className="w-10 h-10 rounded-full bg-[var(--border)]"
                     />
+                  ) : (
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-600 to-blue-700 flex items-center justify-center text-sm">
+                      {(conv.name || '?').charAt(0)}
+                    </div>
                   )}
                   {conv.type === 'secretary' && (
                     <span className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-[#0d0d0d]" />
@@ -802,6 +850,52 @@ for (const agent of (dept.members || dept.agents || [])) {
               embedded
             />
           </>
+        ) : activeChat?.type === 'department' && deptChatDetail ? (
+          /* Department group chat */
+          <>
+            {/* Department group chat header */}
+            <div className="px-4 py-3 border-b border-white/[0.06] bg-[var(--card)]">
+              <div className="flex items-center gap-3 flex-1 min-w-0">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-sm font-bold shrink-0">
+                  🏢
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-semibold">{deptChatDetail.name} 部门群</div>
+                  <div className="text-[10px] text-[var(--muted)] truncate">
+                    👥 {(deptChatDetail.members || []).length} 人 · {(deptChatDetail.groupChat || []).filter(m => m.visibility !== 'flow').length} 条消息
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Department group chat - using shared GroupChatView */}
+            <GroupChatView
+              groupChat={deptChatDetail.groupChat || []}
+              agentMap={agentMap}
+              bossAvatar={company?.bossAvatar}
+              bossName={company?.boss || 'Boss'}
+              requirementId={`dept-${activeDeptChat}`}
+              onSendMessage={async (_id, msg) => {
+                await sendDeptGroupChatMessage(activeDeptChat, msg);
+                // 刷新部门群聊
+                const data = await fetchDeptGroupChat(activeDeptChat);
+                if (data) {
+                  const dept = (company?.departments || []).find(d => d.id === activeDeptChat);
+                  setDeptChatDetail({ ...data, id: activeDeptChat, name: dept?.name || '', members: dept?.members || [], leader: dept?.leader });
+                }
+              }}
+              fetchDetail={async () => {
+                const data = await fetchDeptGroupChat(activeDeptChat);
+                if (data) {
+                  const dept = (company?.departments || []).find(d => d.id === activeDeptChat);
+                  setDeptChatDetail({ ...data, id: activeDeptChat, name: dept?.name || '', members: dept?.members || [], leader: dept?.leader });
+                }
+              }}
+              leaderInfo={null}
+              chatEndRef={messagesEndRef}
+              embedded
+            />
+          </>
         ) : (
           <div className="flex-1 flex items-center justify-center text-[var(--muted)]">
             <p>{t('mailbox.chatNotExist')}</p>
@@ -940,7 +1034,7 @@ function ChatInput({ value, onChange, onSend, onKeyDown, sending, placeholder })
 /**
  * Build conversation list: secretary pinned on top + employees sorted by latest message desc
  */
-function buildConversations(secretary, secretaryHistory, requirements = [], t = (k) => k, agentChatSessions = []) {
+function buildConversations(secretary, secretaryHistory, requirements = [], t = (k) => k, agentChatSessions = [], departments = []) {
   const convs = [];
 
   // Pin secretary on top
@@ -956,6 +1050,27 @@ function buildConversations(secretary, secretaryHistory, requirements = [], t = 
     unread: false,
     pinned: true,
   });
+
+  // Department group chat sessions (every active department gets one)
+  for (const dept of departments) {
+    if (dept.status === 'disbanded') continue;
+    const deptChat = dept.groupChat || [];
+    const lastMsg = deptChat.length > 0 ? deptChat[deptChat.length - 1] : null;
+    const visibleMsgs = deptChat.filter(m => m.visibility !== 'flow');
+    convs.push({
+      key: `dept-${dept.id}`,
+      type: 'department',
+      departmentId: dept.id,
+      name: `🏢 ${dept.name}`,
+      avatar: null,
+      role: `${(dept.members || []).length} 人`,
+      lastMessage: lastMsg ? `${lastMsg.from?.name || ''}: ${(lastMsg.content || '').slice(0, 30)}` : '部门群聊',
+      lastTime: lastMsg?.time || dept.createdAt,
+      unread: visibleMsgs.length > 0,
+      pinned: true,
+      isDepartment: true,
+    });
+  }
 
   // Requirement group chat sessions (pinned below secretary)
   const activeReqs = requirements.filter(r =>
