@@ -16,6 +16,7 @@ export default function DepartmentDetail() {
     navigateToRequirement, navigateBackFromDepartment,
     activeDepartmentId, planAdjustment, confirmAdjustment,
     disbandDepartment, pendingPlan, setPendingPlan,
+    deleteRequirement, restartRequirement,
   } = useStore();
 
   // Sub-modals
@@ -284,6 +285,16 @@ export default function DepartmentDetail() {
                         {req.workflow && <span className="text-[10px] text-[var(--muted)]">📊 {req.workflow.completedCount || 0}/{req.workflow.nodeCount || 0}</span>}
                         {req.chatCount > 0 && <span className="text-[10px] text-[var(--muted)]">💬 {req.chatCount}</span>}
                         {req.outputCount > 0 && <span className="text-[10px] text-[var(--muted)]">📦 {req.outputCount}</span>}
+                        <button
+                          onClick={(e) => { e.stopPropagation(); restartRequirement(req.id); }}
+                          className="text-[10px] px-1.5 py-0.5 rounded bg-blue-600/15 hover:bg-blue-600/25 text-blue-400 transition-colors"
+                          title={t('reqDetail.live.restart')}
+                        >🔄</button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); if (confirm(t('reqDetail.live.confirmDelete'))) deleteRequirement(req.id); }}
+                          className="text-[10px] px-1.5 py-0.5 rounded bg-red-600/15 hover:bg-red-600/25 text-red-400 transition-colors"
+                          title={t('reqDetail.live.deleteReq')}
+                        >🗑</button>
                       </div>
                     </div>
                   </div>

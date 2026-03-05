@@ -560,9 +560,10 @@ chatMinimized: false,
   },
 
   // === Workspace ===
-  fetchWorkspaceFiles: async (departmentId) => {
+  fetchWorkspaceFiles: async (departmentId, subPath = '') => {
     try {
-      const data = await apiCall(`/workspace/${departmentId}/files`);
+      const query = subPath ? `?path=${encodeURIComponent(subPath)}` : '';
+      const data = await apiCall(`/workspace/${departmentId}/files${query}`);
       return data.data;
     } catch (e) {
       return [];

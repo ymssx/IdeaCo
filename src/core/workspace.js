@@ -78,6 +78,51 @@ export class WorkspaceManager {
   }
 
   /**
+   * Get shallow (one-level) listing of a directory within the workspace
+   * @param {string} wsPath - Workspace root path
+   * @param {string} subPath - Relative sub-directory path (empty string for root)
+   */
+  async getShallowFileTree(wsPath, subPath = '') {
+    const targetDir = subPath ? path.join(wsPath, subPath) : wsPath;
+    const resolved = path.resolve(targetDir);
+
+    // Security check
+    if (!resolved.startsWith(path.resolve(wsPath))) {
+      throw new Error('Path is outside workspace boundary');
+    }
+
+    const entries = [];
+    try {
+      const items = await fs.readdir(targetDir, { withFileTypes: true });
+      for (const item of items) {
+        const fullPath = path.join(targetDir, item.name);
+        const relPath = path.relative(wsPath, fullPath);
+
+        if (item.isDirectory()) {
+          entries.push({
+            name: item.name,
+            path: relPath,
+            type: 'directory',
+          });
+        } else {
+          const stat = await fs.stat(fullPath);
+          entries.push({
+            name: item.name,
+            path: relPath,
+            type: 'file',
+            size: stat.size,
+            modifiedAt: stat.mtime,
+          });
+        }
+      }
+    } catch (error) {
+      // Return empty if directory does not exist
+    }
+
+    return entries;
+  }
+
+  /**
    * Read a file within the workspace
    */
   async readFile(wsPath, filePath) {

@@ -282,6 +282,20 @@ const { fetchRequirementDetail, requirementDetail, clearRequirementDetail, fetch
               </div>
             </div>
           </div>
+          <div className="flex items-center gap-2 shrink-0 ml-4">
+            <button
+              onClick={() => restartRequirement(req.id)}
+              className="text-xs px-3 py-1.5 rounded-lg bg-blue-600/15 hover:bg-blue-600/25 text-blue-400 border border-blue-500/20 transition-colors flex items-center gap-1"
+            >
+              🔄 {t('reqDetail.live.restart')}
+            </button>
+            <button
+              onClick={() => { if (confirm(t('reqDetail.live.confirmDelete'))) deleteRequirement(req.id); }}
+              className="text-xs px-3 py-1.5 rounded-lg bg-red-600/15 hover:bg-red-600/25 text-red-400 border border-red-500/20 transition-colors flex items-center gap-1"
+            >
+              🗑 {t('reqDetail.live.deleteReq')}
+            </button>
+          </div>
         </div>
 
         {/* 左右布局主体 */}
@@ -1402,8 +1416,8 @@ function LiveStatusPanel({ liveStatus, requirementId, requirementStatus, onResta
         </div>
       </div>
 
-      {/* Show action buttons when stuck */}
-      {(maybeStuck || definitelyStuck || requirementStatus === 'failed') && onRestart && onDelete && (
+      {/* Action buttons — always available */}
+      {onRestart && onDelete && (
         <div className="mt-2 pt-2 border-t border-white/[0.04] flex items-center gap-2">
           <button
             onClick={async () => {
@@ -1474,12 +1488,14 @@ function FilesView({ fileChanges, departmentId, previewFile, onPreview, onCloseP
   const [sidebarWidth, setSidebarWidth] = useState(260);
   const [isResizing, setIsResizing] = useState(false);
   const [openTabs, setOpenTabs] = useState([]); // Open tabs [{path, name}]
-  const [collapsedDirs, setCollapsedDirs] = useState(new Set());
+  const [expandedDirs, setExpandedDirs] = useState(new Set()); // Tracks which dirs are expanded
+  const [dirChildren, setDirChildren] = useState({}); // dirPath -> entries array (lazy-loaded)
+  const [dirLoading, setDirLoading] = useState(new Set()); // Dirs currently loading
   const resizeRef = useRef(null);
-  const [wsFiles, setWsFiles] = useState([]); // Workspace files from API
+  const [rootEntries, setRootEntries] = useState([]); // Root-level entries from API
   const [wsLoading, setWsLoading] = useState(false);
 
-  // Load workspace files on mount and when departmentId changes
+  // Load only root-level workspace files on mount
   useEffect(() => {
     if (!departmentId) return;
     let cancelled = false;
@@ -1488,21 +1504,7 @@ function FilesView({ fileChanges, departmentId, previewFile, onPreview, onCloseP
       try {
         const files = await fetchWorkspaceFiles(departmentId);
         if (!cancelled && Array.isArray(files)) {
-          // Flatten the file tree from workspace API into a flat list
-          const flat = [];
-          const walk = (entries, prefix = '') => {
-            for (const entry of entries) {
-              const fullPath = prefix ? `${prefix}/${entry.name}` : entry.name;
-              if (entry.type === 'file') {
-                flat.push({ filePath: entry.path || fullPath, agentName: null, action: 'existing', time: entry.modifiedAt });
-              }
-              if (entry.type === 'directory' && entry.children) {
-                walk(entry.children, fullPath);
-              }
-            }
-          };
-          walk(files);
-          setWsFiles(flat);
+          setRootEntries(files);
         }
       } catch {
         // silently fail — recentFileChanges will still work as fallback
@@ -1512,52 +1514,61 @@ function FilesView({ fileChanges, departmentId, previewFile, onPreview, onCloseP
     return () => { cancelled = true; };
   }, [departmentId, fetchWorkspaceFiles]);
 
-  // Merge recentFileChanges with workspace files, deduplicate by normalized path
-  const uniqueFiles = useMemo(() => {
-    const normalizePath = (p) => p ? p.replace(/^\.[\\/]/, '') : '';
-    const files = [];
-    const seen = new Set();
-    // recentFileChanges take priority (has agent info, more recent)
-    for (let i = fileChanges.length - 1; i >= 0; i--) {
-      const fc = fileChanges[i];
-      const normed = normalizePath(fc.filePath);
-      if (normed && !seen.has(normed)) {
-        seen.add(normed);
-        files.unshift(fc);
+  // Lazy load directory children
+  const loadDirChildren = useCallback(async (dirPath) => {
+    if (dirChildren[dirPath] || dirLoading.has(dirPath)) return;
+    setDirLoading(prev => new Set(prev).add(dirPath));
+    try {
+      const children = await fetchWorkspaceFiles(departmentId, dirPath);
+      if (Array.isArray(children)) {
+        setDirChildren(prev => ({ ...prev, [dirPath]: children }));
       }
-    }
-    // Then add workspace files that weren't in recentFileChanges
-    for (const wf of wsFiles) {
-      const normed = normalizePath(wf.filePath);
-      if (normed && !seen.has(normed)) {
-        seen.add(normed);
-        files.push(wf);
-      }
-    }
-    return files;
-  }, [fileChanges, wsFiles]);
+    } catch { /* ignore */ }
+    setDirLoading(prev => {
+      const next = new Set(prev);
+      next.delete(dirPath);
+      return next;
+    });
+  }, [departmentId, dirChildren, dirLoading, fetchWorkspaceFiles]);
 
-  // Build file tree structure
-  const fileTree = useMemo(() => {
+  // Toggle directory expand/collapse
+  const toggleDir = useCallback((dirPath) => {
+    setExpandedDirs(prev => {
+      const next = new Set(prev);
+      if (next.has(dirPath)) {
+        next.delete(dirPath);
+      } else {
+        next.add(dirPath);
+        // Trigger lazy load
+        loadDirChildren(dirPath);
+      }
+      return next;
+    });
+  }, [loadDirChildren]);
+
+  // Build tree from recentFileChanges (agent activity)
+  const recentTree = useMemo(() => {
     const tree = {};
-    uniqueFiles.forEach(fc => {
+    (fileChanges || []).forEach(fc => {
       const parts = fc.filePath?.split('/').filter(Boolean) || [];
       let node = tree;
       parts.forEach((part, idx) => {
         if (idx === parts.length - 1) {
-          // File node
           node[part] = { __isFile: true, __data: fc, __path: fc.filePath };
         } else {
-          // Directory node
-          if (!node[part] || node[part].__isFile) {
-            node[part] = {};
-          }
+          if (!node[part] || node[part].__isFile) node[part] = {};
           node = node[part];
         }
       });
     });
     return tree;
-  }, [uniqueFiles]);
+  }, [fileChanges]);
+
+  // Count total items (for display)
+  const totalCount = useMemo(() => {
+    const countRecent = (fileChanges || []).length;
+    return rootEntries.length + countRecent;
+  }, [rootEntries, fileChanges]);
 
   // Drag to resize sidebar width
   useEffect(() => {
@@ -1602,16 +1613,6 @@ function FilesView({ fileChanges, departmentId, previewFile, onPreview, onCloseP
     }
   };
 
-  // Toggle directory collapse
-  const toggleDir = (dirPath) => {
-    setCollapsedDirs(prev => {
-      const next = new Set(prev);
-      if (next.has(dirPath)) next.delete(dirPath);
-      else next.add(dirPath);
-      return next;
-    });
-  };
-
   // Get language by file extension
   const getLanguage = (path) => {
     const ext = path?.split('.').pop()?.toLowerCase();
@@ -1636,8 +1637,8 @@ function FilesView({ fileChanges, departmentId, previewFile, onPreview, onCloseP
     return iconMap[ext] || '📄';
   };
 
-  // Empty state — check merged file list, not just fileChanges
-  if (uniqueFiles.length === 0 && !previewFile && !wsLoading) {
+  // Empty state
+  if (rootEntries.length === 0 && (fileChanges || []).length === 0 && !previewFile && !wsLoading) {
     return (
       <div className="flex items-center justify-center py-16 text-[var(--muted)]">
         <div className="text-center">
@@ -1648,7 +1649,7 @@ function FilesView({ fileChanges, departmentId, previewFile, onPreview, onCloseP
       </div>
     );
   }
-  if (uniqueFiles.length === 0 && wsLoading) {
+  if (rootEntries.length === 0 && (fileChanges || []).length === 0 && wsLoading) {
     return (
       <div className="flex items-center justify-center py-16 text-[var(--muted)]">
         <div className="text-center">
@@ -1659,7 +1660,69 @@ function FilesView({ fileChanges, departmentId, previewFile, onPreview, onCloseP
     );
   }
 
-  // Render file tree node
+  // Render a file entry from API
+  const renderFileEntry = (entry, depth = 0) => {
+    if (entry.type === 'file') {
+      const filePath = entry.path || entry.name;
+      const isActive = previewFile?.path === filePath;
+      // Check if this file has agent info from recentFileChanges
+      const recentMatch = (fileChanges || []).find(fc => fc.filePath === filePath);
+      return (
+        <div
+          key={filePath}
+          className={`flex items-center gap-1.5 px-2 py-[3px] cursor-pointer text-xs transition-colors group ${
+            isActive
+              ? 'bg-[var(--accent)]/15 text-[var(--accent)]'
+              : 'text-[var(--foreground)]/80 hover:bg-white/[0.06]'
+          }`}
+          style={{ paddingLeft: `${depth * 16 + 16}px` }}
+          onClick={() => handleFileClick(filePath)}
+          title={filePath}
+        >
+          <span className="text-[11px] shrink-0">{getFileIcon(entry.name)}</span>
+          <span className="truncate">{entry.name}</span>
+          {recentMatch?.agentName && (
+            <span className="ml-auto text-[10px] text-[var(--muted)] opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+              {recentMatch.agentName}
+            </span>
+          )}
+        </div>
+      );
+    }
+
+    // Directory entry
+    const dirPath = entry.path || entry.name;
+    const isExpanded = expandedDirs.has(dirPath);
+    const isLoading = dirLoading.has(dirPath);
+    const children = dirChildren[dirPath] || [];
+    // Sort: directories first
+    const sortedChildren = [...children].sort((a, b) => {
+      if (a.type === 'directory' && b.type !== 'directory') return -1;
+      if (a.type !== 'directory' && b.type === 'directory') return 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    return (
+      <div key={dirPath}>
+        <div
+          className="flex items-center gap-1.5 px-2 py-[3px] cursor-pointer text-xs text-[var(--foreground)]/80 hover:bg-white/[0.06] transition-colors"
+          style={{ paddingLeft: `${depth * 16 + 16}px` }}
+          onClick={() => toggleDir(dirPath)}
+        >
+          <span className="text-[10px] text-[var(--muted)] w-3 text-center shrink-0">
+            {isLoading ? <span className="animate-pulse">⏳</span> : isExpanded ? '▼' : '▶'}
+          </span>
+          <span className="text-[11px] shrink-0">📁</span>
+          <span className="truncate font-medium">{entry.name}</span>
+        </div>
+        {isExpanded && sortedChildren.map(child =>
+          renderFileEntry(child, depth + 1)
+        )}
+      </div>
+    );
+  };
+
+  // Render tree node from recentFileChanges (legacy tree format)
   const renderTreeNode = (node, name, path, depth = 0) => {
     if (node.__isFile) {
       const isActive = previewFile?.path === node.__path;
@@ -1686,35 +1749,41 @@ function FilesView({ fileChanges, departmentId, previewFile, onPreview, onCloseP
       );
     }
 
-    // Directory node
-    const dirPath = path;
-    const isCollapsed = collapsedDirs.has(dirPath);
     const entries = Object.entries(node).filter(([k]) => !k.startsWith('__'));
-    // Directories first
     const dirs = entries.filter(([, v]) => !v.__isFile).sort(([a], [b]) => a.localeCompare(b));
     const files = entries.filter(([, v]) => v.__isFile).sort(([a], [b]) => a.localeCompare(b));
     const sorted = [...dirs, ...files];
+    const isExpanded = expandedDirs.has(path);
 
     return (
       <div key={path}>
         <div
           className="flex items-center gap-1.5 px-2 py-[3px] cursor-pointer text-xs text-[var(--foreground)]/80 hover:bg-white/[0.06] transition-colors"
           style={{ paddingLeft: `${depth * 16 + 16}px` }}
-          onClick={() => toggleDir(dirPath)}
+          onClick={() => setExpandedDirs(prev => { const n = new Set(prev); n.has(path) ? n.delete(path) : n.add(path); return n; })}
         >
           <span className="text-[10px] text-[var(--muted)] w-3 text-center shrink-0">
-            {isCollapsed ? '▶' : '▼'}
+            {isExpanded ? '▼' : '▶'}
           </span>
           <span className="text-[11px] shrink-0">📁</span>
           <span className="truncate font-medium">{name}</span>
           <span className="ml-auto text-[10px] text-[var(--muted)]">{entries.length}</span>
         </div>
-        {!isCollapsed && sorted.map(([childName, childNode]) =>
+        {isExpanded && sorted.map(([childName, childNode]) =>
           renderTreeNode(childNode, childName, `${path}/${childName}`, depth + 1)
         )}
       </div>
     );
   };
+
+  // Sort root entries: directories first
+  const sortedRootEntries = useMemo(() =>
+    [...rootEntries].sort((a, b) => {
+      if (a.type === 'directory' && b.type !== 'directory') return -1;
+      if (a.type !== 'directory' && b.type === 'directory') return 1;
+      return a.name.localeCompare(b.name);
+    }),
+  [rootEntries]);
 
   return (
     <div className="flex h-full min-h-[400px] overflow-hidden">
@@ -1727,22 +1796,34 @@ function FilesView({ fileChanges, departmentId, previewFile, onPreview, onCloseP
         <div className="px-3 py-2 text-[10px] font-semibold tracking-wider text-[var(--muted)] uppercase flex items-center justify-between">
           <span>{t('reqDetail.files.explorer')}</span>
           <span className="text-[10px] normal-case font-normal text-[var(--muted)]/60">
-            {uniqueFiles.length}
+            {totalCount}
           </span>
         </div>
 
         {/* File tree */}
         <div className="flex-1 overflow-auto py-1 select-none">
-          {Object.entries(fileTree).sort(([a, av], [b, bv]) => {
-            // Directories first
-            const aDir = !av.__isFile;
-            const bDir = !bv.__isFile;
-            if (aDir && !bDir) return -1;
-            if (!aDir && bDir) return 1;
-            return a.localeCompare(b);
-          }).map(([name, node]) =>
-            renderTreeNode(node, name, name, 0)
+          {/* Recent file changes from agents (shown as a separate section if any) */}
+          {(fileChanges || []).length > 0 && Object.keys(recentTree).length > 0 && (
+            <>
+              <div className="px-3 py-1 text-[10px] text-yellow-400 font-medium">
+                ⚡ Agent Changes
+              </div>
+              {Object.entries(recentTree).sort(([a, av], [b, bv]) => {
+                const aDir = !av.__isFile;
+                const bDir = !bv.__isFile;
+                if (aDir && !bDir) return -1;
+                if (!aDir && bDir) return 1;
+                return a.localeCompare(b);
+              }).map(([name, node]) =>
+                renderTreeNode(node, name, name, 0)
+              )}
+              {rootEntries.length > 0 && (
+                <div className="mx-3 my-1 h-px bg-white/[0.06]" />
+              )}
+            </>
           )}
+          {/* Workspace files (lazy-loaded) */}
+          {sortedRootEntries.map(entry => renderFileEntry(entry, 0))}
         </div>
 
       </div>

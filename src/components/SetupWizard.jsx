@@ -24,13 +24,16 @@ const PRICE_COLORS = ['text-green-400', 'text-yellow-400', 'text-red-400'];
 const AVATAR_CHOICES_COUNT = 16;
 
 export default function SetupWizard() {
-  const { createCompany, loading } = useStore();
+  const { createCompany, loading, fetchCLIBackends, detectCLIBackends } = useStore();
   const { t, lang } = useI18n();
   const [step, setStep] = useState(1);
   const [companyName, setCompanyName] = useState(t('setup.defaultCompany'));
   const [bossName, setBossName] = useState('');
   const [selectedModel, setSelectedModel] = useState('deepseek-v3');
   const [apiKey, setApiKey] = useState('');
+  const [cliBackends, setCliBackends] = useState([]);
+  const [cliDetecting, setCliDetecting] = useState(false);
+  const [cliDetected, setCliDetected] = useState(false);
   const [secretaryName, setSecretaryName] = useState(t('setup.defaultSecretary'));
 
   // Track previous language to auto-update defaults on language switch
@@ -83,6 +86,26 @@ export default function SetupWizard() {
     const choices = getAvatarChoices(AVATAR_CHOICES_COUNT, secretaryGender, secretaryAge);
     setAvatarChoices(choices);
   };
+
+  // Detect CLI backends when entering step 3
+  useEffect(() => {
+    if (step !== 3 || cliDetected) return;
+    (async () => {
+      setCliDetecting(true);
+      try {
+        await detectCLIBackends();
+        const backends = await fetchCLIBackends();
+        setCliBackends(backends || []);
+        // Auto-select the first available CLI backend
+        const available = (backends || []).find(b => b.status === 'detected');
+        if (available) {
+          setSelectedModel(`cli-${available.id}`);
+        }
+      } catch { /* ignore */ }
+      setCliDetecting(false);
+      setCliDetected(true);
+    })();
+  }, [step, cliDetected, detectCLIBackends, fetchCLIBackends]);
 
   const handleCreate = async () => {
     try {
@@ -272,6 +295,69 @@ export default function SetupWizard() {
             <h2 className="text-xl font-semibold">{t('setup.step3Title')}</h2>
             <p className="text-sm text-[var(--muted)]">{t('setup.step3Desc')}</p>
 
+            {/* CLI Agent Section */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium text-emerald-400">🖥️ CLI Agent (Local)</label>
+                {cliDetecting && <span className="text-[10px] text-[var(--muted)] animate-pulse">Detecting...</span>}
+              </div>
+              {cliBackends.length > 0 ? (
+                cliBackends.map((cli) => {
+                  const isAvailable = cli.status === 'detected';
+                  const cliModelId = `cli-${cli.id}`;
+                  return (
+                    <label
+                      key={cli.id}
+                      className={`flex items-center p-3 rounded-lg border cursor-pointer transition-all ${
+                        !isAvailable ? 'opacity-40 cursor-not-allowed' :
+                        selectedModel === cliModelId
+                          ? 'border-emerald-400 bg-emerald-400/10'
+                          : 'border-[var(--border)] hover:border-emerald-400/40'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="model"
+                        value={cliModelId}
+                        checked={selectedModel === cliModelId}
+                        onChange={(e) => setSelectedModel(e.target.value)}
+                        disabled={!isAvailable}
+                        className="mr-3"
+                      />
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">{cli.name || cli.id}</span>
+                          {isAvailable ? (
+                            <span className="text-[10px] bg-emerald-900/30 text-emerald-400 px-1.5 py-0.5 rounded">✓ Available</span>
+                          ) : (
+                            <span className="text-[10px] bg-red-900/30 text-red-400 px-1.5 py-0.5 rounded">Not found</span>
+                          )}
+                          {cli.rating && (
+                            <span className="text-xs bg-yellow-900/30 text-yellow-400 px-1.5 py-0.5 rounded">
+                              ⭐ {cli.rating}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-3 mt-0.5">
+                          <span className="text-xs text-[var(--muted)]">Local CLI</span>
+                          <span className="text-xs text-green-400">Free (local)</span>
+                        </div>
+                      </div>
+                    </label>
+                  );
+                })
+              ) : !cliDetecting ? (
+                <p className="text-xs text-[var(--muted)] px-1">No CLI agents detected</p>
+              ) : null}
+            </div>
+
+            {/* Divider */}
+            <div className="flex items-center gap-3 text-xs text-[var(--muted)]">
+              <div className="flex-1 h-px bg-[var(--border)]" />
+              <span>Cloud API Models</span>
+              <div className="flex-1 h-px bg-[var(--border)]" />
+            </div>
+
             <div className="space-y-2">
               {AVAILABLE_MODELS.map((model) => (
                 <label
@@ -311,6 +397,7 @@ export default function SetupWizard() {
               ))}
             </div>
 
+            {!selectedModel?.startsWith('cli-') && (
             <div>
               <label className="block text-sm mb-1 text-[var(--muted)]">{t('setup.apiKeyLabel')}</label>
               <input
@@ -322,6 +409,7 @@ export default function SetupWizard() {
               />
               <p className="text-xs text-[var(--muted)] mt-1">{t('setup.apiKeyHint')}</p>
             </div>
+            )}
 
             <div className="flex gap-2">
               <button className="btn-secondary flex-1" onClick={() => setStep(2)}>

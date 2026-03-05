@@ -1960,6 +1960,15 @@ const dept = this.findDepartment(departmentId);
   }
 
   /**
+   * Get shallow (one-level) workspace file listing
+   */
+  async getShallowWorkspaceFiles(departmentId, subPath = '') {
+    const dept = this.findDepartment(departmentId);
+    if (!dept || !dept.workspacePath) return [];
+    return this.workspaceManager.getShallowFileTree(dept.workspacePath, subPath);
+  }
+
+  /**
    * Read workspace file
    */
   async readWorkspaceFile(departmentId, filePath) {
