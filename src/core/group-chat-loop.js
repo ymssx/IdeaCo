@@ -22,6 +22,9 @@ const DEFAULT_CONFIG = {
   maxInnerMonologueLen: 5,        // Max 5 rounds of inner monologue per flow
   maxGroupMessagesPerTurn: 3,     // Max 3 messages per turn sent to group
   debounceMs: 2000,               // 2-second debounce after being @mentioned (wait for consecutive messages)
+  antiSpamWindowMs: 120000,       // 2-minute sliding window for anti-spam
+  antiSpamMaxMessages: 3,         // Max messages per agent per group in the anti-spam window
+  cooldownAfterSpeakMs: 15000,    // 15-second cooldown after speaking before speaking again
 };
 
 /**
@@ -89,6 +92,9 @@ export class GroupChatLoop extends EventEmitter {
     // Processing flags to prevent re-entry: `${agentId}:${groupId}` => boolean
     this._processing = new Set();
 
+    // Recent speak timestamps per Agent per group: `${agentId}:${groupId}` => Date[]
+    this._recentSpeaks = new Map();
+
     // Company reference (injected externally)
     this.company = null;
 
@@ -119,6 +125,7 @@ export class GroupChatLoop extends EventEmitter {
     }
     this._pollTimers.clear();
     this._processing.clear();
+    this._recentSpeaks.clear();
     console.log('⏹️ GroupChatLoop: Chat loop engine stopped');
     this.emit('stopped');
   }
@@ -379,13 +386,16 @@ export class GroupChatLoop extends EventEmitter {
           // Update group last activity time
           this._lastGroupActivity.set(groupId, new Date());
 
+          // Record this speak event for anti-spam tracking
+          this._recordSpeak(agent.id, groupId);
+
           // Trigger immediate processing for other employees (if message @mentions someone)
           const mentionedIds = this._extractMentions(msg.content, dept);
           for (const mentionedId of mentionedIds) {
-            // Delayed trigger to avoid simultaneous processing
+            // Delayed trigger to avoid simultaneous processing — use longer delay to reduce chat loops
             setTimeout(() => {
               this.triggerImmediate(mentionedId, groupId, msg).catch(() => {});
-            }, 1000 + Math.random() * 2000);
+            }, 3000 + Math.random() * 5000);
           }
         }
 
@@ -456,6 +466,9 @@ export class GroupChatLoop extends EventEmitter {
 
     const p = agent.personality;
 
+    // Build anti-spam context info
+    const spamInfo = this._getSpamInfo(agent.id, groupId);
+
     const systemPrompt = `You are "${agent.name}", position: "${agent.role}".
 Your personality traits: ${p.trait}
 Your speaking style: ${p.tone}
@@ -477,18 +490,33 @@ You MUST write genuine, rich, and deep inner thoughts in the innerThoughts field
 - innerThoughts should be 2-5 sentences, don't just write one dismissive sentence!
 - ⚠️ innerThoughts must NEVER be empty or contain only "nothing" or "no thoughts"
 
-**Speaking Rules:**
-- If you were @mentioned, you MUST reply
-- If your work has progress updates, conclusions to share, review opinions, or insights/suggestions, you should speak
-- If you want a colleague to see something, you can @ them
-- If the boss spoke, you should usually respond
-- Be encouraged to share your views and join discussions — speak up if you have ideas
-- "I'm thinking", "I'm checking the file" — do NOT send these to group chat
-- "I think we should xxx", "There's an issue here", "I found xxx" — these are GREAT for group chat
-- Don't spam, don't send too many meaningless messages
-- Stay natural, like a real colleague chatting in a group
+**🚫 Anti-Spam & Speaking Discipline (CRITICAL — READ CAREFULLY!):**
+${spamInfo.recentCount > 0 ? `⚠️ You have already sent ${spamInfo.recentCount} message(s) in the last 2 minutes. ` : ''}${spamInfo.isOnCooldown ? '🛑 You JUST spoke recently — strongly prefer staying SILENT unless absolutely critical.' : ''}
+- **Treasure every message.** The group chat is a shared space — each message should carry real, substantial value.
+- **Do NOT reply just because you were @mentioned.** Being @mentioned is a signal, not an obligation. If you have nothing meaningful to add, stay silent. A nod or "got it" is almost never worth sending.
+- **Ask yourself before speaking: "Does this message move the project forward?"** If the answer is no, do NOT send it.
+- **Avoid echoing, acknowledging, or restating** what others already said. "Agreed", "Sounds good", "I think so too" — these are noise, not signal.
+- **Avoid chat loops**: If you see a back-and-forth exchange between you and another person that's going in circles or not producing new information, STOP. Break the cycle by staying silent.
+- **Max 1 message per turn.** Even if you have multiple thoughts, consolidate into ONE concise message or stay silent.
+- **Good reasons to speak:** You have a NEW conclusion, a concrete deliverable, a blocker, a correction, or a decision that others need to know about.
+- **Bad reasons to speak:** Someone @mentioned you, someone asked a rhetorical question, you want to show you're paying attention, you want to be polite.
 
-${isMentioned ? '⚠️ You were @mentioned, you MUST reply!' : ''}
+**🎯 Stay On Topic — Requirement Focus (CRITICAL!):**
+- This is a WORK group for requirement "${requirement.title}". Every message should relate to completing this requirement.
+- Before speaking, ask: "Is what I'm about to say helping us finish this requirement, or am I drifting off-topic?"
+- If the conversation has drifted off-topic, do NOT join the drift. Instead, either stay silent or steer the conversation back to the requirement.
+- Progress updates, technical decisions, blockers, deliverables — these belong in the group. Chit-chat, tangents, and meta-discussion do NOT.
+- If you notice the group has been chatting about something unrelated for several messages, consider saying: "Let's get back to [requirement topic]." — but ONLY if no one else has already said it.
+
+**Speaking Rules (adjusted):**
+- If you were @mentioned, consider replying ONLY if you have something valuable to add. It's OK to not reply if the conversation doesn't need your input.
+- If your work has real progress, concrete conclusions, review findings, or actionable suggestions, speak up.
+- If the boss asked a direct question to you, reply. If the boss made a general announcement, a reply is usually unnecessary.
+- "I'm thinking", "I'm checking the file", "Got it", "OK" — do NOT send these to group chat.
+- "I found a bug in X", "I finished module Y", "I disagree because Z" — these are GREAT for group chat.
+- When in doubt, stay SILENT. Silence is always better than noise.
+
+${isMentioned ? '📌 You were @mentioned — but this does NOT mean you must reply. Only reply if you have something substantive to contribute.' : ''}
 
 Reply in the following JSON format (return JSON only, no other content):
 {
@@ -560,13 +588,19 @@ Please enter flow thinking and decide whether to speak.`;
         monologue.addThought(`[Read group messages, processing...]`);
       }
 
-      // Force speak when @mentioned
-      if (isMentioned && !result.shouldSpeak) {
-        result.shouldSpeak = true;
-        result.reason = 'Was @mentioned, must reply';
-        if (!result.messages || result.messages.length === 0) {
-          result.messages = [{ content: `Got it, let me take a look.` }];
-        }
+      // Anti-spam gate: if agent has been speaking too frequently, suppress output
+      const spamCheck = this._getSpamInfo(agent.id, requirement.id);
+      if (result.shouldSpeak && spamCheck.recentCount >= this.config.antiSpamMaxMessages) {
+        console.log(`  🔇 [GroupChatLoop] ${agent.name} suppressed (anti-spam: ${spamCheck.recentCount} msgs in window)`);
+        result.shouldSpeak = false;
+        result.reason = `Anti-spam: already sent ${spamCheck.recentCount} messages recently, staying silent`;
+        result.messages = [];
+        monologue.addThought(`[Self-regulation] I wanted to speak but I've been too active recently. Better stay quiet and let others talk.`);
+      }
+
+      // Limit to max 1 message per turn to prevent flooding
+      if (result.messages && result.messages.length > 1) {
+        result.messages = [result.messages[0]];
       }
 
       return {
@@ -585,28 +619,66 @@ Please enter flow thinking and decide whether to speak.`;
    * Fallback flow logic when LLM is unavailable
    */
   _fallbackThink(agent, isMentioned, recentMessages) {
-    if (isMentioned) {
+    // Even in fallback mode, respect anti-spam limits
+    const spamCheck = this._getSpamInfo(agent.id, recentMessages[0]?.groupId || '');
+    if (spamCheck.recentCount >= this.config.antiSpamMaxMessages) {
       return {
-        shouldSpeak: true,
-        messages: [{ content: `Got it, I'll handle it.` }],
-        reason: 'Was @mentioned, using fallback reply',
+        shouldSpeak: false,
+        messages: [],
+        reason: 'Anti-spam: too many recent messages, staying silent even in fallback',
       };
     }
 
-    // Check if the last message was from the boss
+    // Check if the last message was from the boss AND is a direct question
     const lastMsg = recentMessages[recentMessages.length - 1];
-    if (lastMsg && lastMsg.from?.id === 'boss') {
+    if (lastMsg && lastMsg.from?.id === 'boss' && isMentioned) {
       return {
         shouldSpeak: true,
-        messages: [{ content: `Understood, received the boss's message.` }],
-        reason: 'Boss spoke, using fallback reply',
+        messages: [{ content: `Understood, I'll look into it.` }],
+        reason: 'Boss directly mentioned me, using fallback reply',
       };
     }
 
     return {
       shouldSpeak: false,
       messages: [],
-      reason: 'LLM unavailable, and no @mention or boss message',
+      reason: 'LLM unavailable, staying silent in fallback mode to avoid noise',
+    };
+  }
+
+  // ========================================================================
+  // Anti-Spam & Rate Limiting
+  // ========================================================================
+
+  /**
+   * Record a speak event for anti-spam tracking
+   */
+  _recordSpeak(agentId, groupId) {
+    const key = `${agentId}:${groupId}`;
+    if (!this._recentSpeaks.has(key)) {
+      this._recentSpeaks.set(key, []);
+    }
+    this._recentSpeaks.get(key).push(Date.now());
+  }
+
+  /**
+   * Get anti-spam info for an agent in a group
+   * @returns {{ recentCount: number, isOnCooldown: boolean }}
+   */
+  _getSpamInfo(agentId, groupId) {
+    const key = `${agentId}:${groupId}`;
+    const timestamps = this._recentSpeaks.get(key) || [];
+    const now = Date.now();
+    const windowStart = now - this.config.antiSpamWindowMs;
+    const cooldownStart = now - this.config.cooldownAfterSpeakMs;
+
+    // Clean up old timestamps outside the window
+    const recentTimestamps = timestamps.filter(t => t > windowStart);
+    this._recentSpeaks.set(key, recentTimestamps);
+
+    return {
+      recentCount: recentTimestamps.length,
+      isOnCooldown: recentTimestamps.some(t => t > cooldownStart),
     };
   }
 
