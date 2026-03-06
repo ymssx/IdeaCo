@@ -29,12 +29,15 @@ export class AgentToolKit {
    * @param {string} workspaceDir - Agent's workspace root directory
    * @param {object} messageBus - Message bus reference
    * @param {string} agentId - Current Agent's ID
+   * @param {string} agentName - Current Agent's display name
+   * @param {object} [employee] - Back-reference to the owning Employee (for memory access)
    */
-  constructor(workspaceDir, messageBus = null, agentId = null, agentName = '') {
+  constructor(workspaceDir, messageBus = null, agentId = null, agentName = '', employee = null) {
     this.workspaceDir = workspaceDir;
     this.messageBus = messageBus;
     this.agentId = agentId;
     this.agentName = agentName;
+    this.employee = employee;
 
     // Ensure workspace directory exists
     if (!existsSync(workspaceDir)) {
@@ -145,6 +148,22 @@ export class AgentToolKit {
           },
         },
       },
+      {
+        type: 'function',
+        function: {
+          name: 'save_memory',
+          description: 'Save an important insight, lesson, preference, or fact to your personal memory. Use this proactively when you discover something worth remembering for future tasks — e.g. a lesson learned, a useful pattern, a colleague\'s preference, or a project-specific fact. Short-term memories expire after a while; long-term memories persist permanently.',
+          parameters: {
+            type: 'object',
+            properties: {
+              content: { type: 'string', description: 'What to remember (be concise and specific)' },
+              type: { type: 'string', enum: ['short-term', 'long-term'], description: 'short-term for temporary context (expires in 24h), long-term for permanent lessons/facts' },
+              category: { type: 'string', enum: ['experience', 'reflection', 'skill', 'feedback', 'preference', 'fact', 'instruction'], description: 'Memory category (for long-term). Defaults to "experience"' },
+            },
+            required: ['content', 'type'],
+          },
+        },
+      },
       // Include tools from enabled plugins
       ...pluginRegistry.getPluginTools(),
     ];
@@ -215,6 +234,9 @@ export class AgentToolKit {
       }
       case 'send_message':
         result = await this._sendMessage(args.targetAgentId, args.content, args.type);
+        break;
+      case 'save_memory':
+        result = this._saveMemory(args.content, args.type, args.category);
         break;
       default: {
         // Try plugin tools before giving up
@@ -351,5 +373,24 @@ export class AgentToolKit {
     // Avoid double recording
 
     return `Message sent to ${targetAgentId}`;
+  }
+
+  /**
+   * Save a memory for the owning Employee
+   */
+  _saveMemory(content, type = 'long-term', category = 'experience') {
+    if (!content) return 'Error: content is required';
+    if (!this.employee || !this.employee.memory) {
+      return 'Error: memory system not available';
+    }
+    if (type === 'short-term') {
+      this.employee.memory.addShortTerm(content, category || 'task');
+      console.log(`  🧠 [${this.agentName}] Saved short-term memory: "${content.slice(0, 80)}"`);
+      return `Short-term memory saved (expires in 24h): "${content.slice(0, 100)}"`;
+    } else {
+      this.employee.memory.addLongTerm(content, category || 'experience');
+      console.log(`  🧠 [${this.agentName}] Saved long-term memory [${category}]: "${content.slice(0, 80)}"`);
+      return `Long-term memory saved [${category}]: "${content.slice(0, 100)}"`;
+    }
   }
 }

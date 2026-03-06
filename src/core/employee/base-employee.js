@@ -190,7 +190,7 @@ export class Employee {
 
   initToolKit(workspaceDir, messageBus) {
     this.messageBus = messageBus;
-    this.toolKit = new AgentToolKit(workspaceDir, messageBus, this.id, this.name);
+    this.toolKit = new AgentToolKit(workspaceDir, messageBus, this.id, this.name, this);
   }
 
   setMessageBus(messageBus) {
@@ -233,6 +233,9 @@ export class Employee {
     this.status = 'working';
     const startTime = Date.now();
     const displayInfo = this.getDisplayInfo();
+
+    // Clean expired short-term memories before building system prompt
+    this.memory.cleanExpiredShortTerm();
 
     console.log(`  🤖 [${this.name}] (${this.role}) starting task: "${task.title}"`);
     console.log(`     Engine: ${displayInfo.name} (${displayInfo.type})`);
@@ -448,7 +451,7 @@ export class Employee {
 
     if (this.toolKit) {
       systemContent += `\n## Available Tools\n`;
-      systemContent += `Built-in tools: file_read (read file), file_write (create/write file), file_list (list directory), file_delete (delete file), shell_exec (execute command), send_message (send message to colleague for collaboration and feedback).\n`;
+      systemContent += `Built-in tools: file_read (read file), file_write (create/write file), file_list (list directory), file_delete (delete file), shell_exec (execute command), send_message (send message to colleague for collaboration and feedback), save_memory (save important insights/lessons/facts to your personal memory).\n`;
       systemContent += `\n**Teamwork & Collaboration (IMPORTANT)**:\n`;
       systemContent += `- You are part of a team! Proactively communicate with colleagues using send_message.\n`;
       systemContent += `- When working in parallel, coordinate to avoid duplicate work and share discoveries.\n`;
@@ -796,7 +799,12 @@ Do not use any code, tool calls, or technical instructions — reply in natural 
       signature: this.signature,
       hasIntroduced: this.hasIntroduced,
       personality: { ...this.personality },
-      memory: this.memory.serialize(),
+      // Full memory is persisted in separate files (data/memories/{id}.json);
+      // only store counts here to avoid bloating company-state.json.
+      memory: {
+        shortTermCount: this.memory.shortTerm.length,
+        longTermCount: this.memory.longTerm.length,
+      },
       tokenUsage: { ...this.tokenUsage },
       taskHistory: this.taskHistory.map(h => ({
         task: h.task, completedAt: h.completedAt,

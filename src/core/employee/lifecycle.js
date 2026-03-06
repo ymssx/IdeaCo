@@ -223,6 +223,9 @@ export class EmployeeLifecycle {
     const agent = this.employee;
     if (agent.status === 'dismissed') return;
 
+    // Periodically clean expired short-term memories
+    agent.memory.cleanExpiredShortTerm();
+
     const groups = this._getAgentGroups();
     for (const group of groups) {
       await this._checkGroupForAgent(group);
