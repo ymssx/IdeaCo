@@ -33,7 +33,6 @@ export default function TeamDetail() {
 
   // Sprint detail
   const [sprintDetail, setSprintDetail] = useState(null);
-  const [sprintTab, setSprintTab] = useState('workflow'); // workflow | files
   const [chatInput, setChatInput] = useState('');
   const chatEndRef = useRef(null);
 
@@ -286,137 +285,21 @@ export default function TeamDetail() {
             />
           </div>
 
-          {/* Right: Tabs + Content */}
+          {/* Right: Sprint Plan */}
           <div className="flex-1 min-w-0 flex flex-col">
-            {/* Tab bar */}
-            <div className="flex border-b border-white/[0.06] shrink-0 px-6 bg-[var(--card)]">
-              {[
-                ...(sprintDetail.plan ? [{ key: 'plan', label: `📋 ${t('team.sprint.plan')}` }] : []),
-                { key: 'workflow', label: `📊 ${t('team.sprint.workflow')}`, badge: sprintDetail.workflow?.nodes?.length },
-                { key: 'files', label: t('team.tab.files') },
-              ].map(tab => (
-                <button
-                  key={tab.key}
-                  onClick={() => setSprintTab(tab.key)}
-                  className={`px-5 py-3 text-sm font-medium transition-all border-b-2 ${
-                    sprintTab === tab.key
-                      ? 'border-[var(--accent)] text-[var(--accent)]'
-                      : 'border-transparent text-[var(--muted)] hover:text-white'
-                  }`}
-                >
-                  {tab.label}
-                  {tab.badge > 0 && (
-                    <span className="ml-1.5 text-[10px] bg-white/10 px-1.5 py-0.5 rounded-full">{tab.badge}</span>
-                  )}
-                </button>
-              ))}
+            <div className="flex items-center gap-2 px-6 py-2.5 border-b border-white/[0.06] bg-[var(--card)]">
+              <span className="text-sm font-medium">📋 {t('team.sprint.plan')}</span>
             </div>
 
-            {/* Tab content */}
-            <div className={`flex-1 min-h-0 flex flex-col ${sprintTab === 'files' ? 'overflow-hidden' : 'overflow-auto p-4'}`}>
-              {sprintTab === 'plan' && sprintDetail.plan && (
-                <div className="">
-                  <div className="prose prose-invert prose-xs max-w-none font-mono text-xs leading-relaxed">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{sprintDetail.plan}</ReactMarkdown>
-                  </div>
+            <div className="flex-1 min-h-0 overflow-auto p-4">
+              {sprintDetail.plan ? (
+                <div className="prose prose-invert prose-xs max-w-none font-mono text-xs leading-relaxed">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{sprintDetail.plan}</ReactMarkdown>
                 </div>
-              )}
-
-              {sprintTab === 'workflow' && (
-                <div>
-                  {sprintDetail.workflow?.nodes?.length > 0 ? (
-                    <div className="space-y-2">
-                      {/* Progress bar */}
-                      {(() => {
-                        const nodes = sprintDetail.workflow.nodes;
-                        const completed = nodes.filter(n => n.status === 'completed').length;
-                        const total = nodes.length;
-                        const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
-                        return (
-                          <div className="mb-4">
-                            <div className="flex justify-between text-xs text-[var(--muted)] mb-1">
-                              <span>{t('reqDetail.workflow.progress')}</span>
-                              <span>{completed}/{total} ({pct}%)</span>
-                            </div>
-                            <div className="w-full h-2 bg-[var(--border)] rounded-full overflow-hidden">
-                              <div className="h-full bg-green-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
-                            </div>
-                          </div>
-                        );
-                      })()}
-                      {sprintDetail.workflow.nodes.map((node) => {
-                        const nodeSt = {
-                          waiting: { color: 'border-gray-600', text: 'text-gray-400', icon: '⏳' },
-                          ready: { color: 'border-blue-600', text: 'text-blue-400', icon: '🟢' },
-                          running: { color: 'border-yellow-600', text: 'text-yellow-400', icon: '⚙️' },
-                          reviewing: { color: 'border-purple-600', text: 'text-purple-400', icon: '🔍' },
-                          revision: { color: 'border-orange-600', text: 'text-orange-400', icon: '🔄' },
-                          completed: { color: 'border-green-600', text: 'text-green-400', icon: '✅' },
-                          failed: { color: 'border-red-600', text: 'text-red-400', icon: '❌' },
-                        }[node.status] || { color: 'border-gray-600', text: 'text-gray-400', icon: '❓' };
-                        return (
-                          <div key={node.id} className={`border-l-2 ${nodeSt.color} pl-3 py-2`}>
-                            <div className="flex items-center gap-2">
-                              <span>{nodeSt.icon}</span>
-                              <span className="text-sm font-medium">{node.title}</span>
-                              <span className={`text-[10px] ${nodeSt.text}`}>{node.status}</span>
-                            </div>
-                            <div className="text-xs text-[var(--muted)] mt-0.5">
-                              → {node.assigneeName || 'TBD'}
-                              {node.reviewerName && <span className="ml-2">🔍 {node.reviewerName}</span>}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="text-center py-8 text-[var(--muted)] text-sm">
-                      {t('reqDetail.workflow.notParsed')}
-                    </div>
-                  )}
-
-                  {/* Outputs section below workflow */}
-                  {sprintDetail.outputs?.length > 0 && (
-                    <div className="mt-6">
-                      <h3 className="text-sm font-semibold text-[var(--muted)] uppercase tracking-wider mb-3">📦 {t('team.sprint.outputs')}</h3>
-                      <div className="space-y-3">
-                        {sprintDetail.outputs.map(out => (
-                          <div key={out.id} className="border border-[var(--border)] rounded-lg p-3">
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className="text-xs font-medium">{out.agentName}</span>
-                              <span className="text-[10px] text-[var(--muted)]">{out.role}</span>
-                              <span className="text-[10px] bg-blue-900/30 text-blue-400 px-1.5 py-0.5 rounded">{out.outputType}</span>
-                            </div>
-                            <pre className="text-xs whitespace-pre-wrap max-h-40 overflow-auto text-[var(--foreground)]/80 bg-black/20 p-2 rounded">
-                              {out.content?.length > 500 ? out.content.slice(0, 500) + '...' : out.content}
-                            </pre>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {sprintTab === 'files' && (
-                <div className="flex-1 min-h-0">
-                  {team.workspacePath ? (
-                    <div className="h-full">
-                      <FilesView
-                        departmentId={team.departmentId}
-                        previewFile={previewFile}
-                        onPreview={loadFilePreview}
-                        onClosePreview={() => setPreviewFile(null)}
-                      />
-                    </div>
-                  ) : (
-                    <div className="flex items-center justify-center h-full text-[var(--muted)]">
-                      <div className="text-center">
-                        <div className="text-3xl mb-2">📁</div>
-                        <p className="text-sm">{t('team.noWorkspace')}</p>
-                      </div>
-                    </div>
-                  )}
+              ) : (
+                <div className="text-center py-8 text-[var(--muted)] text-sm">
+                  <div className="text-3xl mb-2">📋</div>
+                  <p>{t('team.sprint.noPlan')}</p>
                 </div>
               )}
             </div>

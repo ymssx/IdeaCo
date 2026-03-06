@@ -296,18 +296,7 @@ const { fetchRequirementDetail, requirementDetail, clearRequirementDetail, fetch
             {/* Content area */}
             <div className={`flex-1 min-h-0 flex flex-col pb-6 ${activeTab === 'files' || activeTab === 'office' ? 'overflow-hidden' : 'overflow-auto'}`}>
               {activeTab === 'workflow' && (
-                <>
-                  {(req.status === 'in_progress' || req.status === 'planning' || req.status === 'failed') && req.liveStatus && (
-                    <LiveStatusPanel
-                      liveStatus={req.liveStatus}
-                      requirementId={req.id}
-                      requirementStatus={req.status}
-                      onRestart={() => restartRequirement(req.id)}
-                      onDelete={() => deleteRequirement(req.id)}
-                    />
-                  )}
-                  <WorkflowView workflow={req.workflow} liveStatus={req.liveStatus} members={req.members} />
-                </>
+                <WorkflowView workflow={req.workflow} liveStatus={req.liveStatus} members={req.members} />
               )}
               {activeTab === 'files' && (
                 <div className="flex-1 min-h-0">
@@ -418,19 +407,7 @@ const { fetchRequirementDetail, requirementDetail, clearRequirementDetail, fetch
         {/* Content area */}
         <div className={`flex-1 min-h-0 flex flex-col pb-6 ${activeTab === 'files' || activeTab === 'office' ? 'overflow-hidden' : 'overflow-auto'}`} style={{ minHeight: activeTab === 'files' || activeTab === 'office' ? '400px' : undefined }}>
           {activeTab === 'workflow' && (
-            <>
-              {/* Live progress panel (only shown under workflow tab) */}
-              {(req.status === 'in_progress' || req.status === 'planning' || req.status === 'failed') && req.liveStatus && (
-                <LiveStatusPanel
-                  liveStatus={req.liveStatus}
-                  requirementId={req.id}
-                  requirementStatus={req.status}
-                  onRestart={() => restartRequirement(req.id)}
-                  onDelete={() => deleteRequirement(req.id)}
-                />
-              )}
-              <WorkflowView workflow={req.workflow} liveStatus={req.liveStatus} members={req.members} />
-            </>
+            <WorkflowView workflow={req.workflow} liveStatus={req.liveStatus} members={req.members} />
           )}
           {activeTab === 'chat' && (() => {
             const chatAgentMap = {};
@@ -583,8 +560,15 @@ function WorkflowView({ workflow, liveStatus, members }) {
     const gapX = 32, gapY = 80;
     const padX = 40, padY = 40;
 
-    // Effective width
-    const effectiveW = Math.max(containerWidth - padX * 2, 600);
+    // Calculate the minimum width needed by the widest layer
+    let maxLayerW = 0;
+    levels.forEach((level) => {
+      const layerW = level.length * nodeW + (level.length - 1) * gapX;
+      if (layerW > maxLayerW) maxLayerW = layerW;
+    });
+
+    // Effective width: expand to fit all parallel nodes, allowing horizontal scroll
+    const effectiveW = Math.max(containerWidth - padX * 2, 600, maxLayerW);
 
     // Calculate node positions per layer (centered, height from measurement)
     const nodePositions = {};
@@ -1274,147 +1258,5 @@ function MembersAndBlockingPanel({ members, blockingInfo, workflow, status, onPe
 }
 
 
-/**
- * Live progress panel - shows current execution status, heartbeat, stuck detection
- */
-function LiveStatusPanel({ liveStatus, requirementId, requirementStatus, onRestart, onDelete }) {
-  const { t } = useI18n();
-  const [now, setNow] = useState(Date.now());
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [operating, setOperating] = useState(false);
 
-  // Update every second, calculate heartbeat interval
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, []);
-
-  const heartbeatAge = liveStatus.heartbeat
-    ? Math.round((now - new Date(liveStatus.heartbeat).getTime()) / 1000)
-    : null;
-
-  const lastActiveAge = liveStatus.lastActiveAt
-    ? Math.round((now - new Date(liveStatus.lastActiveAt).getTime()) / 1000)
-    : null;
-
-  // Check if possibly stuck: no heartbeat for >60s
-  const maybeStuck = heartbeatAge !== null && heartbeatAge > 60;
-  // Long inactivity: >120s
-  const definitelyStuck = heartbeatAge !== null && heartbeatAge > 120;
-
-  return (
-    <div className={`mx-6 mt-4 rounded-xl border p-3 text-sm ${
-      definitelyStuck
-        ? 'bg-red-900/10 border-red-500/30'
-        : maybeStuck
-        ? 'bg-orange-900/10 border-orange-500/30'
-        : 'bg-[var(--accent)]/5 border-[var(--accent)]/20'
-    }`}>
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          {definitelyStuck ? (
-            <span className="text-red-400 text-lg">⚠️</span>
-          ) : maybeStuck ? (
-            <span className="text-orange-400 text-lg animate-pulse">⏳</span>
-          ) : (
-            <span className="text-green-400 text-lg animate-pulse">⚡</span>
-          )}
-          <div>
-            <div className="font-medium text-xs">
-              {definitelyStuck
-                ? t('reqDetail.live.stuck')
-                : maybeStuck
-                ? t('reqDetail.live.waiting')
-                : t('reqDetail.live.running')}
-            </div>
-            {liveStatus.currentAction && (
-              <div className="text-xs text-[var(--muted)] mt-0.5 truncate max-w-md">
-                {liveStatus.currentAction}
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="flex items-center gap-4 text-[10px] text-[var(--muted)] shrink-0">
-          {liveStatus.currentAgent && (
-            <span>👤 {liveStatus.currentAgent}</span>
-          )}
-          {liveStatus.currentNodeTitle && (
-            <span>📋 {liveStatus.currentNodeTitle}</span>
-          )}
-          {heartbeatAge !== null && (
-            <span className={`${
-              definitelyStuck ? 'text-red-400' : maybeStuck ? 'text-orange-400' : 'text-green-400'
-            }`}>
-              💓 {heartbeatAge < 60 ? t('reqDetail.live.secondsAgo', { n: heartbeatAge }) : t('reqDetail.live.minutesAgo', { n: Math.round(heartbeatAge / 60) })}
-            </span>
-          )}
-          {/* Tool calling in progress */}
-          {liveStatus.toolCallsInProgress?.length > 0 && (
-            <span className="text-purple-400 animate-pulse">
-              🔧 {liveStatus.toolCallsInProgress.join(', ')}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Action buttons — always available */}
-      {onRestart && onDelete && (
-        <div className="mt-2 pt-2 border-t border-white/[0.04] flex items-center gap-2">
-          <button
-            onClick={async () => {
-              setOperating(true);
-              try { await onRestart(); } finally { setOperating(false); }
-            }}
-            disabled={operating}
-            className="text-[11px] px-3 py-1 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/30 transition-colors disabled:opacity-50 flex items-center gap-1"
-          >
-            {operating ? t('reqDetail.live.restarting') :  t('reqDetail.live.restart')}
-          </button>
-          {!confirmDelete ? (
-            <button
-              onClick={() => setConfirmDelete(true)}
-              disabled={operating}
-              className="text-[11px] px-3 py-1 rounded-lg bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-500/30 transition-colors disabled:opacity-50 flex items-center gap-1"
-            >
-              {t('reqDetail.live.deleteReq')}
-            </button>
-          ) : (
-            <div className="flex items-center gap-1">
-              <span className="text-[10px] text-red-400">{t('reqDetail.live.confirmDelete')}</span>
-              <button
-                onClick={async () => {
-                  setOperating(true);
-                  try { await onDelete(); } finally { setOperating(false); setConfirmDelete(false); }
-                }}
-                disabled={operating}
-                className="text-[10px] px-2 py-0.5 rounded bg-red-600 hover:bg-red-700 text-white transition-colors disabled:opacity-50"
-              >
-                {t('common.confirm')}
-              </button>
-              <button
-                onClick={() => setConfirmDelete(false)}
-                className="text-[10px] px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 text-[var(--muted)] transition-colors"
-              >
-                {t('common.cancel')}
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Recent file changes quick preview */}
-      {liveStatus.recentFileChanges?.length > 0 && (
-        <div className="mt-2 pt-2 border-t border-white/[0.04] flex items-center gap-2 overflow-x-auto">
-          <span className="text-[10px] text-[var(--muted)] shrink-0">{t('reqDetail.live.recentFiles')}</span>
-          {liveStatus.recentFileChanges.slice(-5).map((fc, i) => (
-            <span key={i} className="text-[10px] bg-white/5 px-1.5 py-0.5 rounded text-blue-300 shrink-0">
-              📝 {fc.filePath?.split('/').pop() || fc.filePath}
-            </span>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 

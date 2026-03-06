@@ -334,6 +334,7 @@ stats: { departments: '부서', workers: '직원', requirements: '요구사항' 
       confirmDelete: '이 스프린트를 삭제하시겠습니까?',
       goal: '스프린트 목표',
       plan: '스프린트 계획',
+      noPlan: '아직 스프린트 계획이 없습니다',
       chat: '그룹 채팅',
       workflow: '워크플로우',
       outputs: '산출물',

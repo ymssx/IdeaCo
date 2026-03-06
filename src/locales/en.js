@@ -543,6 +543,7 @@ When the boss communicates with you, you need to:
       confirmDelete: 'Are you sure you want to delete this sprint?',
       goal: 'Sprint Goal',
       plan: 'Sprint Plan',
+      noPlan: 'No sprint plan yet',
       chat: 'Group Chat',
       workflow: 'Workflow',
       outputs: 'Outputs',

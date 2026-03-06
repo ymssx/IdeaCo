@@ -391,6 +391,7 @@ const zh = {
       confirmDelete: '确定要删除这个迭代吗？',
       goal: '迭代目标',
       plan: '迭代方案',
+      noPlan: '尚未生成迭代方案',
       chat: '群聊',
       workflow: '工作流',
       outputs: '产出',

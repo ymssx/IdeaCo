@@ -1297,7 +1297,7 @@ function calculateRoomLayout(departments, canvasWidth, secretary, boss) {
     });
 
     startY += rowH + PADDING;
-  } else {
+  } else if (secretary) {
     rooms.push({
       id: '__secretary__',
       name: '🏛️ Secretary Office',
@@ -1797,7 +1797,7 @@ export default function PixelOffice({ embedded, groupChat, members: filterMember
   }, [embedded, filterMembers, allDepartments]);
 
   const { rooms, totalH } = useMemo(
-    () => calculateRoomLayout(departments, canvasSize.w / zoom, secretary, embedded ? null : boss),
+    () => calculateRoomLayout(departments, canvasSize.w / zoom, embedded ? null : secretary, embedded ? null : boss),
     [departments, canvasSize.w, zoom, secretary, embedded, boss]
   );
 
