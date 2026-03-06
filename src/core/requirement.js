@@ -367,7 +367,8 @@ Requirements:
     const nodes = [];
 
     // Simple requirements only need one core worker, not everyone
-    // Pick the most suitable worker (first non-leader member)    const primaryWorker = workers[0];
+    // Pick the most suitable worker (first non-leader member)
+    const primaryWorker = workers[0];
 
     if (primaryWorker) {
       // Simple mode: one person directly executes the core task

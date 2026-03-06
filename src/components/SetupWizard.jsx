@@ -87,9 +87,9 @@ export default function SetupWizard() {
     setAvatarChoices(choices);
   };
 
-  // Detect CLI backends when entering step 3
+  // Detect CLI backends immediately on mount (background), so results are ready by step 3
   useEffect(() => {
-    if (step !== 3 || cliDetected) return;
+    if (cliDetected) return;
     (async () => {
       setCliDetecting(true);
       try {
@@ -105,7 +105,8 @@ export default function SetupWizard() {
       setCliDetecting(false);
       setCliDetected(true);
     })();
-  }, [step, cliDetected, detectCLIBackends, fetchCLIBackends]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleCreate = async () => {
     try {
