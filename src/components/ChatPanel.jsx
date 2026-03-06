@@ -214,14 +214,16 @@ export default function ChatPanel() {
                 </ReactMarkdown>
               </div>
               <FileRefList fileRefs={fileRefs} />
-              {msg.action && (
+              {msg.action?.type === 'task_assigned' && (
                 <div className="mt-2 pt-2 border-t border-white/10 text-[10px] text-blue-300">
-                  {msg.action.type === 'task_assigned' && (
-                    <>{t('chat.taskAssigned', { dept: msg.action.departmentName })}{msg.action.taskStatus === 'running' && <span className="ml-1 animate-pulse">{t('chat.running')}</span>}</>
-                  )}
-                  {msg.action.type === 'need_new_department' && t('chat.needNewDept')}
-                  {msg.action.type === 'progress_report' && t('chat.progressReport')}
+                  {t('chat.taskAssigned', { dept: msg.action.departmentName })}{msg.action.taskStatus === 'running' && <span className="ml-1 animate-pulse">{t('chat.running')}</span>}
                 </div>
+              )}
+              {msg.action?.type === 'need_new_department' && (
+                <div className="mt-2 pt-2 border-t border-white/10 text-[10px] text-blue-300">{t('chat.needNewDept')}</div>
+              )}
+              {msg.action?.type === 'progress_report' && (
+                <div className="mt-2 pt-2 border-t border-white/10 text-[10px] text-blue-300">{t('chat.progressReport')}</div>
               )}
             </div>
           </div>
