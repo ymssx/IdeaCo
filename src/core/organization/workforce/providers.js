@@ -247,7 +247,7 @@ export class ProviderRegistry {
    * Sync CLI backends from CLIBackendRegistry into providers.
    * Called at startup and after CLI detection to keep the two systems in sync.
    * CLI backends become providers under the 'cli' category.
-   * @param {import('./cli-backends/registry.js').CLIBackendRegistry} cliRegistry
+   * @param {import('./agent/cli-agent/backends/registry.js').CLIBackendRegistry} cliRegistry
    */
   syncCLIBackends(cliRegistry) {
     if (!cliRegistry) return;

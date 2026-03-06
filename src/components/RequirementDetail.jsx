@@ -70,7 +70,7 @@ const { fetchRequirementDetail, requirementDetail, clearRequirementDetail, fetch
 
   // Stop polling completed requirements or reduce polling frequency
   useEffect(() => {
-    if (requirementDetail && (requirementDetail.status === 'completed' || requirementDetail.status === 'failed')) {
+    if (requirementDetail && (requirementDetail.status === 'completed' || requirementDetail.status === 'failed' || requirementDetail.status === 'pending_approval')) {
       if (pollRef.current) {
         clearInterval(pollRef.current);
         // Reduce to 10s polling after completion (keep updated without too many resources)
@@ -184,6 +184,7 @@ const { fetchRequirementDetail, requirementDetail, clearRequirementDetail, fetch
     pending: { label: t('reqDetail.status.pending'), color: 'text-gray-400', bg: 'bg-gray-900/30' },
     planning: { label: t('reqDetail.status.planning'), color: 'text-blue-400', bg: 'bg-blue-900/30' },
     in_progress: { label: t('reqDetail.status.in_progress'), color: 'text-yellow-400', bg: 'bg-yellow-900/30' },
+    pending_approval: { label: t('reqDetail.status.pending_approval'), color: 'text-orange-400', bg: 'bg-orange-900/30' },
     completed: { label: t('reqDetail.status.completed'), color: 'text-green-400', bg: 'bg-green-900/30' },
     failed: { label: t('reqDetail.status.failed'), color: 'text-red-400', bg: 'bg-red-900/30' },
   };
@@ -273,6 +274,7 @@ const { fetchRequirementDetail, requirementDetail, clearRequirementDetail, fetch
                   leaderInfo={chatLeaderInfo}
                   chatEndRef={chatEndRef}
                   embedded
+                  inputPlaceholder={req.status === 'pending_approval' ? t('reqDetail.approvalHint') : undefined}
                 />
               );
             })()}
@@ -446,6 +448,7 @@ const { fetchRequirementDetail, requirementDetail, clearRequirementDetail, fetch
                 leaderInfo={chatLeaderInfo}
                 chatEndRef={chatEndRef}
                 embedded
+                inputPlaceholder={req.status === 'pending_approval' ? t('reqDetail.approvalHint') : undefined}
               />
             );
           })()}

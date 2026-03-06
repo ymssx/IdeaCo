@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getCompany } from '@/lib/store';
-import { cronScheduler } from '@/core/cron.js';
+import { cronScheduler } from '@/core/system/cron.js';
 import { getApiT } from '@/lib/api-i18n';
 
 /**

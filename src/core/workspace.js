@@ -7,7 +7,7 @@
 import fs from 'fs/promises';
 import { existsSync, mkdirSync } from 'fs';
 import path from 'path';
-import { WORKSPACE_DIR } from './paths.js';
+import { WORKSPACE_DIR } from '../lib/paths.js';
 
 export class WorkspaceManager {
   constructor(rootDir = WORKSPACE_DIR) {

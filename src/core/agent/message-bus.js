@@ -9,7 +9,7 @@
  */
 import { v4 as uuidv4 } from 'uuid';
 import EventEmitter from 'eventemitter3';
-import { hookRegistry, HookEvent } from './hooks.js';
+import { hookRegistry, HookEvent } from '../../lib/hooks.js';
 
 /**
  * Message Types

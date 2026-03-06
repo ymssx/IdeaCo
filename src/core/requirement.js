@@ -1,8 +1,11 @@
 import { v4 as uuidv4 } from 'uuid';
-import { llmClient } from './llm-client.js';
-import { chatStore } from './chat-store.js';
-import { cliBackendRegistry } from './cli-backends/index.js';
+import path from 'path';
+import { existsSync, readFileSync } from 'fs';
+import { chatStore } from './agent/chat-store.js';
 import { WorkspaceManager } from './workspace.js';
+
+/** Group chat prefix for requirement group chats in chatStore */
+const REQ_GROUP_PREFIX = 'req-';
 
 /**
  * Requirement status enum
@@ -11,7 +14,8 @@ export const RequirementStatus = {
   PENDING: 'pending',       // Just created, awaiting assignment
   PLANNING: 'planning',     // Leader is decomposing workflow
   IN_PROGRESS: 'in_progress', // In progress
-  COMPLETED: 'completed',   // Completed
+  PENDING_APPROVAL: 'pending_approval', // All tasks done, awaiting Boss approval
+  COMPLETED: 'completed',   // Completed (Boss approved)
   FAILED: 'failed',         // Failed
 };
 
@@ -87,14 +91,15 @@ export class Requirement {
    * @param {object} from - Sender info
    * @param {string} content - Message content
    * @param {string} type - Message type: message | system | tool_call | output
-   * @param {string} visibility - Visibility: 'group' (broadcast to group chat) | 'flow' (flow log, only visible to self and boss)
+   * @param {string|null} visibility - Visibility: 'group' (broadcast to group chat) | 'flow' (flow log, only visible to self and boss)
    *   - tool_call type defaults to 'flow' (flow log, work process doesn't flood the group chat)
    *   - Other types default to 'group' (broadcast to group chat)
+   * @param {object} options - Extra options { auto: boolean } - mark as auto-generated message
    */
-  addGroupMessage(from, content, type = 'message', visibility = null) {
+  addGroupMessage(from, content, type = 'message', visibility = null, options = {}) {
     // Auto-infer visibility: tool_call and output types default to 'flow', others default to 'group'
     const resolvedVisibility = visibility || (type === 'tool_call' || type === 'output' ? 'flow' : 'group');
-    this.groupChat.push({
+    const msg = {
       id: uuidv4(),
       from: {
         id: from.id || 'system',
@@ -106,7 +111,11 @@ export class Requirement {
       type,  // message | system | tool_call | output
       visibility: resolvedVisibility,  // group | flow
       time: new Date(),
-    });
+      ...(options.auto ? { auto: true } : {}),
+    };
+    this.groupChat.push(msg);
+    // Persist to file storage (non-blocking, fire-and-forget)
+    try { chatStore.appendGroupMessage(`${REQ_GROUP_PREFIX}${this.id}`, msg); } catch {}
     // Sync update heartbeat
     this.liveStatus.heartbeat = new Date();
     this.liveStatus.lastActiveAt = new Date();
@@ -126,7 +135,7 @@ export class Requirement {
     });
   }
 
-  /** Serialize */
+  /** Serialize (groupChat is stored in separate files, not included here) */
   serialize() {
     return {
       id: this.id,
@@ -137,7 +146,7 @@ export class Requirement {
       bossMessage: this.bossMessage,
       status: this.status,
       workflow: this.workflow,
-      groupChat: this.groupChat.slice(-200), // Keep latest 200 entries
+      // groupChat is persisted in chatStore files (data/chats/group-req-{id}/)
       outputs: this.outputs,
       createdAt: this.createdAt,
       startedAt: this.startedAt,
@@ -159,7 +168,15 @@ export class Requirement {
     req.id = data.id;
     req.status = data.status;
     req.workflow = data.workflow;
-    req.groupChat = data.groupChat || [];
+
+    // Load groupChat from file storage; migrate legacy inline data if present
+    const groupId = `${REQ_GROUP_PREFIX}${req.id}`;
+    if (data.groupChat && data.groupChat.length > 0) {
+      // Legacy data found inline — migrate to file storage, then discard from state
+      chatStore.migrateGroupChat(groupId, data.groupChat);
+    }
+    req.groupChat = chatStore.getGroupMessages(groupId, 500);
+
     req.outputs = data.outputs || [];
     req.createdAt = data.createdAt ? new Date(data.createdAt) : new Date();
     req.startedAt = data.startedAt ? new Date(data.startedAt) : null;
@@ -213,64 +230,38 @@ export class RequirementManager {
   }
 
   /**
-   * Leader uses LLM to decompose requirement into workflow
+   * Leader decomposes requirement into workflow.
+   * Automatically finds a capable agent from members to perform the decomposition.
    * @param {Requirement} requirement - Requirement
-   * @param {Array} members - Department members list
-   * @param {object} leaderProvider - Leader's LLM provider
+   * @param {Array} members - Department members list (Employee instances)
+   * @param {object} [adjustmentContext] - If present, this is a workflow adjustment
    * @returns {object} Workflow
    */
-  async planWorkflow(requirement, members, leaderProvider, adjustmentContext = null) {
+  async planWorkflow(requirement, members, adjustmentContext = null) {
     requirement.status = RequirementStatus.PLANNING;
     if (adjustmentContext) {
       requirement.addGroupMessage(
         { name: 'System', role: 'system' },
         `🔄 Adjusting workflow based on Boss's instructions...`,
-        'system'
+        'system', null, { auto: true }
       );
     } else {
       requirement.addGroupMessage(
         { name: 'System', role: 'system' },
         `📋 Requirement "${requirement.title}" created, leader is decomposing the workflow...`,
-        'system'
+        'system', null, { auto: true }
       );
     }
 
-    // Ensure we have a usable LLM provider for decomposition
-    // If leader's provider is not valid, try to find one from any team member
-    let effectiveProvider = leaderProvider;
-    const isProviderUsable = (p) => p && p.enabled && p.apiKey && !p.isCLI;
-    if (!isProviderUsable(effectiveProvider)) {
-      for (const m of members) {
-        if (isProviderUsable(m.provider)) {
-          effectiveProvider = m.provider;
-          console.log(`  🔄 Leader provider unusable, borrowing provider from [${m.name}] (${m.provider.name}) for workflow decomposition`);
-          break;
-        }
-      }
+    // Find a member who can chat (LLM or CLI with chat ability) to do the decomposition.
+    // Prefer leader, then fall back to any member who canChat().
+    const leader = members.find(m => m.role === 'Project Leader') || members[0];
+    let planner = leader?.canChat() ? leader : null;
+    if (!planner) {
+      planner = members.find(m => m.canChat()) || null;
     }
-
-    // Determine if we should use CLI backend for decomposition
-    // (when no LLM provider is available but a CLI backend exists)
-    let cliBackendId = null;
-    let cliAgent = null;
-    if (!isProviderUsable(effectiveProvider)) {
-      // Find a member with a CLI backend to use for decomposition
-      const leader = members.find(m => m.role === 'Project Leader') || members[0];
-      if (leader?.cliBackend) {
-        cliBackendId = leader.cliBackend;
-        cliAgent = leader;
-      } else {
-        for (const m of members) {
-          if (m.cliBackend) {
-            cliBackendId = m.cliBackend;
-            cliAgent = m;
-            break;
-          }
-        }
-      }
-      if (cliBackendId) {
-        console.log(`  🖥️ No LLM provider available, using CLI backend [${cliBackendId}] from [${cliAgent.name}] for workflow decomposition`);
-      }
+    if (planner && planner !== leader) {
+      console.log(`  🔄 Leader cannot chat, borrowing [${planner.name}] for workflow decomposition`);
     }
 
     // Build member info
@@ -318,40 +309,34 @@ Requirements:
 8. Task nodes should be lean and efficient. Simple requirements only need 1-3 nodes, avoid over-decomposition
 9. Each task description should be clear and specific, allowing the assignee to complete it in one go, avoiding multiple iterations
 10. **Encourage collaboration**: When multiple agents work in parallel, their tasks should be designed to have natural interaction points. Include in descriptions that they should coordinate with parallel teammates via send_message
-11. **REVIEW MECHANISM (CRITICAL)**: For complex or important tasks, you MUST assign a reviewer (reviewerId). The reviewer will strictly audit the work and can REJECT it, forcing the assignee to revise and resubmit — this loop repeats until the reviewer approves. Review rules:
+11. **REVIEW MECHANISM**: For complex or important tasks, you MAY assign a reviewer (reviewerId). The reviewer will audit the work for significant issues. Review rules:
     - The reviewer MUST be a different person from the assignee (never review your own work)
     - For tasks where two agents work in parallel, they can review EACH OTHER's work (Agent A reviews Agent B, Agent B reviews Agent A)
     - The leader can serve as reviewer for critical integration tasks
     - reviewCriteria should be specific and measurable (e.g. "Check that all API endpoints have error handling and input validation" rather than vague "review the code")
-    - NOT every task needs a reviewer — only complex, high-risk, or important tasks. Simple straightforward tasks can skip review
-    - The reviewer acts as a strict quality gate: they should not easily approve, but provide detailed feedback when rejecting`;
+    - MOST tasks do NOT need a reviewer. Only assign reviewers for genuinely complex, high-risk tasks. Simple or medium tasks should skip review (set reviewerId to null)
+    - When in doubt, do NOT assign a reviewer — over-reviewing slows down the workflow significantly`;
 
     const userPrompt = adjustmentContext
       ? `Requirement title: ${requirement.title}\nRequirement description: ${requirement.description}\n\n**ADJUSTMENT REQUEST FROM BOSS:**\n${adjustmentContext.bossMessage}\n\n**YOUR PLANNED ADJUSTMENTS:**\n${adjustmentContext.adjustments}\n\n**PREVIOUS WORKFLOW (for reference):**\n${adjustmentContext.previousWorkflow}\n\n**EXISTING OUTPUT FILES (must be preserved and built upon):**\n${adjustmentContext.existingOutputs || 'None'}\n\n**IMPORTANT:** This is an ADJUSTMENT, NOT a restart. You must:\n1. PRESERVE all existing output files - do NOT recreate them from scratch\n2. Only create tasks that MODIFY existing files or ADD new content\n3. When a task needs to change an existing file, the agent should READ the current file first, then modify it\n4. Only add NEW tasks for genuinely new work that wasn't done before\n5. Reuse the previous workflow structure where possible, adjusting only what the Boss requested\n\nPlease create an ADJUSTED workflow based on the Boss's instructions.`
       : `Requirement title: ${requirement.title}\nRequirement description: ${requirement.description}\n\nPlease decompose the workflow.`;
 
+    if (!planner) {
+      console.error('No member can chat, falling back to rule-based workflow');
+      const fallbackWorkflow = this._fallbackWorkflow(requirement, members);
+      requirement.addGroupMessage(
+        { name: 'System', role: 'system' },
+        `⚠️ No available agent for decomposition, generated a simple workflow using rules (${fallbackWorkflow.nodes.length} tasks)`,
+        'system', null, { auto: true }
+      );
+      return fallbackWorkflow;
+    }
+
     try {
-      let response;
-      if (cliBackendId && !isProviderUsable(effectiveProvider)) {
-        // Use CLI backend for decomposition
-        const cliResult = await cliBackendRegistry.executeTask(
-          cliBackendId,
-          cliAgent,
-          {
-            title: 'Workflow decomposition',
-            description: `${systemPrompt}\n\n${userPrompt}`,
-          },
-          cliAgent.toolKit?.workspaceDir || process.cwd(),
-          {},
-          { timeout: 120000 }
-        );
-        response = { content: cliResult.output || cliResult.errorOutput || '' };
-      } else {
-        response = await llmClient.chat(effectiveProvider, [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ], { temperature: 0.7, maxTokens: 2048 });
-      }
+      const response = await planner.chat([
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ], { temperature: 0.7, maxTokens: 2048 });
 
       // Parse JSON (robust extraction for both LLM and CLI output)
       const tick = String.fromCharCode(96);
@@ -394,7 +379,7 @@ Requirements:
         reviewerName: node.reviewerName || null,
         reviewCriteria: node.reviewCriteria || null,
         reviewRounds: 0,       // Review iteration round counter
-        maxReviewRounds: 3,    // Max review iterations (prevents infinite loops)
+        maxReviewRounds: 10,   // Max review iterations (prevents infinite loops)
         result: null,
         startedAt: null,
         completedAt: null,
@@ -416,7 +401,7 @@ Requirements:
         `📊 Workflow decomposition complete! ${workflow.nodes.length} task nodes in total.\n\n${workflow.summary || ''}\n\n${workflow.nodes.map((n, i) =>
           `${i + 1}. [${n.assigneeName || 'TBD'}] ${n.title}${n.dependencies.length > 0 ? ` (depends on: ${n.dependencies.join(', ')})` : ' (can start immediately)'}${n.reviewerId ? ` 🔍 Reviewer: ${n.reviewerName || n.reviewerId}` : ''}`
         ).join('\n')}`,
-        'message'
+        'message', null, { auto: true }
       );
 
       return workflow;
@@ -427,7 +412,7 @@ Requirements:
       requirement.addGroupMessage(
         { name: 'System', role: 'system' },
         `⚠️ AI decomposition failed, generated a simple workflow using rules (${fallbackWorkflow.nodes.length} tasks)`,
-        'system'
+        'system', null, { auto: true }
       );
       return fallbackWorkflow;
     }
@@ -547,7 +532,7 @@ Requirements:
     requirement.addGroupMessage(
       { name: 'System', role: 'system' },
       `🚀 Requirement "${requirement.title}" execution started!`,
-      'system'
+      'system', null, { auto: true }
     );
 
     // === Set up message bus listener for real-time agent-to-agent communication ===
@@ -569,7 +554,7 @@ Requirements:
       // Trigger the receiver's GroupChatLoop to process via heartflow
       // instead of auto-replying directly (bypassing flow thinking)
       try {
-        const { groupChatLoop } = await import('./group-chat-loop.js');
+        const { groupChatLoop } = await import('./organization/group-chat-loop.js');
         groupChatLoop.triggerImmediate(receiverAgent.id, requirement.id, {
           content: groupMsg,
           from: senderAgent,
@@ -626,7 +611,7 @@ Requirements:
           requirement.addGroupMessage(
             { name: 'System' },
             `❌ Task "${node.title}" failed: Assignee not found`,
-            'system'
+            'system', null, { auto: true }
           );
           return null;
         }
@@ -653,29 +638,42 @@ Requirements:
           requirement.addGroupMessage(
               agent,
               `🔨 Starting "${node.title}"! Working in parallel with ${myParallel.join(', ')} — let's sync up if needed! 💪`,
-              'message'
+              'message', null, { auto: true }
             );
           } else {
             requirement.addGroupMessage(
               agent,
               `🔨 Starting to work on "${node.title}"!`,
-              'message'
+              'message', null, { auto: true }
             );
           }
         } else {
           requirement.addGroupMessage(
             agent,
             `🔨 Starting to work on "${node.title}"!`,
-            'message'
+            'message', null, { auto: true }
           );
         }
 
         try {
-          // Collect dependency node outputs as context
+          // Collect dependency node outputs as context (including file deliverables)
           const depContext = node.dependencies
             .map(d => nodes.find(n => n.id === d))
             .filter(Boolean)
-            .map(d => `[${d.assigneeName}'s output - ${d.title}]\n${d.result?.output || '(no output)'}`)
+            .map(d => {
+              const output = d.result?.output || '(no output)';
+              // Extract files written by upstream task (only include files that still exist)
+              const depWsPath = department.workspacePath;
+              const fileWriteTools = new Set(['file_write', 'file_append', 'file_patch']);
+              const upstreamFiles = (d.result?.toolResults || [])
+                .filter(t => fileWriteTools.has(t.tool))
+                .map(t => t.args?.path || t.args?.filePath || t.args?.file_path || '')
+                .filter(f => f && (!depWsPath || existsSync(path.join(depWsPath, f))));
+              const fileList = upstreamFiles.length > 0
+                ? `\n📁 Files delivered:\n${upstreamFiles.map(f => `  - ${f}`).join('\n')}\nYou can use file_read to review these files.`
+                : '';
+              return `[${d.assigneeName}'s output - ${d.title}]\n${output}${fileList}`;
+            })
             .join('\n\n');
 
           // Build colleague info for collaboration context
@@ -752,6 +750,14 @@ currentAction: `${agent.name} is typing..."${node.title}"`,
                   const filePath = args?.path || args?.filePath || args?.file_path || '';
                   requirement.addGroupMessage(agent, `📝 Writing file: ${filePath}`, 'tool_call');
                   requirement.addFileChange(agent.name, filePath, 'write');
+                } else if (tool === 'file_append') {
+                  const filePath = args?.path || args?.filePath || args?.file_path || '';
+                  requirement.addGroupMessage(agent, `📝 Appending to file: ${filePath}`, 'tool_call');
+                  requirement.addFileChange(agent.name, filePath, 'write');
+                } else if (tool === 'file_patch') {
+                  const filePath = args?.path || args?.filePath || args?.file_path || '';
+                  requirement.addGroupMessage(agent, `📝 Patching file: ${filePath}`, 'tool_call');
+                  requirement.addFileChange(agent.name, filePath, 'write');
                 } else if (tool === 'file_read') {
                   requirement.addGroupMessage(agent, `📄 Reading file: ${args?.path || args?.filePath || args?.file_path || ''}`, 'tool_call');
                 } else if (tool === 'shell_exec') {
@@ -819,6 +825,24 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
           node.completedAt = new Date();
           node.result = result;
 
+          // === QUALITY CHECK: Warn if review/integration tasks didn't actually read files ===
+          const titleLower = (node.title || '').toLowerCase();
+          const isReviewLikeTask = titleLower.includes('review') || titleLower.includes('审') ||
+            titleLower.includes('integrat') || titleLower.includes('整合') ||
+            titleLower.includes('check') || titleLower.includes('检查') ||
+            titleLower.includes('final') || titleLower.includes('最终');
+          const usedFileRead = (result.toolResults || []).some(t => t.tool === 'file_read');
+          const hasWrittenFiles = (result.toolResults || []).some(t =>
+            t.tool === 'file_write' || t.tool === 'file_append' || t.tool === 'file_patch'
+          );
+          if (isReviewLikeTask && !usedFileRead && !hasWrittenFiles && result.duration < 15000) {
+            requirement.addGroupMessage(
+              { name: 'System', role: 'system' },
+              `⚠️ Task "${node.title}" appears to be a review/integration task but completed in ${Math.round(result.duration / 1000)}s without reading any files. The output may be superficial.`,
+              'system', null, { auto: true }
+            );
+          }
+
           // === REVIEW GATE: If reviewer assigned, trigger strict review loop ===
           if (node.reviewerId && node.reviewerId !== node.assigneeId) {
             const reviewer = department.agents.get(node.reviewerId);
@@ -826,13 +850,18 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
               node.status = TaskNodeStatus.REVIEWING;
               requirement.addGroupMessage(
                 { name: 'System', role: 'system' },
-                `🔍 Task "${node.title}" entering review. Reviewer: ${reviewer.name}`,
-                'system'
+                `🔍 Task "${node.title}" entering review phase`,
+                'system', null, { auto: true }
+              );
+              requirement.addGroupMessage(
+                reviewer,
+                `🔍 @[${agent.id}] I'm now reviewing your work on "${node.title}". Let me take a careful look...`,
+                'message', null, { auto: true }
               );
 
               let currentOutput = result.output;
               let approved = false;
-              const maxRounds = node.maxReviewRounds || 3;
+              const maxRounds = node.maxReviewRounds || 10;
 
               while (!approved && node.reviewRounds < maxRounds) {
                 node.reviewRounds++;
@@ -846,7 +875,7 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
                 });
 
                 const reviewResult = await this._strictReview(
-                  reviewer, agent, node, currentOutput, requirement, node.reviewRounds
+                  reviewer, agent, node, currentOutput, requirement, node.reviewRounds, department
                 );
 
                 if (reviewResult.approved) {
@@ -854,7 +883,7 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
                   requirement.addGroupMessage(
                     reviewer,
                     `✅ @[${agent.id}] Review APPROVED for "${node.title}"${node.reviewRounds > 1 ? ` (after ${node.reviewRounds} rounds)` : ''}! ${reviewResult.comment || 'Good work!'}`,
-                    'message'
+                    'message', null, { auto: true }
                   );
                   this._recordAgentChat(reviewer, agent, `✅ Review APPROVED: ${reviewResult.comment || 'Good work!'}`);
                 } else {
@@ -863,7 +892,7 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
                   requirement.addGroupMessage(
                     reviewer,
                     `❌ @[${agent.id}] Review REJECTED for "${node.title}" (round ${node.reviewRounds}/${maxRounds}):\n${reviewResult.feedback}`,
-                    'message'
+                    'message', null, { auto: true }
                   );
                   this._recordAgentChat(reviewer, agent, `❌ Review REJECTED (round ${node.reviewRounds}): ${reviewResult.feedback}`);
 
@@ -873,7 +902,7 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
                     requirement.addGroupMessage(
                       { name: 'System', role: 'system' },
                       `⚠️ Review for "${node.title}" reached max rounds (${maxRounds}). Force-proceeding with latest revision.`,
-                      'system'
+                      'system', null, { auto: true }
                     );
                   } else {
                     // === Negotiation phase: reviewee can accept or contest the feedback ===
@@ -893,7 +922,7 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
                       requirement.addGroupMessage(
                         agent,
                         `🔄 @[${reviewer.id}] ${rebuttalResult.message || `Got it, revising "${node.title}" based on your feedback...`}`,
-                        'message'
+                        'message', null, { auto: true }
                       );
 
                       try {
@@ -905,7 +934,7 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
                                   currentAction: `${agent.name} (revision) calling ${tool}`,
                                   toolCallsInProgress: [...(requirement.liveStatus.toolCallsInProgress || []), tool],
                                 });
-                                if (tool === 'file_write') {
+                                if (tool === 'file_write' || tool === 'file_append' || tool === 'file_patch') {
                                   const filePath = args?.path || args?.filePath || args?.file_path || '';
                                   requirement.addGroupMessage(agent, `📝 [Revision] Writing file: ${filePath}`, 'tool_call');
                                   requirement.addFileChange(agent.name, filePath, 'write');
@@ -929,7 +958,7 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
                         requirement.addGroupMessage(
                           agent,
                           `⚠️ Revision attempt failed: ${revisionErr.message}. Proceeding with previous output.`,
-                          'message'
+                          'message', null, { auto: true }
                         );
                       }
                     } else {
@@ -937,7 +966,7 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
                       requirement.addGroupMessage(
                         agent,
                         `💬 @[${reviewer.id}] ${rebuttalResult.message}`,
-                        'message'
+                        'message', null, { auto: true }
                       );
                       this._recordAgentChat(agent, reviewer, `💬 Rebuttal: ${rebuttalResult.message}`);
 
@@ -952,7 +981,7 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
                         requirement.addGroupMessage(
                           reviewer,
                           `✅ @[${agent.id}] ${reEvalResult.message || `Fair point! I'll approve "${node.title}".`}`,
-                          'message'
+                          'message', null, { auto: true }
                         );
                         this._recordAgentChat(reviewer, agent, `✅ Convinced by rebuttal, approved: ${reEvalResult.message}`);
                       } else {
@@ -960,7 +989,7 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
                         requirement.addGroupMessage(
                           reviewer,
                           `🤔 @[${agent.id}] ${reEvalResult.message || `I understand your point, but I still think the issues need to be addressed.`}`,
-                          'message'
+                          'message', null, { auto: true }
                         );
                         this._recordAgentChat(reviewer, agent, `🤔 Not convinced: ${reEvalResult.message}`);
 
@@ -975,7 +1004,7 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
                         requirement.addGroupMessage(
                           agent,
                           `🔄 @[${reviewer.id}] Alright, I'll revise "${node.title}" incorporating your feedback.`,
-                          'message'
+                          'message', null, { auto: true }
                         );
 
                         try {
@@ -987,7 +1016,7 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
                                     currentAction: `${agent.name} (revision) calling ${tool}`,
                                     toolCallsInProgress: [...(requirement.liveStatus.toolCallsInProgress || []), tool],
                                   });
-                                  if (tool === 'file_write') {
+                                  if (tool === 'file_write' || tool === 'file_append' || tool === 'file_patch') {
                                     const filePath = args?.path || args?.filePath || args?.file_path || '';
                                     requirement.addGroupMessage(agent, `📝 [Revision] Writing file: ${filePath}`, 'tool_call');
                                     requirement.addFileChange(agent.name, filePath, 'write');
@@ -1011,7 +1040,7 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
                           requirement.addGroupMessage(
                             agent,
                             `⚠️ Revision attempt failed: ${revisionErr.message}. Proceeding with previous output.`,
-                            'message'
+                            'message', null, { auto: true }
                           );
                         }
                       }
@@ -1022,7 +1051,7 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
                       requirement.addGroupMessage(
                         agent,
                         `📝 @[${reviewer.id}] Revision complete for "${node.title}", please review again.`,
-                        'message'
+                        'message', null, { auto: true }
                       );
                       this._recordAgentChat(agent, reviewer, `Revision complete, please review again.`);
 
@@ -1047,15 +1076,18 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
           if (finalResult.output) {
             // Determine output type
             const outputType = this._detectOutputType(finalResult);
+            // Clean LLM tool-call markup from output before storing
+            const cleanedOutputForStore = this._cleanLLMOutput(finalResult.output) || finalResult.output;
             requirement.addOutput(
               agent.id, agent.name, agent.role,
-              outputType, finalResult.output,
+              outputType, cleanedOutputForStore,
               { toolResults: finalResult.toolResults, duration: finalResult.duration }
             );
           } else if (finalResult.toolResults?.length > 0) {
             // Even if output text is empty, if tools were used (e.g. file_write),
             // still record an output entry so it shows in the Outputs tab
-            const fileWrites = (finalResult.toolResults || []).filter(t => t.tool === 'file_write');
+            const fileWriteToolsForOutput = new Set(['file_write', 'file_append', 'file_patch']);
+            const fileWrites = (finalResult.toolResults || []).filter(t => fileWriteToolsForOutput.has(t.tool));
             if (fileWrites.length > 0) {
               const filePaths = fileWrites.map(t => t.args?.path || t.args?.filePath || t.args?.file_path || 'unknown').join(', ');
               requirement.addOutput(
@@ -1073,23 +1105,49 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
             }
           }
 
-          // Group chat notification: completed
+          // Group chat notification: completed — with file references for written files
           const duration = Math.round((finalResult.duration || 0) / 1000);
+          const fileWriteTools = new Set(['file_write', 'file_append', 'file_patch']);
+          const fileWrites = (finalResult.toolResults || []).filter(t => fileWriteTools.has(t.tool));
+          const validFileRefs = fileWrites
+            .map(t => {
+              const fp = t.args?.path || t.args?.filePath || t.args?.file_path || '';
+              // Skip empty paths (can happen when LLM sends malformed tool args)
+              if (!fp) return null;
+              // Only create clickable reference if file actually exists
+              if (wsPath && !existsSync(path.join(wsPath, fp))) return null;
+              const name = fp.split('/').pop() || fp;
+              return `[[file:${requirement.departmentId}:${fp}|${name}]]`;
+            })
+            .filter(Boolean);
+          const fileRefTags = validFileRefs.length > 0
+            ? '\n' + validFileRefs.join(' ')
+            : '';
           requirement.addGroupMessage(
             agent,
-            `✅ "${node.title}" completed! Took ${duration}s.${finalResult.toolResults?.length ? `\n🔧 Used ${finalResult.toolResults.length} tools` : ''}${node.reviewRounds > 0 ? `\n🔍 Passed review after ${node.reviewRounds} round(s)` : ''}`,
-            'message'
+            `✅ "${node.title}" completed! Took ${duration}s.${finalResult.toolResults?.length ? `\n🔧 Used ${finalResult.toolResults.length} tools` : ''}${node.reviewRounds > 0 ? `\n🔍 Passed review after ${node.reviewRounds} round(s)` : ''}${fileRefTags}`,
+            'message', null, { auto: true }
           );
 
-          // Share output preview
-          if (finalResult.output) {
-            const preview = finalResult.output.length > 300 ? finalResult.output.slice(0, 300) + '...' : finalResult.output;
-            requirement.addGroupMessage(
-              agent,
-              `📄 My output:\n${preview}`,
-              'message'
-            );
+          // Share output: prioritize file references over LLM text summary
+          const hasFiles = validFileRefs.length > 0;
+          if (!hasFiles && finalResult.output?.trim()) {
+            // No files written → this is a text-only task, show the LLM text output
+            const cleanedOutput = this._cleanLLMOutput(finalResult.output);
+            if (cleanedOutput && cleanedOutput.length > 20) {
+              const preview = cleanedOutput.length > 300
+                ? cleanedOutput.slice(0, 300) + '...\n(output truncated)'
+                : cleanedOutput;
+              requirement.addGroupMessage(
+                agent,
+                `📄 My output:\n${preview}`,
+                'message', null, { auto: true }
+              );
+            }
           }
+          // If files were written, the ✅ completed message above already includes
+          // clickable [[file:...]] references — no need to also dump LLM's text summary,
+          // which is typically just a verbose description of what was already done.
 
           // Agent-to-agent collaboration: notify downstream agents with @mention
           const downstreamNodes = nodes.filter(n =>
@@ -1101,9 +1159,10 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
             for (const downNode of downstreamNodes) {
               const downAgent = department.agents.get(downNode.assigneeId);
               if (downAgent && downAgent.id !== agent.id) {
-                // Record in group chat with @mention
-                const mentionMsg = `@[${downAgent.id}] I've completed "${node.title}", the output is ready for your "${downNode.title}" task. Please review and let me know if anything needs adjustment!`;
-                requirement.addGroupMessage(agent, mentionMsg, 'message');
+                // Record in group chat with @mention + file references
+                const nodeFileRefs = fileRefTags ? `\nFiles: ${fileRefTags.trim()}` : '';
+                const mentionMsg = `@[${downAgent.id}] I've completed "${node.title}", the output is ready for your "${downNode.title}" task. Please review and let me know if anything needs adjustment!${nodeFileRefs}`;
+                requirement.addGroupMessage(agent, mentionMsg, 'message', null, { auto: true });
 
                 // Persist to agent-to-agent chatStore
                 this._recordAgentChat(agent, downAgent, mentionMsg);
@@ -1111,7 +1170,7 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
                 // Trigger downstream agent's GroupChatLoop to process via heartflow
                 // instead of auto-replying directly (bypassing flow thinking)
                 try {
-                  const { groupChatLoop } = await import('./group-chat-loop.js');
+                  const { groupChatLoop } = await import('./organization/group-chat-loop.js');
                   groupChatLoop.triggerImmediate(downAgent.id, requirement.id, {
                     content: mentionMsg,
                     from: agent,
@@ -1131,12 +1190,12 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
             const peerAgent = department.agents.get(peerNode.assigneeId);
             if (peerAgent && peerAgent.id !== agent.id) {
               const syncMsg = `@[${peerAgent.id}] Just finished my part "${node.title}" ✅ — how's yours going?`;
-              requirement.addGroupMessage(agent, syncMsg, 'message');
+              requirement.addGroupMessage(agent, syncMsg, 'message', null, { auto: true });
               this._recordAgentChat(agent, peerAgent, syncMsg);
 
               // Trigger peer's GroupChatLoop to process via heartflow
               try {
-                const { groupChatLoop } = await import('./group-chat-loop.js');
+                const { groupChatLoop } = await import('./organization/group-chat-loop.js');
                 groupChatLoop.triggerImmediate(peerAgent.id, requirement.id, {
                   content: syncMsg,
                   from: agent,
@@ -1158,7 +1217,7 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
           requirement.addGroupMessage(
             agent,
             `❌ "${node.title}" failed: ${err.message}`,
-            'message'
+            'message', null, { auto: true }
           );
           return null;
         }
@@ -1172,7 +1231,7 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
         requirement.addGroupMessage(
           { name: 'System', role: 'system' },
           `🤝 ${justFinished.length} tasks completed in parallel! Agents are exchanging feedback...`,
-          'system'
+          'system', null, { auto: true }
         );
 
         // Each agent gives brief feedback to one other agent's work (round-robin, non-blocking)
@@ -1190,7 +1249,7 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
             );
             if (feedback) {
               const feedbackMsg = `@[${reviewee.id}] ${feedback}`;
-              requirement.addGroupMessage(reviewer, feedbackMsg, 'message');
+              requirement.addGroupMessage(reviewer, feedbackMsg, 'message', null, { auto: true });
               this._recordAgentChat(reviewer, reviewee, feedbackMsg);
             }
           } catch (e) {
@@ -1212,28 +1271,66 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
     const totalCount = nodes.length;
     const totalDuration = allResults.reduce((s, r) => s + (r?.duration || 0), 0);
 
-    requirement.status = failed.size === totalCount ? RequirementStatus.FAILED : RequirementStatus.COMPLETED;
-    requirement.completedAt = new Date();
-    requirement.updateLiveStatus({
-      currentNodeId: null,
-      currentNodeTitle: null,
-      currentAgent: null,
-      currentAction: requirement.status === RequirementStatus.COMPLETED ? 'All tasks completed' : 'Execution finished (some failed)',
-      toolCallsInProgress: [],
+    // Detect suspiciously fast completions (tasks that finished too quickly with no real output)
+    const suspiciousNodes = nodes.filter(n => {
+      if (n.status !== TaskNodeStatus.COMPLETED) return false;
+      const dur = n.result?.duration || 0;
+      const hasOutput = n.result?.output?.trim();
+      const hasToolResults = n.result?.toolResults?.length > 0;
+      // Flag nodes that completed in < 5 seconds with no tool usage and minimal output
+      return dur < 5000 && !hasToolResults && (!hasOutput || hasOutput.length < 50);
     });
+
+    if (suspiciousNodes.length > 0) {
+      const names = suspiciousNodes.map(n => `"${n.title}"`).join(', ');
+      requirement.addGroupMessage(
+        { name: 'System', role: 'system' },
+        `⚠️ Warning: ${suspiciousNodes.length} task(s) completed suspiciously fast with minimal output: ${names}. These may not have been executed thoroughly.`,
+        'system', null, { auto: true }
+      );
+    }
+
+    if (failed.size === totalCount) {
+      // All tasks failed → mark as FAILED immediately
+      requirement.status = RequirementStatus.FAILED;
+      requirement.completedAt = new Date();
+      requirement.updateLiveStatus({
+        currentNodeId: null, currentNodeTitle: null, currentAgent: null,
+        currentAction: 'Execution finished (all tasks failed)',
+        toolCallsInProgress: [],
+      });
+    } else {
+      // Tasks done → enter PENDING_APPROVAL, wait for Boss to review and confirm
+      requirement.status = RequirementStatus.PENDING_APPROVAL;
+      requirement.updateLiveStatus({
+        currentNodeId: null, currentNodeTitle: null, currentAgent: null,
+        currentAction: 'All tasks done — awaiting Boss approval',
+        toolCallsInProgress: [],
+      });
+    }
+
     requirement.summary = {
       totalTasks: totalCount,
       successTasks: successCount,
       failedTasks: failed.size,
       totalDuration,
       outputs: requirement.outputs,
+      suspiciousTasks: suspiciousNodes.length,
     };
 
-    requirement.addGroupMessage(
-      { name: 'System', role: 'system' },
-      `🏁 Requirement "${requirement.title}" ${requirement.status === RequirementStatus.COMPLETED ? 'completed' : 'failed'}!\n📊 ${successCount}/${totalCount} tasks succeeded, total duration ${Math.round(totalDuration / 1000)}s`,
-      'system'
-    );
+    if (requirement.status === RequirementStatus.FAILED) {
+      requirement.addGroupMessage(
+        { name: 'System', role: 'system' },
+        `❌ Requirement "${requirement.title}" failed!\n📊 ${successCount}/${totalCount} tasks succeeded, total duration ${Math.round(totalDuration / 1000)}s`,
+        'system', null, { auto: true }
+      );
+    } else {
+      requirement.addGroupMessage(
+        { name: 'System', role: 'system' },
+        `📋 All tasks for "${requirement.title}" are done!\n📊 ${successCount}/${totalCount} tasks succeeded, total duration ${Math.round(totalDuration / 1000)}s${suspiciousNodes.length > 0 ? `\n⚠️ ${suspiciousNodes.length} task(s) may need manual review` : ''}\n\n⏳ **Pending your approval, Boss.** The requirement is NOT yet completed.\n💬 Please review the outputs, then reply in this chat:\n  • "OK" / "通过" / "approved" → approve and finalize\n  • Or send feedback to request changes`,
+        'system', null, { auto: true }
+      );
+    }
 
     // Performance evaluation
     if (performanceSystem) {
@@ -1265,12 +1362,14 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
    * @returns {Promise<string|null>} Reply content
    */
   async _agentCollabReply(responder, sender, taskTitle, output, requirement) {
-    if (!responder.provider?.enabled || !responder.provider?.apiKey) return null;
+    if (!responder.canChat()) return null;
 
     try {
       const p = responder.personality || {};
-      const outputPreview = output.length > 500 ? output.slice(0, 500) + '...' : output;
-      const response = await llmClient.chat(responder.provider, [
+      const outputPreview = output.length > 500
+        ? output.slice(0, 500) + '\n...(truncated — if you need the full output, use file_read to read the workspace files)'
+        : output;
+      const response = await responder.chat([
         {
           role: 'system',
           content: `You are "${responder.name}", working as "${responder.role}".
@@ -1286,7 +1385,6 @@ You can comment on the quality, ask a question, or just acknowledge. Keep it nat
         },
       ], { temperature: 0.9, maxTokens: 128 });
 
-      responder._trackUsage(response.usage);
       return response.content?.trim() || null;
     } catch (e) {
       return null;
@@ -1298,13 +1396,15 @@ You can comment on the quality, ask a question, or just acknowledge. Keep it nat
    * More casual and constructive than upstream→downstream handoff
    */
   async _agentPeerReview(reviewer, reviewee, taskTitle, output, requirement) {
-    if (!reviewer.provider?.enabled || !reviewer.provider?.apiKey) return null;
+    if (!reviewer.canChat()) return null;
     if (!output) return null;
 
     try {
       const p = reviewer.personality || {};
-      const outputPreview = output.length > 400 ? output.slice(0, 400) + '...' : output;
-      const response = await llmClient.chat(reviewer.provider, [
+      const outputPreview = output.length > 400
+        ? output.slice(0, 400) + '\n...(truncated — use file_read to view full content in workspace files)'
+        : output;
+      const response = await reviewer.chat([
         {
           role: 'system',
           content: `You are "${reviewer.name}", working as "${reviewer.role}".
@@ -1319,7 +1419,6 @@ Be natural, in character, and collegial. You can praise, suggest improvements, o
         },
       ], { temperature: 0.9, maxTokens: 128 });
 
-      reviewer._trackUsage(response.usage);
       return response.content?.trim() || null;
     } catch (e) {
       return null;
@@ -1329,37 +1428,69 @@ Be natural, in character, and collegial. You can praise, suggest improvements, o
   /**
    * Strict review: reviewer carefully audits the assignee's work
    * Returns { approved: boolean, feedback: string, comment: string }
-   * The reviewer is instructed to be STRICT and not easily approve.
    */
-  async _strictReview(reviewer, assignee, node, output, requirement, round) {
-    if (!reviewer.provider?.enabled || !reviewer.provider?.apiKey) {
+  async _strictReview(reviewer, assignee, node, output, requirement, round, department = null) {
+    if (!reviewer.canChat()) {
       return { approved: true, feedback: '', comment: 'Reviewer unavailable, auto-approved.' };
     }
 
     try {
       const p = reviewer.personality || {};
-      const outputContent = output?.length > 2000 ? output.slice(0, 2000) + '\n...(truncated)' : output;
+      const outputContent = output?.length > 2000
+        ? output.slice(0, 2000) + '\n...(truncated)'
+        : output;
       const reviewCriteria = node.reviewCriteria || 'Check for correctness, completeness, and quality.';
 
-      const response = await llmClient.chat(reviewer.provider, [
+      // Collect actual file contents written by the assignee so the reviewer can see real deliverables
+      const fileWriteTools = new Set(['file_write', 'file_append', 'file_patch']);
+      const writtenFiles = (node.result?.toolResults || [])
+        .filter(t => fileWriteTools.has(t.tool))
+        .map(t => t.args?.path || t.args?.filePath || t.args?.file_path || '')
+        .filter(Boolean);
+      
+      let fileContentsSection = '';
+      if (writtenFiles.length > 0) {
+        const wsPath = department?.workspacePath || reviewer.toolKit?.workspaceDir;
+        if (wsPath) {
+          const uniqueFiles = [...new Set(writtenFiles)];
+          const fileSnippets = [];
+          for (const fp of uniqueFiles.slice(0, 5)) {
+            try {
+              const fullPath = path.join(wsPath, fp);
+              if (existsSync(fullPath)) {
+                const content = readFileSync(fullPath, 'utf-8');
+                const preview = content.length > 2000
+                  ? content.slice(0, 2000) + '\n...(file truncated)'
+                  : content;
+                fileSnippets.push(`--- File: ${fp} ---\n${preview}`);
+              }
+            } catch { /* skip unreadable files */ }
+          }
+          if (fileSnippets.length > 0) {
+            fileContentsSection = `\n\n**Actual file contents delivered:**\n${fileSnippets.join('\n\n')}`;
+          }
+        }
+      }
+
+      const response = await reviewer.chat([
         {
           role: 'system',
           content: `You are "${reviewer.name}", working as "${reviewer.role}".
 Your personality: ${p.trait || 'Professional'}. Speaking style: ${p.tone || 'Normal'}.
 
-You are acting as a STRICT CODE/WORK REVIEWER for the requirement "${requirement.title}".
-Your job is to be a quality gate — you must carefully inspect the work and ONLY approve if it truly meets all criteria.
+You are reviewing work for the requirement "${requirement.title}".
 
 **Review Criteria for this task:**
 ${reviewCriteria}
 
 **Your review guidelines:**
-- Be STRICT and thorough. Do NOT approve just to be nice.
-- If there are ANY issues, gaps, incomplete parts, or quality problems, you MUST reject.
-- When rejecting, provide SPECIFIC, ACTIONABLE feedback explaining exactly what needs to be fixed.
-- When approving, briefly comment on what was done well.
-- On revision rounds (round > 1), check whether the previous feedback was properly addressed.
-- ${round === 1 ? 'This is the first review. Be especially careful.' : `This is review round ${round}. The assignee has revised based on your previous feedback. Check if ALL previous issues were addressed.`}
+- Be fair and professional. Approve if the work reasonably meets the criteria, even if minor improvements are possible.
+- ONLY reject for SIGNIFICANT issues: critical bugs, missing core requirements, major quality gaps, or incomplete deliverables.
+- Do NOT reject for stylistic preferences, minor improvements, or nice-to-haves.
+- When rejecting, provide SPECIFIC, ACTIONABLE feedback explaining exactly what MUST be fixed.
+- When approving, briefly comment on what was done well. You may suggest minor improvements as non-blocking notes.
+- ${round === 1 ? 'This is the first review. Focus on whether core requirements are met.' : `This is review round ${round}. The assignee has revised based on your previous feedback. Check if the CRITICAL issues from your previous feedback were addressed. Minor issues that were not addressed can be accepted.`}
+- IMPORTANT: If the assignee has produced actual file deliverables, review the FILE CONTENTS (not just the text output). The text output may be a summary; the real work is in the files.
 
 **Output format (JSON only, no other text):**
 {
@@ -1374,14 +1505,12 @@ ${reviewCriteria}
 
 **Task description:** ${node.description}
 
-**${round > 1 ? `Revised output (round ${round}):` : 'Output:'}**
-${outputContent || '(empty output)'}
+**${round > 1 ? `Revised output (round ${round}):` : 'Agent output:'}**
+${outputContent || '(empty output)'}${fileContentsSection}
 
-Please provide your strict review verdict as JSON.`
+Please provide your review verdict as JSON.`
         },
       ], { temperature: 0.3, maxTokens: 1024 });
-
-      reviewer._trackUsage(response.usage);
 
       // Parse review result
       const tick = String.fromCharCode(96);
@@ -1399,14 +1528,20 @@ Please provide your strict review verdict as JSON.`
       } catch (parseErr) {
         // If JSON parse fails, try to detect approval from text
         const lower = content.toLowerCase();
-        if (lower.includes('"approved": true') || lower.includes('approved') && !lower.includes('reject')) {
+        if (lower.includes('"approved": true') || (lower.includes('approved') && !lower.includes('reject'))) {
           return { approved: true, feedback: '', comment: content.slice(0, 200) };
         }
         return { approved: false, feedback: content.slice(0, 500), comment: '' };
       }
     } catch (e) {
       console.error(`[StrictReview] ${reviewer.name} review failed:`, e.message);
-      return { approved: true, feedback: '', comment: 'Review error, auto-approved.' };
+      // Don't silently auto-approve on error — flag it so it's visible
+      requirement?.addGroupMessage?.(
+        { name: 'System', role: 'system' },
+        `⚠️ Review by ${reviewer.name} encountered an error: ${e.message}. Proceeding with caution (auto-approved due to error).`,
+        'system', null, { auto: true }
+      );
+      return { approved: true, feedback: '', comment: `⚠️ Review error (auto-approved): ${e.message}` };
     }
   }
 
@@ -1423,7 +1558,7 @@ Please provide your strict review verdict as JSON.`
 ${node.description}
 
 **Your previous output:**
-${previousOutput?.length > 1500 ? previousOutput.slice(0, 1500) + '\n...(truncated)' : previousOutput || '(empty)'}
+${previousOutput?.length > 1500 ? previousOutput.slice(0, 1500) + '\n...(truncated — use file_read to review your previous files before revising)' : previousOutput || '(empty)'}
 
 **Reviewer's feedback (MUST address ALL points):**
 ${reviewFeedback}
@@ -1450,15 +1585,17 @@ ${reviewFeedback}
    * - accept=false: assignee disagrees and provides counter-arguments
    */
   async _assigneeRebuttal(agent, reviewer, node, currentOutput, reviewFeedback, requirement, round) {
-    if (!agent.provider?.enabled || !agent.provider?.apiKey) {
+    if (!agent.canChat()) {
       return { accept: true, message: 'Got it, I\'ll revise.' };
     }
 
     try {
       const p = agent.personality || {};
-      const outputPreview = currentOutput?.length > 1500 ? currentOutput.slice(0, 1500) + '\n...(truncated)' : currentOutput;
+      const outputPreview = currentOutput?.length > 1500
+        ? currentOutput.slice(0, 1500) + '\n...(truncated — use file_read to review the full content before deciding)'
+        : currentOutput;
 
-      const response = await llmClient.chat(agent.provider, [
+      const response = await agent.chat([
         {
           role: 'system',
           content: `You are "${agent.name}", working as "${agent.role}".
@@ -1497,8 +1634,6 @@ This is review round ${round}. Do you accept the feedback and revise, or do you 
         },
       ], { temperature: 0.7, maxTokens: 512 });
 
-      agent._trackUsage(response.usage);
-
       const tick = String.fromCharCode(96);
       const fence = tick + tick + tick;
       let content = response.content?.trim() || '';
@@ -1533,15 +1668,17 @@ This is review round ${round}. Do you accept the feedback and revise, or do you 
    * - convinced=false: reviewer insists, assignee must revise
    */
   async _reviewerReEvaluate(reviewer, assignee, node, output, originalFeedback, rebuttalMessage, requirement, round) {
-    if (!reviewer.provider?.enabled || !reviewer.provider?.apiKey) {
+    if (!reviewer.canChat()) {
       return { convinced: false, message: 'Please address my feedback.' };
     }
 
     try {
       const p = reviewer.personality || {};
-      const outputPreview = output?.length > 1000 ? output.slice(0, 1000) + '\n...(truncated)' : output;
+      const outputPreview = output?.length > 1000
+        ? output.slice(0, 1000) + '\n...(truncated — use file_read to review the full content before deciding)'
+        : output;
 
-      const response = await llmClient.chat(reviewer.provider, [
+      const response = await reviewer.chat([
         {
           role: 'system',
           content: `You are "${reviewer.name}", working as "${reviewer.role}".
@@ -1579,8 +1716,6 @@ ${outputPreview}
 Are you convinced by their argument, or do you insist they need to revise?`
         },
       ], { temperature: 0.6, maxTokens: 512 });
-
-      reviewer._trackUsage(response.usage);
 
       const tick = String.fromCharCode(96);
       const fence = tick + tick + tick;
@@ -1628,6 +1763,26 @@ Are you convinced by their argument, or do you insist they need to revise?`
       toAgentId: toAgent.id,
       toAgentName: toAgent.name,
     });
+  }
+
+  /**
+   * Clean LLM output by stripping tool-call markup that some models embed in text
+   * (e.g. DeepSeek's DSML format, or XML-style function_call tags)
+   */
+  _cleanLLMOutput(text) {
+    if (!text) return '';
+    let cleaned = text;
+    // Strip DSML-style tool call blocks: <｜DSML｜function_calls>...</｜DSML｜function_calls> or trailing
+    cleaned = cleaned.replace(/<｜DSML｜function_calls>[\s\S]*?<\/｜DSML｜function_calls>/g, '');
+    // Strip trailing incomplete DSML block (when output was truncated mid-tool-call)
+    cleaned = cleaned.replace(/<｜DSML｜[\s\S]*$/g, '');
+    // Strip generic XML-style tool call blocks: <function_call>...</function_call>
+    cleaned = cleaned.replace(/<function_call>[\s\S]*?<\/function_call>/g, '');
+    cleaned = cleaned.replace(/<function_call>[\s\S]*$/g, '');
+    // Strip <tool_call>...</tool_call> blocks
+    cleaned = cleaned.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '');
+    cleaned = cleaned.replace(/<tool_call>[\s\S]*$/g, '');
+    return cleaned.trim();
   }
 
   /**

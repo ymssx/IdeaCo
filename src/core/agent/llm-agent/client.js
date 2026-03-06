@@ -5,9 +5,8 @@
  * as well as image models like DALL-E, Midjourney
  */
 import OpenAI from 'openai';
-import { providerRouter } from './provider-router.js';
-import { auditLogger, AuditCategory, AuditLevel } from './audit.js';
-import { hookRegistry, HookEvent } from './hooks.js';
+import { auditLogger, AuditCategory, AuditLevel } from '../../system/audit.js';
+import { hookRegistry, HookEvent } from '../../../lib/hooks.js';
 
 /**
  * Create an API client based on provider configuration
@@ -129,9 +128,6 @@ export class LLMClient {
       const choice = response.choices[0];
       const latency = Date.now() - startTime;
 
-      // Record success in provider router health tracking
-      providerRouter.recordSuccess(provider.id, latency);
-
       // Audit log the LLM request
       auditLogger.log({
         category: AuditCategory.LLM_REQUEST,
@@ -163,8 +159,6 @@ export class LLMClient {
         usage: response.usage || {},
       };
     } catch (error) {
-      // Record failure in provider router health tracking
-      providerRouter.recordFailure(provider.id, error);
       // Fire hook: LLM error
       hookRegistry.trigger(HookEvent.LLM_ERROR, {
         providerId: provider.id, model, error: error.message,
@@ -228,9 +222,7 @@ export class LLMClient {
           args = JSON.parse(argsStr);
         } catch (parseErr) {
           console.warn(`  ⚠️ [Tool Call] Failed to parse arguments for ${name}: ${argsStr?.slice(0, 200)}`);
-          // Try to fix common JSON format issues (LLMs sometimes return malformed JSON)
           try {
-            // Remove trailing commas, fix single quotes, etc.
             const cleaned = (argsStr || '{}').replace(/,\s*}/g, '}').replace(/,\s*]/g, ']').replace(/'/g, '"');
             args = JSON.parse(cleaned);
           } catch {
@@ -249,14 +241,12 @@ export class LLMClient {
         try {
           result = await toolExecutor.execute(name, args);
           toolResults.push({ tool: name, args, result, success: true });
-          // Notify: tool call completed
           if (onToolCall) {
             try { onToolCall({ tool: name, args, status: 'done', success: true }); } catch {}
           }
         } catch (error) {
           result = `Tool execution error: ${error.message}`;
           toolResults.push({ tool: name, args, error: error.message, success: false });
-          // Notify: tool call failed
           if (onToolCall) {
             try { onToolCall({ tool: name, args, status: 'error', error: error.message }); } catch {}
           }

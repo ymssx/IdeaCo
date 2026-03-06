@@ -16,8 +16,8 @@ import { tmpdir } from 'os';
 import path from 'path';
 import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
-import { skillRegistry } from '../skills.js';
-import { knowledgeManager } from '../knowledge.js';
+import { skillRegistry } from '../../../employee/skills.js';
+import { knowledgeManager } from '../../../employee/knowledge.js';
 
 // Import each CLI model's configuration
 import { claudeCodeConfig } from './claude-code/config.js';
@@ -371,13 +371,8 @@ export class CLIBackendRegistry {
     const prompt = this._buildTaskPrompt(task);
 
     // 3. Build command-line arguments
-    // Strategy: always use stdin for prompt delivery when running via nvm/bash -c
-    // because shell escaping of large multi-line prompts is unreliable.
-    // For non-nvm (direct spawn), args are safe since spawn doesn't go through shell.
     const hasPromptPlaceholder = config.execArgs.some(arg => arg.includes('{prompt}'));
     const isNvmMode = !!config.nvmNode;
-    // In nvm mode: strip {prompt} from args, deliver via stdin (temp file piped in)
-    // In non-nvm mode: replace {prompt} directly in args (spawn doesn't use shell)
     const useStdin = !hasPromptPlaceholder || isNvmMode;
     const args = isNvmMode
       ? config.execArgs.filter(arg => arg !== '{prompt}').map(arg => arg.replace('{prompt}', ''))
@@ -388,22 +383,17 @@ export class CLIBackendRegistry {
     const agentDataDir = path.join(agentDir, '.local', 'share');
     const agentStateDir = path.join(agentDir, '.local', 'state');
     const agentCacheDir = path.join(agentDir, '.cache');
-    // Ensure isolation directories exist
     for (const dir of [agentConfigDir, agentDataDir, agentStateDir, agentCacheDir]) {
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
     }
     const env = {
       ...process.env,
       ...config.customEnv,
-      // Isolate CLI tool config/memory/state/cache via XDG env vars
-      // This ensures CodeBuddy/Claude Code etc. store memories/sessions in agent's own directory
       XDG_CONFIG_HOME: agentConfigDir,
       XDG_DATA_HOME: agentDataDir,
       XDG_STATE_HOME: agentStateDir,
       XDG_CACHE_HOME: agentCacheDir,
     };
-    // Always use workspaceDir as cwd so CLI-generated files appear in the workspace root
-    // (agentDir is only used for memory/config isolation, not as working directory)
     const cwd = workspaceDir;
 
     // 5. Ensure working directory exists
@@ -411,8 +401,8 @@ export class CLIBackendRegistry {
       mkdirSync(cwd, { recursive: true });
     }
 
-    const timeoutMs = options.timeout || 600000; // 10 minutes max total timeout
-    const inactivityTimeoutMs = options.inactivityTimeout || 120000; // 2 minutes no-output timeout
+    const timeoutMs = options.timeout || 600000;
+    const inactivityTimeoutMs = options.inactivityTimeout || 120000;
 
     const promptMode = useStdin ? 'stdin' : 'args';
     console.log(`🚀 CLI executing: ${config.execCommand} (${promptMode} prompt, ${Math.round(timeoutMs/1000)}s timeout, ${Math.round(inactivityTimeoutMs/1000)}s inactivity limit)`);
@@ -435,7 +425,6 @@ export class CLIBackendRegistry {
         const elapsed = Date.now() - startTime;
         console.warn(`⏰ CLI killed: ${config.name} — ${reason} (after ${Math.round(elapsed/1000)}s)`);
         try { child.kill('SIGTERM'); } catch {}
-        // Force kill after 5 seconds if SIGTERM doesn't work
         setTimeout(() => {
           try { child.kill('SIGKILL'); } catch {}
         }, 5000);
@@ -452,7 +441,6 @@ export class CLIBackendRegistry {
       let child;
       const nvmPrefix = getNvmPrefix(config.nvmNode);
 
-      // Write prompt to temp file for stdin delivery (avoids shell escaping issues)
       let promptTmpFile = null;
       if (useStdin && isNvmMode) {
         promptTmpFile = path.join(tmpdir(), `ai-ent-prompt-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`);
@@ -460,9 +448,7 @@ export class CLIBackendRegistry {
       }
 
       if (nvmPrefix) {
-        // Build shell command with args (prompt NOT in args for nvm mode)
         const argsStr = args.filter(a => a.length > 0).map(a => `'${a.replace(/'/g, "'\\''")}'`).join(' ');
-        // Pipe prompt via stdin from temp file
         const stdinPipe = promptTmpFile ? `cat '${promptTmpFile}' | ` : '';
         const fullCommand = `${nvmPrefix}${stdinPipe}${config.execCommand} ${argsStr}`;
         child = spawn('bash', ['-c', fullCommand], {
@@ -478,16 +464,12 @@ export class CLIBackendRegistry {
         });
       }
 
-      // Total timeout: hard kill after timeoutMs
       totalTimer = setTimeout(() => {
         killChild(`total timeout ${Math.round(timeoutMs/1000)}s reached`);
       }, timeoutMs);
 
-      // Start inactivity timer
       resetInactivityTimer();
 
-      // Deliver prompt via stdin pipe (non-nvm mode with useStdin)
-      // nvm mode stdin is already delivered via temp file + cat pipe
       if (useStdin && !isNvmMode) {
         child.stdin.write(prompt);
       }
@@ -496,7 +478,7 @@ export class CLIBackendRegistry {
       child.stdout.on('data', (data) => {
         const chunk = data.toString();
         output += chunk;
-        resetInactivityTimer(); // Reset inactivity timer on output
+        resetInactivityTimer();
         if (callbacks.onOutput) {
           try { callbacks.onOutput(chunk); } catch {}
         }
@@ -505,14 +487,13 @@ export class CLIBackendRegistry {
       child.stderr.on('data', (data) => {
         const chunk = data.toString();
         errorOutput += chunk;
-        resetInactivityTimer(); // stderr also counts as activity
+        resetInactivityTimer();
         if (callbacks.onError) {
           try { callbacks.onError(chunk); } catch {}
         }
       });
 
       child.on('close', (code) => {
-        // Clean up timers and temp files
         if (totalTimer) clearTimeout(totalTimer);
         if (inactivityTimer) clearTimeout(inactivityTimer);
         if (promptTmpFile) { try { unlinkSync(promptTmpFile); } catch {} }
@@ -538,7 +519,6 @@ export class CLIBackendRegistry {
       });
 
       child.on('error', (error) => {
-        // Clean up timers and temp files
         if (totalTimer) clearTimeout(totalTimer);
         if (inactivityTimer) clearTimeout(inactivityTimer);
         if (promptTmpFile) { try { unlinkSync(promptTmpFile); } catch {} }

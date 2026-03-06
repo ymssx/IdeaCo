@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { skillRegistry } from '@/core/skills.js';
+import { skillRegistry } from '@/core/employee/skills.js';
 import { getApiT } from '@/lib/api-i18n';
 
 /**

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getCompany } from '@/lib/store';
-import { chatStore } from '@/core/chat-store.js';
+import { chatStore } from '@/core/agent/chat-store.js';
 import { getApiT } from '@/lib/api-i18n';
 
 // Store running task states

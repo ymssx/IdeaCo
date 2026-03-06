@@ -62,7 +62,7 @@ export async function PUT(request) {
     if (typeof company.updateBossProfile !== 'function') {
       // Fallback: server might have a stale instance without this method, apply directly
       if (body.avatar) company.bossAvatar = body.avatar;
-      const { saveState } = await import('@/core/persistence.js');
+      const { saveState } = await import('@/core/organization/persistence.js');
       saveState(company);
       return NextResponse.json({
         success: true,

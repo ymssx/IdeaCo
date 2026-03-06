@@ -1,28 +1,68 @@
 import { v4 as uuidv4 } from 'uuid';
-import { ProviderRegistry, ModelProviders, JobCategory, JobCategoryLabel } from './providers.js';
-import { HRSystem } from './hr.js';
-import { Secretary } from './secretary.js';
+import path from 'path';
+import { ProviderRegistry, ModelProviders, JobCategory, JobCategoryLabel } from './workforce/providers.js';
+import { HRSystem } from './workforce/hr.js';
 import { Department } from './department.js';
-import { Agent } from './agent.js';
-import { PerformanceSystem } from './performance.js';
-import { TalentMarket } from './talent-market.js';
-import { MessageBus } from './message-bus.js';
+import { Employee, createEmployee, deserializeEmployee, Secretary } from '../employee/index.js';
+import { LLMAgent, CLIAgent } from '../agent/index.js';
+import { PerformanceSystem } from '../employee/performance.js';
+import { TalentMarket } from './workforce/talent-market.js';
+import { MessageBus } from '../agent/message-bus.js';
 import { existsSync, mkdirSync } from 'fs';
-import { WorkspaceManager } from './workspace.js';
+import { WorkspaceManager } from '../workspace.js';
 import { debouncedSave } from './persistence.js';
-import { llmClient } from './llm-client.js';
-import { loadAgentMemory, saveAgentMemory } from './memory-store.js';
-import { Memory } from './memory.js';
-import { RequirementManager, RequirementStatus } from './requirement.js';
+import { llmClient } from '../agent/llm-agent/client.js';
+import { loadAgentMemory, saveAgentMemory } from '../employee/memory/store.js';
+import { Memory } from '../employee/memory/index.js';
+import { RequirementManager, RequirementStatus } from '../requirement.js';
 import { TeamManager, SprintStatus } from './team.js';
-import { hookRegistry, HookEvent } from './hooks.js';
-import { sessionManager } from './session.js';
-import { cronScheduler } from './cron.js';
-import { pluginRegistry } from './plugin.js';
-import { auditLogger, AuditCategory, AuditLevel } from './audit.js';
-import { chatStore } from './chat-store.js';
-import { cliBackendRegistry } from './cli-backends/index.js';
+import { hookRegistry, HookEvent } from '../../lib/hooks.js';
+import { sessionManager } from '../agent/session.js';
+import { cronScheduler } from '../system/cron.js';
+import { pluginRegistry } from '../system/plugin.js';
+import { auditLogger, AuditCategory, AuditLevel } from '../system/audit.js';
+import { chatStore } from '../agent/chat-store.js';
+import { cliBackendRegistry } from '../agent/cli-agent/backends/index.js';
 import { groupChatLoop } from './group-chat-loop.js';
+
+// Expand short-form file references: [[file:path]] → [[file:deptId:path|name]]
+// Also fix incomplete references: [[file:deptId:path]] → [[file:deptId:path|name]]
+// Only creates clickable references for files that actually exist on disk.
+// Returns { content, invalidRefs } so caller can provide feedback for bad references.
+const SIMPLE_FILE_REF = /\[\[file:([^\]|:]+)\]\]/g;
+const INCOMPLETE_FILE_REF = /\[\[file:([^:]+):([^\]|]+)\]\]/g;
+function expandFileReferences(content, departmentId, workspacePath) {
+  if (!content || !departmentId) return { content, invalidRefs: [] };
+  const invalidRefs = [];
+  // First: fix incomplete refs [[file:deptId:path]] → [[file:deptId:path|name]]
+  let expanded = content.replace(INCOMPLETE_FILE_REF, (_match, deptId, filePath) => {
+    const trimmed = filePath.trim();
+    if (workspacePath) {
+      const fullPath = path.join(workspacePath, trimmed);
+      if (!existsSync(fullPath)) {
+        invalidRefs.push(trimmed);
+        return trimmed;
+      }
+    }
+    const displayName = path.basename(trimmed);
+    return `[[file:${deptId}:${trimmed}|${displayName}]]`;
+  });
+  // Then: expand simple refs [[file:path]] → [[file:deptId:path|name]]
+  expanded = expanded.replace(SIMPLE_FILE_REF, (_match, filePath) => {
+    const trimmed = filePath.trim();
+    if (workspacePath) {
+      const fullPath = path.join(workspacePath, trimmed);
+      if (!existsSync(fullPath)) {
+        invalidRefs.push(trimmed);
+        return trimmed;
+      }
+    }
+    const displayName = path.basename(trimmed);
+    return `[[file:${departmentId}:${trimmed}|${displayName}]]`;
+  });
+  return { content: expanded, invalidRefs };
+}
+
 
 /**
  * Company - AI Enterprise
@@ -102,18 +142,22 @@ export class Company {
       secretaryAge: secretaryConfig?.secretaryAge || 18,
     });
 
-    // If secretary uses a CLI provider, automatically set the CLI backend
+    // If secretary uses a CLI provider, rebuild agent as CLIAgent
     if (secretaryProviderConfig.isCLI && secretaryProviderConfig.cliBackendId) {
-      this.secretary.agent.setCLIBackend(secretaryProviderConfig.cliBackendId);
-      this.secretary.agent.cliProvider = secretaryProviderConfig;
+      const fallback = this.providerRegistry.recommend('general');
+      this.secretary.agent = new CLIAgent({
+        cliBackend: secretaryProviderConfig.cliBackendId,
+        cliProvider: secretaryProviderConfig,
+        fallbackProvider: fallback, provider: fallback,
+      });
     }
 
     // Initialize secretary's toolKit so she can use tools (shell, file ops, etc.)
     const secretaryWorkspace = this.workspaceManager.createDepartmentWorkspace('secretary', 'secretary');
-    this.secretary.agent.initToolKit(secretaryWorkspace, this.messageBus);
+    this.secretary.initToolKit(secretaryWorkspace, this.messageBus);
 
     this._log('Company founded', `"${this.name}" founded by ${this.bossName}`);
-    this._log('Secretary ready', `Secretary ${this.secretary.agent.name} using model ${secretaryProviderConfig.name}`);
+    this._log('Secretary ready', `Secretary ${this.secretary.name} using model ${secretaryProviderConfig.name}`);
 
     // Initialize distilled subsystems
     this._initSubsystems();
@@ -134,19 +178,17 @@ export class Company {
     // Persist to file storage
     chatStore.appendMessage(this.chatSessionId, bossMsg);
 
-    const secretaryAgent = this.secretary.agent;
+    const sec = this.secretary;
     let reply;
 
-    // If secretary has CLI backend configured, chat also goes through CLI (requires JSON format, consistent with LLM path)
-    if (secretaryAgent.cliBackend) {
+    // If secretary has CLI backend configured, chat also goes through CLI
+    if (sec.cliBackend) {
       try {
-        // Get recent chat context
         const recentMessages = chatStore.getRecentMessages(this.chatSessionId, 10);
         const chatContext = recentMessages.slice(-6).map(m =>
-          `${m.role === 'boss' ? 'Boss' : secretaryAgent.name}: ${m.content}`
+          `${m.role === 'boss' ? 'Boss' : sec.name}: ${m.content}`
         ).join('\n');
 
-        // Build company context (simplified version for CLI to correctly determine action)
         const departments = [...this.departments.values()].map(d => ({
           name: d.name, id: d.id, mission: d.mission, status: d.status,
           memberCount: d.agents.size,
@@ -156,9 +198,8 @@ export class Company {
           ? departments.map(d => `  🏢 ${d.name} [id:${d.id}] - Mission: ${d.mission} | ${d.memberCount} people | Leader: ${d.leader}`).join('\n')
           : 'No departments yet.';
 
-        // Build CLI prompt: require JSON format consistent with LLM path
-        const cliPrompt = `You are "${secretaryAgent.name}", the personal secretary of "${this.bossName}".
-${secretaryAgent.prompt ? `Your persona: ${secretaryAgent.prompt}\n` : ''}
+        const cliPrompt = `You are "${sec.name}", the personal secretary of "${this.bossName}".
+${sec.prompt ? `Your persona: ${sec.prompt}\n` : ''}
 Current company "${this.name}" status:
 - Departments: ${this.departments.size}
 ${deptContext}
@@ -189,23 +230,15 @@ Rules:
 - ALWAYS return valid JSON only, no markdown fences`;
 
         const cliResult = await cliBackendRegistry.executeTask(
-          secretaryAgent.cliBackend,
-          secretaryAgent,
-          {
-            title: `Secretary chat reply`,
-            description: cliPrompt,
-          },
-          secretaryAgent.toolKit?.workspaceDir || process.cwd(),
-          {},
-          { timeout: 60000 }
+          sec.cliBackend, sec,
+          { title: `Secretary chat reply`, description: cliPrompt },
+          sec.toolKit?.workspaceDir || process.cwd(), {}, { timeout: 60000 }
         );
         const rawOutput = cliResult.output || cliResult.errorOutput || '...';
 
-        // Try to parse JSON from CLI output (reuse same parsing logic as LLM)
         reply = this._parseSecretaryJSON(rawOutput, message);
       } catch (cliErr) {
-        // On CLI failure, attempt fallback to LLM (only when LLM provider available)
-        const hasLLM = secretaryAgent.provider && secretaryAgent.provider.enabled && secretaryAgent.provider.apiKey && !secretaryAgent.provider.apiKey.startsWith('cli');
+        const hasLLM = sec.agent.provider && sec.agent.provider.enabled && sec.agent.provider.apiKey && !sec.agent.provider.apiKey.startsWith('cli');
         if (hasLLM) {
           console.warn(`  ⚠️ [Secretary] CLI chat failed, falling back to LLM: ${cliErr.message || cliErr.error}`);
           reply = await this.secretary.handleBossMessage(message, this);
@@ -417,14 +450,14 @@ Rules:
 
     // If this is a CLI agent, execute chat via CLI backend
     let replyContent;
-    const chatEngine = targetAgent.cliProvider
-      ? { engine: 'cli', cliName: targetAgent.cliProvider.name }
-      : { engine: 'llm', llmName: targetAgent.provider.name };
+    const displayInfo = targetAgent.getDisplayInfo();
+    const chatEngine = displayInfo.type === 'cli'
+      ? { engine: 'cli', cliName: displayInfo.name }
+      : { engine: 'llm', llmName: displayInfo.name };
 
-    if (targetAgent.cliBackend) {
-      // CLI agent chat also goes through CLI backend
+    if (targetAgent.agentType === 'cli' && targetAgent.isAvailable()) {
+      // CLI agent chat goes through CLI backend
       try {
-        // Build a more natural chat prompt (not using _buildTaskPrompt task format)
         const chatContext = recentMessages.slice(-6).map(m =>
           `${m.role === 'boss' ? 'Boss' : targetAgent.name}: ${m.content}`
         ).join('\n');
@@ -438,21 +471,16 @@ Rules:
           },
           targetAgent.toolKit?.workspaceDir || process.cwd(),
           {},
-          { timeout: 60000 }  // Chat scenario 60 second timeout (vs default 5 minutes)
+          { timeout: 60000 }
         );
         replyContent = cliResult.output || cliResult.errorOutput || '...';
       } catch (cliErr) {
-        // On CLI failure, attempt fallback to LLM (only when LLM provider available)
-        const hasLLM = targetAgent.provider && targetAgent.provider.enabled && targetAgent.provider.apiKey && !targetAgent.provider.apiKey.startsWith('cli');
-        if (hasLLM) {
+        // On CLI failure, attempt fallback to LLM
+        if (targetAgent.canChat()) {
           console.warn(`  ⚠️ [${targetAgent.name}] CLI chat failed, falling back to LLM: ${cliErr.message || cliErr.error}`);
           try {
-            const response = await llmClient.chat(targetAgent.provider, messages, {
-              temperature: 0.8,
-              maxTokens: 2048,
-            });
+            const response = await targetAgent.chat(messages, { temperature: 0.8, maxTokens: 2048 });
             replyContent = response.content;
-            targetAgent._trackUsage(response.usage);
           } catch (err) {
             replyContent = `(Sorry boss, my brain froze: ${err.message})`;
           }
@@ -461,15 +489,11 @@ Rules:
           replyContent = `⚠️ CLI execution error: ${cliErr.message || 'Unknown error'}. Please check if CLI is running properly.`;
         }
       }
-    } else {
-      // Regular LLM agent
+    } else if (targetAgent.canChat()) {
+      // Regular LLM agent or CLI with fallback
       try {
-        const response = await llmClient.chat(targetAgent.provider, messages, {
-          temperature: 0.8,
-          maxTokens: 2048,
-        });
+        const response = await targetAgent.chat(messages, { temperature: 0.8, maxTokens: 2048 });
         replyContent = response.content;
-        targetAgent._trackUsage(response.usage);
       } catch (err) {
         replyContent = `(Sorry boss, my brain froze: ${err.message})`;
       }
@@ -479,11 +503,7 @@ Rules:
     const agentMsg = { role: 'agent', content: replyContent, time: new Date() };
     chatStore.appendMessage(sessionId, agentMsg);
 
-    // Add to agent's short-term memory
-    targetAgent.memory.addShortTerm(
-      `Chatted with boss: "${message.slice(0, 50)}..." → replied`,
-      'conversation'
-    );
+
 
     this.save();
 
@@ -674,45 +694,56 @@ Rules:
    * Update secretary settings (name, avatar, prompt, etc.)
    */
   updateSecretarySettings(settings) {
-    const agent = this.secretary.agent;
-    if (settings.name) agent.name = settings.name;
-    if (settings.avatar) agent.avatar = settings.avatar;
-    if (settings.avatarParams) agent.avatarParams = settings.avatarParams;
-    if (settings.gender) agent.gender = settings.gender;
-    if (settings.age != null) agent.age = settings.age;
-    if (settings.prompt) agent.prompt = settings.prompt;
-    if (settings.signature) agent.signature = settings.signature;
+    const sec = this.secretary;
+    if (settings.name) sec.name = settings.name;
+    if (settings.avatar) sec.avatar = settings.avatar;
+    if (settings.avatarParams) sec.avatarParams = settings.avatarParams;
+    if (settings.gender) sec.gender = settings.gender;
+    if (settings.age != null) sec.age = settings.age;
+    if (settings.prompt) sec.prompt = settings.prompt;
+    if (settings.signature) sec.signature = settings.signature;
     // Switch provider
     if (settings.providerId) {
       const newProvider = this.providerRegistry.getById(settings.providerId);
       if (!newProvider) throw new Error(`Provider not found: ${settings.providerId}`);
       if (!newProvider.enabled) throw new Error(`Provider ${newProvider.name} is not enabled, please configure API Key first`);
-      agent.provider = newProvider;
-      // Sync update HR assistant's provider
-      this.secretary.hrAssistant.agent.provider = newProvider;
-      // If this is a CLI provider, set secretary CLI backend; otherwise clear it
-      if (newProvider.isCLI && newProvider.cliBackendId) {
-        agent.setCLIBackend(newProvider.cliBackendId);
-        // Store CLI provider reference for frontend display
-        agent.cliProvider = newProvider;
-        this._log('Secretary settings', `Secretary CLI backend set to: ${newProvider.name} (${newProvider.cliBackendId})`);
+
+      const needsTypeSwitch =
+        (newProvider.isCLI && sec.agentType !== 'cli') ||
+        (!newProvider.isCLI && sec.agentType !== 'llm');
+
+      if (needsTypeSwitch) {
+        // Agent type mismatch — rebuild the communication agent only
+        if (newProvider.isCLI && newProvider.cliBackendId) {
+          const fallback = this.providerRegistry.recommend('general');
+          sec.agent = new CLIAgent({
+            cliBackend: newProvider.cliBackendId,
+            cliProvider: newProvider, fallbackProvider: fallback, provider: fallback,
+          });
+          this._log('Secretary settings', `Secretary agent rebuilt as CLIAgent: ${newProvider.name} (${newProvider.cliBackendId})`);
+        } else {
+          sec.agent = new LLMAgent({ provider: newProvider });
+          this._log('Secretary settings', `Secretary agent rebuilt as LLMAgent: ${newProvider.name}`);
+        }
       } else {
-        agent.setCLIBackend(null);
-        agent.cliProvider = null;
+        sec.switchProvider(newProvider);
       }
+      // Sync HR assistant's provider
+      sec.hrAssistant.employee.switchProvider(newProvider);
       this._log('Secretary settings', `Secretary provider switched to: ${newProvider.name}`);
     }
     this._log('Secretary settings', `Updated secretary settings: ${Object.keys(settings).join(', ')}`);
     this.save();
+    const displayInfo = sec.getProviderDisplayInfo();
     return {
-      name: agent.name,
-      avatar: agent.avatar,
-      gender: agent.gender,
-      age: agent.age,
-      prompt: agent.prompt,
-      signature: agent.signature,
-      provider: agent.provider.name,
-      providerId: agent.provider.id,
+      name: sec.name,
+      avatar: sec.avatar,
+      gender: sec.gender,
+      age: sec.age,
+      prompt: sec.prompt,
+      signature: sec.signature,
+      provider: displayInfo.name,
+      providerId: displayInfo.id,
     };
   }
 
@@ -806,7 +837,9 @@ Rules:
    * Step 1: Generate recruitment plan (don't execute, wait for boss approval)
    */
   async planDepartment(name, mission) {
-    const teamPlan = await this.secretary.designTeam(mission);
+    // Use a temporary Department instance for team design analysis
+    const tempDept = new Department({ name, mission, company: this.id });
+    const teamPlan = await tempDept.designTeam(mission, this.secretary, this.providerRegistry);
     teamPlan.departmentName = name;
 
     const planId = uuidv4();
@@ -860,8 +893,8 @@ Rules:
 
     const { teamPlan, name, mission } = plan;
 
-    // Recruit
-    const agents = this.secretary.executeRecruitment(teamPlan, this.hr);
+    // Recruit via HR assistant
+    const agents = this.secretary.hrAssistant.executeRecruitment(teamPlan, this.hr);
 
     // Create department
     const dept = new Department({ name, mission, company: this.id });
@@ -977,7 +1010,7 @@ const dept = this.findDepartment(departmentId);
     if (!dept) throw new Error(`Department not found: ${departmentId}`);
 
     const recruitConfig = this.hr.recruit(templateId, name, providerId);
-    const agent = new Agent(recruitConfig);
+    const agent = createEmployee(recruitConfig);
     dept.addAgent(agent);
 
     // Initialize toolkit
@@ -996,7 +1029,7 @@ const dept = this.findDepartment(departmentId);
     if (!dept) throw new Error(`Department not found: ${departmentId}`);
 
     const recruitConfig = this.hr.recallFromMarket(profileId, newSkills);
-    const agent = new Agent(recruitConfig);
+    const agent = createEmployee(recruitConfig);
     agent.memory.addLongTerm(
       `Recalled to the "${dept.name}" department, carrying past experience and memories back to work`,
       'experience'
@@ -1039,10 +1072,7 @@ const dept = this.findDepartment(departmentId);
 
     const profile = this.talentMarket.register(agent, reason, performanceData);
 
-    agent.memory.addLongTerm(
-      `Left the "${dept.name}" department, reason: ${reason}. Entered talent market awaiting new opportunities.`,
-      'experience'
-    );
+
 
     // Clean up message bus inbox
     this.messageBus.clearInbox(agentId);
@@ -1083,23 +1113,7 @@ const dept = this.findDepartment(departmentId);
 const dept = this.findDepartment(departmentId);
     if (!dept) throw new Error(`Department not found: ${departmentId}`);
 
-    // Build department data
-    const deptData = {
-      name: dept.name,
-      mission: dept.mission,
-      members: dept.getMembers().map(a => ({
-        id: a.id,
-        name: a.name,
-        role: a.role,
-        skills: a.skills,
-        avgScore: a.performanceHistory.length > 0
-          ? Math.round(a.performanceHistory.reduce((s, p) => s + p.score, 0) / a.performanceHistory.length)
-          : null,
-        taskCount: a.taskHistory.length,
-      })),
-    };
-
-    const adjustPlan = await this.secretary.adjustTeam(deptData, adjustGoal);
+    const adjustPlan = await dept.adjustTeam(adjustGoal, this.secretary, this.providerRegistry);
 
     const planId = uuidv4();
     this.pendingPlans.set(planId, {
@@ -1179,7 +1193,7 @@ const dept = this.findDepartment(departmentId);
         })),
       };
 
-      const agents = this.secretary.executeRecruitment(hirePlan, this.hr);
+      const agents = this.secretary.hrAssistant.executeRecruitment(hirePlan, this.hr);
       for (const agent of agents) {
         if (!agent) continue;
         dept.addAgent(agent);
@@ -1380,7 +1394,7 @@ const dept = this.findDepartment(departmentId);
 
     try {
       await this.requirementManager.planWorkflow(
-        requirement, members, leader.provider
+        requirement, members
       );
     } catch (e) {
       console.error('Workflow decomposition failed:', e.message);
@@ -1405,7 +1419,7 @@ const dept = this.findDepartment(departmentId);
       requirement.addGroupMessage(
         { name: 'System', role: 'system' },
         `❌ Requirement execution failed: ${e.message}`,
-        'system'
+        'system', null, { auto: true }
       );
       this.save();
       summary = requirement.summary;
@@ -1522,7 +1536,7 @@ const dept = this.findDepartment(departmentId);
 
     try {
       await this.requirementManager.planWorkflow(
-        requirement, members, leader.provider
+        requirement, members
       );
     } catch (e) {
       console.error('Sprint workflow decomposition failed:', e.message);
@@ -1543,7 +1557,7 @@ const dept = this.findDepartment(departmentId);
       requirement.addGroupMessage(
         { name: 'System', role: 'system' },
         `❌ Sprint requirement execution failed: ${e.message}`,
-        'system'
+        'system', null, { auto: true }
       );
       this.save();
       summary = requirement.summary;
@@ -1566,8 +1580,9 @@ const dept = this.findDepartment(departmentId);
     }
 
     // 5. Update sprint status based on requirement result
-    const { SprintStatus } = await import('@/core/team.js');
-    if (requirement.status === 'completed') {
+    const { SprintStatus } = await import('@/core/organization/team.js');
+    if (requirement.status === 'completed' || requirement.status === 'pending_approval') {
+      // For pending_approval, the sprint is done but the requirement awaits Boss review
       sprint.status = SprintStatus.COMPLETED;
       sprint.completedAt = new Date();
       sprint.summary = requirement.summary;
@@ -1598,7 +1613,8 @@ const dept = this.findDepartment(departmentId);
     const leader = dept.getLeader() || dept.getMembers()[0];
     if (!leader) throw new Error('No leader found in department');
 
-    // 1. Add Boss message to group chat
+    // 1. Add Boss message to group chat (expand [[file:path]] → full format)
+    const { content: expandedMessage, invalidRefs } = expandFileReferences(message, requirement.departmentId, dept.workspacePath);
     requirement.addGroupMessage(
       {
         id: 'boss',
@@ -1606,9 +1622,18 @@ const dept = this.findDepartment(departmentId);
         avatar: this.bossAvatar || null,
         role: 'Boss',
       },
-      message,
+      expandedMessage,
       'message'
     );
+    // Auto-feedback: notify about invalid file references
+    if (invalidRefs.length > 0) {
+      const invalidList = invalidRefs.map(f => `  - ${f}`).join('\n');
+      requirement.addGroupMessage(
+        { id: 'system', name: 'System', role: 'system' },
+        `⚠️ File reference error: the following files do not exist in workspace:\n${invalidList}`,
+        'message', null, { auto: true }
+      );
+    }
     this.save();
 
     // 1.5 Trigger group chat loop: notify all members of new message (Boss message, everyone should pay attention)
@@ -1625,7 +1650,7 @@ const dept = this.findDepartment(departmentId);
 
     // 3. Add Leader reply to group chat
     if (leaderResponse.reply) {
-      requirement.addGroupMessage(leader, leaderResponse.reply, 'message');
+      requirement.addGroupMessage(leader, leaderResponse.reply, 'message', null, { auto: true });
     }
 
     // 4. Execute operations based on Leader decision
@@ -1640,14 +1665,14 @@ const dept = this.findDepartment(departmentId);
       requirement.addGroupMessage(
         { name: 'System', role: 'system' },
         `⏹️ Project stopped by Boss request`,
-        'system'
+        'system', null, { auto: true }
       );
     } else if (leaderResponse.action === 'restart') {
       // Restart project (mark as failed, frontend can use restart button)
       requirement.addGroupMessage(
         { name: 'System', role: 'system' },
         `🔄 Boss requested project restart, replanning...`,
-        'system'
+        'system', null, { auto: true }
       );
       // Async re-execute, non-blocking
       const title = requirement.title;
@@ -1703,7 +1728,7 @@ const dept = this.findDepartment(departmentId);
       (async () => {
         try {
           await this.requirementManager.planWorkflow(
-            requirement, members, leader.provider, adjustmentContext
+            requirement, members, adjustmentContext
           );
           this.save();
 
@@ -1730,11 +1755,34 @@ const dept = this.findDepartment(departmentId);
           requirement.addGroupMessage(
             { name: 'System', role: 'system' },
             `❌ Adjustment plan execution failed: ${e.message}`,
-            'system'
+            'system', null, { auto: true }
           );
           this.save();
         }
       })();
+    } else if (leaderResponse.action === 'approve') {
+      // Boss approved the requirement — finalize it
+      requirement.status = RequirementStatus.COMPLETED;
+      requirement.completedAt = new Date();
+      requirement.updateLiveStatus({
+        currentAction: 'Boss approved — requirement completed',
+        currentAgent: null,
+      });
+      requirement.addGroupMessage(
+        { name: 'System', role: 'system' },
+        `✅ Requirement "${requirement.title}" has been approved by Boss and is now completed!`,
+        'system', null, { auto: true }
+      );
+
+      // Leader sends completion report email
+      if (leader) {
+        const summary = requirement.summary || {};
+        let reportContent = `Requirement "${requirement.title}" has been approved and completed!\n\n`;
+        reportContent += `📊 Execution Results:\n`;
+        reportContent += `- Completed tasks: ${summary.successTasks || 0}/${summary.totalTasks || 0}\n`;
+        reportContent += `- Total duration: ${Math.round((summary.totalDuration || 0) / 1000)}s\n`;
+        leader.sendMailToBoss(`✅ Requirement Approved: ${requirement.title}`, reportContent, this);
+      }
     }
     // action === 'continue' → No special handling needed, continue as normal
 
@@ -1787,7 +1835,7 @@ const dept = this.findDepartment(departmentId);
    * @private
    */
   async _leaderHandleBossMessage(leader, requirement, department, bossMessage) {
-    if (!leader.provider?.enabled || !leader.provider?.apiKey) {
+    if (!leader.canChat()) {
       return {
         reply: `Received Boss instructions! I will execute them diligently.`,
         action: 'continue',
@@ -1809,7 +1857,7 @@ const dept = this.findDepartment(departmentId);
       }).join('\n') || 'No workflow yet';
 
       const p = leader.personality || {};
-      const response = await llmClient.chat(leader.provider, [
+      const response = await leader.chat([
         {
           role: 'system',
           content: `You are "${leader.name}", the project leader of department "${department.name}".
@@ -1831,12 +1879,13 @@ The Boss (your employer) just sent a message in the group chat. You need to:
 You MUST reply in JSON format:
 {
   "reply": "Your natural reply to the Boss (addressing them as Boss, speaking in your personality style, explaining what you'll do)",
-  "action": "continue|adjust|stop|restart",
+  "action": "continue|adjust|stop|restart|approve",
   "adjustments": "If action is 'adjust', briefly describe what changes you'll make to the plan"
 }
 
 Action rules:
 - "continue": Boss is just commenting/encouraging, no changes needed. Or giving minor feedback that doesn't change the plan.
+- "approve": Boss is satisfied with the results and wants to close/accept/finalize the requirement. Use when Boss says things like "looks good", "approved", "OK", "done", "accept", "通过", "可以", "没问题", "完成", "好的", "确认", "LGTM", "ship it", etc. ${requirement.status === 'pending_approval' ? '**IMPORTANT: The project is currently PENDING APPROVAL. If the Boss seems satisfied or gives positive feedback, use "approve".**' : ''}
 - "adjust": Boss wants to modify, supplement, or revise the current plan. IMPORTANT: This means working on top of existing results — existing files and outputs will be PRESERVED, only new/modified content will be added. Use this when Boss says things like "add more", "revise", "change X to Y", "also include", "supplement", "modify", "adjust" etc.
 - "stop": Boss explicitly says to stop, halt, or cancel the project.
 - "restart": Boss EXPLICITLY wants to start over completely from scratch, redo everything, or completely restart. Use ONLY when Boss clearly says "start over", "redo from scratch", "start fresh" etc. All existing files will be DELETED.
@@ -1848,8 +1897,6 @@ Reply in the same language the Boss used. Be concise but warm.`
           content: `Boss says: "${bossMessage}"`
         },
       ], { temperature: 0.7, maxTokens: 512 });
-
-      leader._trackUsage(response.usage);
 
       // Parse JSON
       const tick = String.fromCharCode(96);
@@ -1863,7 +1910,7 @@ Reply in the same language the Boss used. Be concise but warm.`
         const parsed = JSON.parse(jsonStr);
         return {
           reply: parsed.reply || 'Understood, Boss!',
-          action: ['continue', 'adjust', 'stop', 'restart'].includes(parsed.action) ? parsed.action : 'continue',
+          action: ['continue', 'adjust', 'stop', 'restart', 'approve'].includes(parsed.action) ? parsed.action : 'continue',
           adjustments: parsed.adjustments || null,
         };
       } catch {
@@ -1899,10 +1946,6 @@ Reply in the same language the Boss used. Be concise but warm.`
         const usage = a.tokenUsage || { totalTokens: 0, totalCost: 0, promptTokens: 0, completionTokens: 0, callCount: 0 };
         deptTokens += usage.totalTokens;
         deptCost += usage.totalCost;
-        // CLI agent shows cliProvider info (actual CLI tool), not fallback general provider
-        const displayProvider = a.cliProvider
-          ? { id: a.cliProvider.id, name: a.cliProvider.name, provider: a.cliProvider.provider || 'Local CLI' }
-          : { id: a.provider.id, name: a.provider.name, provider: a.provider.provider };
         return {
         id: a.id,
         name: a.name,
@@ -1913,10 +1956,9 @@ Reply in the same language the Boss used. Be concise but warm.`
         signature: a.signature,
         personality: a.personality,
         status: a.status,
-        provider: displayProvider,
+        provider: a.getProviderDisplayInfo(),
         cliBackend: a.cliBackend || null,
-        // CLI agent chat engine (fallback LLM provider name)
-        fallbackProvider: a.cliProvider ? a.provider.name : null,
+        fallbackProvider: a.getFallbackProviderName(),
         skills: a.skills,
         reportsTo: a.reportsTo,
         subordinates: a.subordinates,
@@ -1947,8 +1989,8 @@ Reply in the same language the Boss used. Be concise but warm.`
     });
 
     // Add secretary and HR consumption
-    const secUsage = this.secretary.agent.tokenUsage || { totalTokens: 0, totalCost: 0 };
-    const hrUsage = this.secretary.hrAssistant.agent.tokenUsage || { totalTokens: 0, totalCost: 0 };
+    const secUsage = this.secretary.tokenUsage || { totalTokens: 0, totalCost: 0 };
+    const hrUsage = this.secretary.hrAssistant.employee.tokenUsage || { totalTokens: 0, totalCost: 0 };
     companyTotalTokens += secUsage.totalTokens + hrUsage.totalTokens;
     companyTotalCost += secUsage.totalCost + hrUsage.totalCost;
 
@@ -1958,14 +2000,14 @@ Reply in the same language the Boss used. Be concise but warm.`
       boss: this.bossName,
       bossAvatar: this.bossAvatar,
       secretary: {
-        name: this.secretary.agent.name,
-        avatar: this.secretary.agent.avatar,
-        gender: this.secretary.agent.gender,
-        age: this.secretary.agent.age,
-        signature: this.secretary.agent.signature,
-        prompt: this.secretary.agent.prompt,
-        provider: this.secretary.agent.provider.name,
-        providerId: this.secretary.agent.provider.id,
+        name: this.secretary.name,
+        avatar: this.secretary.avatar,
+        gender: this.secretary.gender,
+        age: this.secretary.age,
+        signature: this.secretary.signature,
+        prompt: this.secretary.prompt,
+        provider: this.secretary.getProviderDisplayInfo().name,
+        providerId: this.secretary.getProviderDisplayInfo().id,
         // Optional general-purpose + CLI provider list (enabled only)
         availableProviders: [
           ...this.providerRegistry.getByCategory('general').map(p => ({
@@ -1980,9 +2022,9 @@ Reply in the same language the Boss used. Be concise but warm.`
           })),
         ],
         hrAssistant: {
-          name: this.secretary.hrAssistant.agent.name,
-          avatar: this.secretary.hrAssistant.agent.avatar,
-          signature: this.secretary.hrAssistant.agent.signature,
+          name: this.secretary.hrAssistant.employee.name,
+          avatar: this.secretary.hrAssistant.employee.avatar,
+          signature: this.secretary.hrAssistant.employee.signature,
         },
       },
       departments,
@@ -2127,7 +2169,7 @@ const dept = this.findDepartment(departmentId);
         leader: dept.leader,
         workspacePath: dept.workspacePath,
         createdAt: dept.createdAt,
-        groupChat: (dept.groupChat || []).slice(-200),
+        // groupChat is persisted in chatStore files (data/chats/group-dept-{id}/)
         members,
       });
     });
@@ -2165,14 +2207,14 @@ const dept = this.findDepartment(departmentId);
       progressReports: this.progressReports.slice(-30),
       logs: this.logs.slice(-100),
       secretary: {
-        name: this.secretary.agent.name,
-        avatar: this.secretary.agent.avatar,
-        signature: this.secretary.agent.signature,
-        prompt: this.secretary.agent.prompt,
-        providerId: this.secretary.agent.provider?.id,
-        cliBackend: this.secretary.agent.cliBackend || null,
-        tokenUsage: { ...this.secretary.agent.tokenUsage },
-        hrTokenUsage: { ...this.secretary.hrAssistant.agent.tokenUsage },
+        name: this.secretary.name,
+        avatar: this.secretary.avatar,
+        signature: this.secretary.signature,
+        prompt: this.secretary.prompt,
+        providerId: this.secretary.getProviderDisplayInfo().id,
+        cliBackend: this.secretary.cliBackend || null,
+        tokenUsage: { ...this.secretary.tokenUsage },
+        hrTokenUsage: { ...this.secretary.hrAssistant.employee.tokenUsage },
       },
       messageBusMessages: this.messageBus.messages.slice(-500).map(m => m.toJSON()),
       requirements: this.requirementManager.serialize(),
@@ -2221,34 +2263,37 @@ const dept = this.findDepartment(departmentId);
 
     // Restore secretary token usage
     if (data.secretary?.tokenUsage) {
-      Object.assign(company.secretary.agent.tokenUsage, data.secretary.tokenUsage);
+      Object.assign(company.secretary.tokenUsage, data.secretary.tokenUsage);
     }
     if (data.secretary?.hrTokenUsage) {
-      Object.assign(company.secretary.hrAssistant.agent.tokenUsage, data.secretary.hrTokenUsage);
+      Object.assign(company.secretary.hrAssistant.employee.tokenUsage, data.secretary.hrTokenUsage);
     }
     // Restore secretary custom prompt
     if (data.secretary?.prompt) {
-      company.secretary.agent.prompt = data.secretary.prompt;
+      company.secretary.prompt = data.secretary.prompt;
     }
     // Restore secretary signature
     if (data.secretary?.signature) {
-      company.secretary.agent.signature = data.secretary.signature;
+      company.secretary.signature = data.secretary.signature;
     }
     // Restore secretary CLI backend configuration
-    if (data.secretary?.cliBackend) {
-      company.secretary.agent.setCLIBackend(data.secretary.cliBackend);
-      // Also set cliProvider reference (for frontend display)
+    if (data.secretary?.cliBackend && company.secretary.agentType !== 'cli') {
       const cliProvider = company.providerRegistry.getById(data.secretary.providerId);
-      if (cliProvider && cliProvider.isCLI) {
-        company.secretary.agent.cliProvider = cliProvider;
+      if (cliProvider && cliProvider.isCLI && cliProvider.cliBackendId) {
+        const fallback = company.providerRegistry.recommend('general');
+        company.secretary.agent = new CLIAgent({
+          cliBackend: cliProvider.cliBackendId,
+          cliProvider: cliProvider,
+          fallbackProvider: fallback, provider: fallback,
+        });
       }
     }
 
     // Restore secretary memory from separate memory file
-    if (company.secretary?.agent?.id) {
-      const secretaryMemory = loadAgentMemory(company.secretary.agent.id);
+    if (company.secretary?.id) {
+      const secretaryMemory = loadAgentMemory(company.secretary.id);
       if (secretaryMemory) {
-        company.secretary.agent.memory = Memory.deserialize(secretaryMemory);
+        company.secretary.memory = Memory.deserialize(secretaryMemory);
         console.log(`  🧠 Secretary memory restored: ${secretaryMemory.shortTerm?.length || 0} short-term, ${secretaryMemory.longTerm?.length || 0} long-term`);
       }
     }
@@ -2270,7 +2315,8 @@ const dept = this.findDepartment(departmentId);
         try { mkdirSync(dept.workspacePath, { recursive: true }); } catch { /* ignore */ }
       }
       dept.createdAt = deptData.createdAt ? new Date(deptData.createdAt) : new Date();
-      dept.groupChat = deptData.groupChat || [];
+      // Load groupChat from file storage (with legacy inline data migration)
+      dept.loadGroupChatFromStore(deptData.groupChat);
 
       // Restore Agents
       for (const agentData of (deptData.members || [])) {
@@ -2279,7 +2325,7 @@ const dept = this.findDepartment(departmentId);
         if (externalMemory) {
           agentData.memory = externalMemory;
         }
-        const agent = Agent.deserialize(agentData, company.providerRegistry);
+        const agent = deserializeEmployee(agentData, company.providerRegistry);
         dept.addAgent(agent);
         // Restore toolkit
         if (dept.workspacePath) {
@@ -2361,6 +2407,16 @@ const dept = this.findDepartment(departmentId);
       company.providerRegistry.syncCLIBackends(cliBackendRegistry);
       reapplyCLIConfigs();
     }).catch(() => {});
+
+    // Re-start group chat loop for all restored agents
+    // (_initSubsystems ran during constructor when departments were still empty,
+    //  so we need to register all agents that were restored afterwards)
+    groupChatLoop.start(company);
+    for (const dept of company.departments.values()) {
+      for (const agent of dept.getMembers()) {
+        groupChatLoop.startAgentLoop(agent);
+      }
+    }
 
     console.log(`✅ Company "${company.name}" state restored: ${company.departments.size} departments`);
     return company;

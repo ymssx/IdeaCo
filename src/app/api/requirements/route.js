@@ -25,6 +25,8 @@ export async function GET(request) {
       return NextResponse.json({ error: t('api.requirementNotFound') }, { status: 404 });
     }
     const data = req.serialize();
+    // groupChat is stored separately in chatStore files, attach from memory
+    data.groupChat = req.groupChat || [];
 
     // Attach department member list (group member list)
     const dept = company.findDepartment(req.departmentId);

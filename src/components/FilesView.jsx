@@ -77,11 +77,11 @@ const defineCustomTheme = (monaco) => {
 
 /**
  * Shared FilesView component - VSCode style left-right layout
- * Left: file explorer (tree structure)
+ * Left: file explorer (tree structure showing actual workspace files)
  * Right: Monaco Editor code preview
  *
  * Props:
- *  - fileChanges: array of recent file changes from agents (optional)
+ *  - fileChanges: array of recent file changes from agents (used to trigger workspace reload)
  *  - departmentId: department ID for workspace API calls
  *  - previewFile: { path, content, loading } or null
  *  - onPreview: (filePath) => void
@@ -164,27 +164,9 @@ export default function FilesView({ fileChanges, departmentId, previewFile, onPr
     });
   }, [loadDirChildren]);
 
-  const recentTree = useMemo(() => {
-    const tree = {};
-    (fileChanges || []).forEach(fc => {
-      const parts = fc.filePath?.split('/').filter(Boolean) || [];
-      let node = tree;
-      parts.forEach((part, idx) => {
-        if (idx === parts.length - 1) {
-          node[part] = { __isFile: true, __data: fc, __path: fc.filePath };
-        } else {
-          if (!node[part] || node[part].__isFile) node[part] = {};
-          node = node[part];
-        }
-      });
-    });
-    return tree;
-  }, [fileChanges]);
-
   const totalCount = useMemo(() => {
-    const countRecent = (fileChanges || []).length;
-    return rootEntries.length + countRecent;
-  }, [rootEntries, fileChanges]);
+    return rootEntries.length;
+  }, [rootEntries]);
 
   useEffect(() => {
     if (!isResizing) return;
@@ -258,7 +240,7 @@ export default function FilesView({ fileChanges, departmentId, previewFile, onPr
   const sortedRootEntries = useMemo(() => sortEntries(rootEntries), [rootEntries]);
 
   // Empty state
-  if (rootEntries.length === 0 && (fileChanges || []).length === 0 && !previewFile && !wsLoading) {
+  if (rootEntries.length === 0 && !previewFile && !wsLoading) {
     return (
       <div className="flex items-center justify-center py-16 text-[var(--muted)]">
         <div className="text-center">
@@ -269,7 +251,7 @@ export default function FilesView({ fileChanges, departmentId, previewFile, onPr
       </div>
     );
   }
-  if (rootEntries.length === 0 && (fileChanges || []).length === 0 && wsLoading) {
+  if (rootEntries.length === 0 && wsLoading) {
     return (
       <div className="flex items-center justify-center py-16 text-[var(--muted)]">
         <div className="text-center">
@@ -284,7 +266,6 @@ export default function FilesView({ fileChanges, departmentId, previewFile, onPr
     if (entry.type === 'file') {
       const filePath = entry.path || entry.name;
       const isActive = previewFile?.path === filePath;
-      const recentMatch = (fileChanges || []).find(fc => fc.filePath === filePath);
       return (
         <div
           key={filePath}
@@ -299,11 +280,6 @@ export default function FilesView({ fileChanges, departmentId, previewFile, onPr
         >
           <span className="text-[11px] shrink-0">{getFileIcon(entry.name)}</span>
           <span className="truncate">{entry.name}</span>
-          {recentMatch?.agentName && (
-            <span className="ml-auto text-[10px] text-[var(--muted)] opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-              {recentMatch.agentName}
-            </span>
-          )}
         </div>
       );
     }
@@ -335,59 +311,6 @@ export default function FilesView({ fileChanges, departmentId, previewFile, onPr
     );
   };
 
-  const renderTreeNode = (node, name, path, depth = 0) => {
-    if (node.__isFile) {
-      const isActive = previewFile?.path === node.__path;
-      return (
-        <div
-          key={path}
-          className={`flex items-center gap-1.5 px-2 py-[3px] cursor-pointer text-xs transition-colors group ${
-            isActive
-              ? 'bg-[var(--accent)]/15 text-[var(--accent)]'
-              : 'text-[var(--foreground)]/80 hover:bg-white/[0.06]'
-          }`}
-          style={{ paddingLeft: `${depth * 16 + 16}px` }}
-          onClick={() => handleFileClick(node.__path)}
-          title={node.__path}
-        >
-          <span className="text-[11px] shrink-0">{getFileIcon(name)}</span>
-          <span className="truncate">{name}</span>
-          {node.__data?.agentName && (
-            <span className="ml-auto text-[10px] text-[var(--muted)] opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-              {node.__data.agentName}
-            </span>
-          )}
-        </div>
-      );
-    }
-
-    const entries = Object.entries(node).filter(([k]) => !k.startsWith('__'));
-    const dirs = entries.filter(([, v]) => !v.__isFile).sort(([a], [b]) => a.localeCompare(b));
-    const files = entries.filter(([, v]) => v.__isFile).sort(([a], [b]) => a.localeCompare(b));
-    const sorted = [...dirs, ...files];
-    const isExpanded = expandedDirs.has(path);
-
-    return (
-      <div key={path}>
-        <div
-          className="flex items-center gap-1.5 px-2 py-[3px] cursor-pointer text-xs text-[var(--foreground)]/80 hover:bg-white/[0.06] transition-colors"
-          style={{ paddingLeft: `${depth * 16 + 16}px` }}
-          onClick={() => setExpandedDirs(prev => { const n = new Set(prev); n.has(path) ? n.delete(path) : n.add(path); return n; })}
-        >
-          <span className="text-[10px] text-[var(--muted)] w-3 text-center shrink-0">
-            {isExpanded ? '▼' : '▶'}
-          </span>
-          <span className="text-[11px] shrink-0">📁</span>
-          <span className="truncate font-medium">{name}</span>
-          <span className="ml-auto text-[10px] text-[var(--muted)]">{entries.length}</span>
-        </div>
-        {isExpanded && sorted.map(([childName, childNode]) =>
-          renderTreeNode(childNode, childName, `${path}/${childName}`, depth + 1)
-        )}
-      </div>
-    );
-  };
-
   return (
     <div className="flex h-full min-h-[400px] overflow-hidden">
       {/* Left: file explorer */}
@@ -403,25 +326,6 @@ export default function FilesView({ fileChanges, departmentId, previewFile, onPr
         </div>
 
         <div className="flex-1 overflow-auto py-1 select-none">
-          {(fileChanges || []).length > 0 && Object.keys(recentTree).length > 0 && (
-            <>
-              <div className="px-3 py-1 text-[10px] text-yellow-400 font-medium">
-                {t('systemSettings.agentChanges')}
-              </div>
-              {Object.entries(recentTree).sort(([a, av], [b, bv]) => {
-                const aDir = !av.__isFile;
-                const bDir = !bv.__isFile;
-                if (aDir && !bDir) return -1;
-                if (!aDir && bDir) return 1;
-                return a.localeCompare(b);
-              }).map(([name, node]) =>
-                renderTreeNode(node, name, name, 0)
-              )}
-              {rootEntries.length > 0 && (
-                <div className="mx-3 my-1 h-px bg-white/[0.06]" />
-              )}
-            </>
-          )}
           {sortedRootEntries.map(entry => renderFileEntry(entry, 0))}
         </div>
       </div>

@@ -285,7 +285,7 @@ const zh = {
     subtitle: '管理所有需求——跟踪进度、查看产出、围观群聊',
     stats: { all: '全部需求', inProgress: '进行中', completed: '已完成', failed: '失败' },
     empty: '还没有需求', emptyHint: '去跟秘书聊天，分配一些任务吧！',
-    status: { pending: '待处理', planning: '规划中', in_progress: '执行中', completed: '已完成', failed: '失败' },
+    status: { pending: '待处理', planning: '规划中', in_progress: '执行中', pending_approval: '待审批', completed: '已完成', failed: '失败' },
     summary: { success: '✅ {n}/{total} 成功', duration: '⏱️ {n}秒' },
   },
   messages: {
@@ -450,7 +450,7 @@ const zh = {
     back: '← 返回列表',
     backShort: '返回',
     executingShort: '⚙️ 执行中',
-    status: { pending: '待处理', planning: '规划中', in_progress: '执行中', completed: '已完成', failed: '失败' },
+    status: { pending: '待处理', planning: '规划中', in_progress: '执行中', pending_approval: '待审批', completed: '已完成', failed: '失败' },
     deleteBtn: '🗑 删除', restartBtn: '🔄 重新执行',
     tabs: { workflow: '📊 工作流', chat: '💬 群聊', outputs: '📦 产出', files: '📁 文件', office: '🏢 办公室' },
     deleteConfirm: { title: '🗑 删除需求', desc: '确定要删除该需求吗？此操作无法撤销。', confirmBtn: '确认删除' },
@@ -463,6 +463,7 @@ const zh = {
       restarting: '🔄 重启中...', restart: '🔄 重新开始',
       deleteReq: '🗑️ 删除需求', confirmDelete: '确认删除？', recentFiles: '最近文件:',
     },
+    approvalHint: '回复"通过"批准，或输入修改意见...',
     chat: { noMessages: '暂无群聊消息', noMessagesHint: '任务执行时员工的沟通消息会在这里显示' },
     outputs: { noOutputs: '暂无产出', noOutputsHint: '任务完成后的产出文件会在这里显示', noOutputsShort: '暂无产出', collapse: '收起 ▲', expand: '展开 ▼' },
     files: {
@@ -503,6 +504,7 @@ const zh = {
       organizing: '正在组织思绪...',
       noMonologue: '该员工当前没有活跃的内心独白',
       noHistory: '暂无历史心流记录',
+      recentlyThought: '刚刚思考过',
       spoke: '💬 已发言',
       keptSilent: '🤫 保持沉默',
       codeBlock: '[代码块]',
@@ -646,6 +648,7 @@ const zh = {
     monologue: '🧠 内心独白',
     noMonologueYet: '该员工还没有产生内心独白',
     sendToGroupChat: '[发送到群聊]',
+    autoSent: '自动发送',
   },
 
   // === API 响应消息 ===

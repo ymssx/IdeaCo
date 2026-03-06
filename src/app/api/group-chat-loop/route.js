@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getCompany } from '@/lib/store';
-import { groupChatLoop } from '@/core/group-chat-loop.js';
+import { groupChatLoop } from '@/core/organization/group-chat-loop.js';
 import { getApiT } from '@/lib/api-i18n';
 
 /**
@@ -30,9 +30,9 @@ export async function GET(request) {
     return NextResponse.json({
       data: {
         running: groupChatLoop.running,
-        activePollers: groupChatLoop._pollTimers.size,
-        activeMonologues: groupChatLoop._activeMonologues.size,
-        processingCount: groupChatLoop._processing.size,
+        activePollers: groupChatLoop._lifecycles.size,
+        activeMonologues: groupChatLoop.getActiveThinkingAgents().length,
+        processingCount: groupChatLoop._lifecycles.size,
       },
     });
   }
