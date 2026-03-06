@@ -60,7 +60,7 @@ Most agent frameworks create **workflows**. IdeaCo manages **long-living AI empl
 ```bash
 git clone <repo-url>
 cd IdeaCo
-nvm use
+nvm use 20
 npm install
 npm run dev
 ```
