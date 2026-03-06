@@ -20,7 +20,7 @@ export async function GET(request) {
   }
 
   if (!company.teamManager) {
-    const { TeamManager: TM } = await import('@/core/team.js');
+    const { TeamManager: TM } = await import('@/core/organization/team.js');
     company.teamManager = new TM();
   }
 
@@ -127,7 +127,7 @@ export async function DELETE(request) {
   }
 
   if (!company.teamManager) {
-    const { TeamManager: TM } = await import('@/core/team.js');
+    const { TeamManager: TM } = await import('@/core/organization/team.js');
     company.teamManager = new TM();
   }
 
@@ -161,7 +161,7 @@ export async function POST(request) {
   }
 
   if (!company.teamManager) {
-    const { TeamManager: TM } = await import('@/core/team.js');
+    const { TeamManager: TM } = await import('@/core/organization/team.js');
     company.teamManager = new TM();
   }
 
@@ -249,7 +249,7 @@ export async function POST(request) {
     const team = company.teamManager.get(teamId);
     if (!team) return NextResponse.json({ error: t('api.teamNotFound') }, { status: 404 });
 
-    const { Sprint } = await import('@/core/team.js');
+    const { Sprint } = await import('@/core/organization/team.js');
     const sprint = new Sprint({ title, goal, teamId: team.id, teamName: team.name });
     team.addSprint(sprint);
 
@@ -277,7 +277,7 @@ export async function POST(request) {
     const sprint = team.getSprint(sprintId);
     if (!sprint) return NextResponse.json({ error: t('api.sprintNotFound') }, { status: 404 });
 
-    const { SprintStatus: SS } = await import('@/core/team.js');
+    const { SprintStatus: SS } = await import('@/core/organization/team.js');
     if (sprint.status !== SS.DRAFT) {
       return NextResponse.json({ error: t('api.sprintNotDraft') }, { status: 400 });
     }
@@ -554,7 +554,7 @@ Speak in the same language as the original plan.`,
     const sprint = team.getSprint(sprintId);
     if (!sprint) return NextResponse.json({ error: t('api.sprintNotFound') }, { status: 404 });
 
-    const { SprintStatus: SS } = await import('@/core/team.js');
+    const { SprintStatus: SS } = await import('@/core/organization/team.js');
     if (sprint.status !== SS.PENDING_APPROVAL) {
       return NextResponse.json({ error: t('api.sprintNotPendingApproval') }, { status: 400 });
     }
@@ -617,7 +617,7 @@ Speak in the same language as the original plan.`,
     company.save();
 
     // Trigger leader to respond when Boss sends a message
-    const { SprintStatus: SS } = await import('@/core/team.js');
+    const { SprintStatus: SS } = await import('@/core/organization/team.js');
     if (sprint.status === SS.IN_PROGRESS || sprint.status === SS.DISCUSSING || sprint.status === SS.PENDING_APPROVAL) {
       const dept = company.findDepartment(team.departmentId);
       const leader = dept?.agents.get(team.leaderId);

@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { JobCategory } from './providers.js';
+import { JobCategory } from '../providers.js';
 
 /**
  * Predefined Job Templates - Recruitment JD Library

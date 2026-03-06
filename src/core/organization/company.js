@@ -1,28 +1,28 @@
 import { v4 as uuidv4 } from 'uuid';
-import { ProviderRegistry, ModelProviders, JobCategory, JobCategoryLabel } from './providers.js';
+import { ProviderRegistry, ModelProviders, JobCategory, JobCategoryLabel } from '../providers.js';
 import { HRSystem } from './hr.js';
 import { Department } from './department.js';
-import { Employee, createEmployee, deserializeEmployee, Secretary } from './employee/index.js';
-import { LLMAgent, CLIAgent } from './agent/index.js';
-import { PerformanceSystem } from './performance.js';
-import { TalentMarket } from './talent-market.js';
-import { MessageBus } from './message-bus.js';
+import { Employee, createEmployee, deserializeEmployee, Secretary } from '../employee/index.js';
+import { LLMAgent, CLIAgent } from '../agent/index.js';
+import { PerformanceSystem } from '../performance.js';
+import { TalentMarket } from '../talent-market.js';
+import { MessageBus } from '../message-bus.js';
 import { existsSync, mkdirSync } from 'fs';
-import { WorkspaceManager } from './workspace.js';
-import { debouncedSave } from './persistence.js';
-import { llmClient } from './agent/llm-agent/client.js';
-import { loadAgentMemory, saveAgentMemory } from './employee/memory/store.js';
-import { Memory } from './employee/memory/index.js';
-import { RequirementManager, RequirementStatus } from './requirement.js';
+import { WorkspaceManager } from '../workspace.js';
+import { debouncedSave } from '../persistence.js';
+import { llmClient } from '../agent/llm-agent/client.js';
+import { loadAgentMemory, saveAgentMemory } from '../employee/memory/store.js';
+import { Memory } from '../employee/memory/index.js';
+import { RequirementManager, RequirementStatus } from '../requirement.js';
 import { TeamManager, SprintStatus } from './team.js';
-import { hookRegistry, HookEvent } from '../lib/hooks.js';
-import { sessionManager } from './session.js';
-import { cronScheduler } from './cron.js';
-import { pluginRegistry } from './plugin.js';
-import { auditLogger, AuditCategory, AuditLevel } from './audit.js';
-import { chatStore } from './chat-store.js';
-import { cliBackendRegistry } from './agent/cli-agent/backends/index.js';
-import { groupChatLoop } from './group-chat-loop.js';
+import { hookRegistry, HookEvent } from '../../lib/hooks.js';
+import { sessionManager } from '../session.js';
+import { cronScheduler } from '../system/cron.js';
+import { pluginRegistry } from '../system/plugin.js';
+import { auditLogger, AuditCategory, AuditLevel } from '../system/audit.js';
+import { chatStore } from '../chat-store.js';
+import { cliBackendRegistry } from '../agent/cli-agent/backends/index.js';
+import { groupChatLoop } from '../group-chat-loop.js';
 
 
 /**
@@ -1562,7 +1562,7 @@ const dept = this.findDepartment(departmentId);
     }
 
     // 5. Update sprint status based on requirement result
-    const { SprintStatus } = await import('@/core/team.js');
+    const { SprintStatus } = await import('@/core/organization/team.js');
     if (requirement.status === 'completed') {
       sprint.status = SprintStatus.COMPLETED;
       sprint.completedAt = new Date();

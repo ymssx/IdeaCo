@@ -3,11 +3,11 @@
  * Exports all core modules
  */
 
-export { Company } from './company.js';
+export { Company } from './organization/company.js';
 export { createAgent, deserializeAgent, BaseAgent, LLMAgent, CLIAgent } from './agent/index.js';
 export { Employee, createEmployee, deserializeEmployee, Secretary, HRAssistant } from './employee/index.js';
-export { Department } from './department.js';
-export { HRSystem, JobTemplates } from './hr.js';
+export { Department } from './organization/department.js';
+export { HRSystem, JobTemplates } from './organization/hr.js';
 export { ProviderRegistry, ModelProviders, JobCategory, JobCategoryLabel } from './providers.js';
 export { Memory } from './employee/memory/index.js';
 export { PerformanceSystem, PerformanceReview, PerformanceDimensions, PerformanceLevel } from './performance.js';
@@ -21,16 +21,16 @@ export { saveAgentMemory, loadAgentMemory, saveAllAgentMemories, deleteAgentMemo
 
 // Distilled modules (inspired by OpenClaw - see THIRD-PARTY-NOTICES.md)
 export { ProviderRouter, providerRouter, RoutingStrategy } from './provider-router.js';
-export { AuditLogger, SecurityGuard, auditLogger, securityGuard, AuditLevel, AuditCategory } from './audit.js';
-export { PluginRegistry, pluginRegistry, PluginManifest, HookPoint, PluginState, initPluginRuntime } from './plugin.js';
-export { CronScheduler, cronScheduler, JobStatus, parseCronExpression } from './cron.js';
+export { AuditLogger, SecurityGuard, auditLogger, securityGuard, AuditLevel, AuditCategory } from './system/audit.js';
+export { PluginRegistry, pluginRegistry, PluginManifest, HookPoint, PluginState, initPluginRuntime } from './system/plugin.js';
+export { CronScheduler, cronScheduler, JobStatus, parseCronExpression } from './system/cron.js';
 export { HookRegistry, hookRegistry, HookEvent, HookEventType, createHookEvent } from '../lib/hooks.js';
 export { SessionManager, sessionManager, SessionState, SendPolicy, buildSessionKey } from './session.js';
 export { ConfigValidator, configValidator, ConfigType, enterpriseConfigSchema } from '../lib/config-validator.js';
-export { SkillRegistry, skillRegistry, SkillDefinition, SkillCategory, SkillState } from './skills.js';
+export { SkillRegistry, skillRegistry, SkillDefinition, SkillCategory, SkillState } from './employee/skills.js';
 export { KnowledgeManager, knowledgeManager, KnowledgeType, EntryType } from './knowledge.js';
 export { ChatStore, chatStore } from './chat-store.js';
 export { CLIBackendRegistry, cliBackendRegistry, CLIBackendState } from './agent/cli-agent/backends/index.js';
 export { GroupChatLoop, groupChatLoop } from './group-chat-loop.js';
-export { TeamManager, Team, Sprint, SprintStatus } from './team.js';
+export { TeamManager, Team, Sprint, SprintStatus } from './organization/team.js';
 export { setPromptLocale, getPromptLocaleCode, getPromptLocale } from './prompt-locale.js';

@@ -9,9 +9,9 @@
  */
 import { loadState, saveState, clearState } from '@/core/persistence.js';
 import { Company } from '@/core/index.js';
-import { initPluginRuntime } from '@/core/plugin.js';
+import { initPluginRuntime } from '@/core/system/plugin.js';
 import { sessionManager } from '@/core/session.js';
-import { cronScheduler } from '@/core/cron.js';
+import { cronScheduler } from '@/core/system/cron.js';
 import { knowledgeManager } from '@/core/knowledge.js';
 import { llmClient } from '@/core/agent/llm-agent/client.js';
 

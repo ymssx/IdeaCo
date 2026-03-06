@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
-import { auditLogger, securityGuard } from '@/core/audit.js';
+import { auditLogger, securityGuard } from '@/core/system/audit.js';
 import { providerRouter } from '@/core/provider-router.js';
-import { pluginRegistry } from '@/core/plugin.js';
-import { cronScheduler } from '@/core/cron.js';
+import { pluginRegistry } from '@/core/system/plugin.js';
+import { cronScheduler } from '@/core/system/cron.js';
 import { hookRegistry } from '@/lib/hooks.js';
 import { sessionManager } from '@/core/session.js';
 import { configValidator } from '@/lib/config-validator.js';

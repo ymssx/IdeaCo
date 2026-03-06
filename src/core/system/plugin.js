@@ -51,7 +51,7 @@ export function initPluginRuntime({ sessionManager, cronScheduler, knowledgeMana
   if (messageBus) _messageBus = messageBus;
 }
 
-import { WORKSPACE_DIR, DATA_DIR } from '../lib/paths.js';
+import { WORKSPACE_DIR, DATA_DIR } from '../../lib/paths.js';
 
 /**
  * Plugin lifecycle states
@@ -742,7 +742,7 @@ export const ImagePlugin = new PluginManifest({
         try {
           if (_llmClient) {
             // Get the image model provider from provider-router
-            const { providerRouter } = await import('./provider-router.js');
+            const { providerRouter } = await import('../provider-router.js');
             const imgProvider = providerRouter.getProviderForCategory('image');
             if (imgProvider) {
               const result = await _llmClient.generateImage(imgProvider, args.prompt, { size: args.size || '1024x1024' });
@@ -951,7 +951,7 @@ export const TtsPlugin = new PluginManifest({
             return JSON.stringify({ status: 'error', error: 'openai package not installed. Run: npm install openai' });
           }
           const OpenAI = openaiModule.default || openaiModule;
-          const { providerRouter } = await import('./provider-router.js');
+          const { providerRouter } = await import('../provider-router.js');
           // Get OpenAI provider
           const providers = providerRouter.listProviders();
           const openaiProvider = providers.find(p => p.id.startsWith('openai-') && p.enabled && p.apiKey);
@@ -1738,7 +1738,7 @@ export const LlmTaskPlugin = new PluginManifest({
         // Real implementation: use LLM for structured output tasks
         try {
           if (!_llmClient) return JSON.stringify({ status: 'error', error: 'LLMClient not initialized' });
-          const { providerRouter } = await import('./provider-router.js');
+          const { providerRouter } = await import('../provider-router.js');
           const provider = providerRouter.getProviderForCategory('general');
           if (!provider) return JSON.stringify({ status: 'error', error: 'No general LLM provider available' });
 
@@ -2140,7 +2140,7 @@ export const ThinkingPlugin = new PluginManifest({
         // Real implementation: use LLM for deep thinking
         try {
           if (!_llmClient) return JSON.stringify({ status: 'error', error: 'LLMClient not initialized' });
-          const { providerRouter } = await import('./provider-router.js');
+          const { providerRouter } = await import('../provider-router.js');
           const provider = providerRouter.getProviderForCategory('general');
           if (!provider) return JSON.stringify({ status: 'error', error: 'No general LLM provider available' });
 

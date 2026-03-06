@@ -11,7 +11,7 @@
  */
 import fs from 'fs';
 import path from 'path';
-import { MEMORY_DIR } from '../../paths.js';
+import { MEMORY_DIR } from '../../../lib/paths.js';
 
 // Ensure directory exists
 if (!fs.existsSync(MEMORY_DIR)) {

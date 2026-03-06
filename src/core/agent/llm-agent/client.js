@@ -6,7 +6,7 @@
  */
 import OpenAI from 'openai';
 import { providerRouter } from '../../provider-router.js';
-import { auditLogger, AuditCategory, AuditLevel } from '../../audit.js';
+import { auditLogger, AuditCategory, AuditLevel } from '../../system/audit.js';
 import { hookRegistry, HookEvent } from '../../../lib/hooks.js';
 
 /**

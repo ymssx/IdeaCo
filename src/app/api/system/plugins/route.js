@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { pluginRegistry } from '@/core/plugin.js';
+import { pluginRegistry } from '@/core/system/plugin.js';
 import { getApiT } from '@/lib/api-i18n';
 
 /**

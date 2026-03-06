@@ -16,7 +16,7 @@ import { tmpdir } from 'os';
 import path from 'path';
 import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
-import { skillRegistry } from '../../../skills.js';
+import { skillRegistry } from '../../../employee/skills.js';
 import { knowledgeManager } from '../../../knowledge.js';
 
 // Import each CLI model's configuration

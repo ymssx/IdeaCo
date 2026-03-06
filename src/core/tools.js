@@ -14,8 +14,8 @@ import { existsSync, mkdirSync } from 'fs';
 import path from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import { securityGuard } from './audit.js';
-import { pluginRegistry, HookPoint } from './plugin.js';
+import { securityGuard } from './system/audit.js';
+import { pluginRegistry, HookPoint } from './system/plugin.js';
 // chatStore recording is handled centrally by requirement.js messageHandler
 
 const execAsync = promisify(exec);

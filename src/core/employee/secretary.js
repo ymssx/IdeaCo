@@ -1,9 +1,9 @@
 import { v4 as uuidv4 } from 'uuid';
 import { Employee } from './base-employee.js';
 
-import { JobTemplates } from '../hr.js';
-import { pluginRegistry } from '../plugin.js';
-import { skillRegistry } from '../skills.js';
+import { JobTemplates } from '../organization/hr.js';
+import { pluginRegistry } from '../system/plugin.js';
+import { skillRegistry } from './skills.js';
 import { knowledgeManager } from '../knowledge.js';
 import { chatStore } from '../chat-store.js';
 import { cliBackendRegistry } from '../agent/cli-agent/backends/index.js';

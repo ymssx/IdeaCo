@@ -13,7 +13,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs';
 import path from 'path';
-import { AUDIT_DIR } from '../lib/paths.js';
+import { AUDIT_DIR } from '../../lib/paths.js';
 
 /**
  * Audit event severity levels
