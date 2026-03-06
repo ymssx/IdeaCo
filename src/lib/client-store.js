@@ -632,7 +632,7 @@ chatMinimized: false,
 
   fetchWorkspaceFile: async (departmentId, filePath) => {
     try {
-      const data = await apiCall(`/workspace/${departmentId}/file?path=${encodeURIComponent(filePath)}`);
+      const data = await apiCall(`/ws-files/${departmentId}/file?path=${encodeURIComponent(filePath)}`);
       return data.data;
     } catch (e) {
       console.error(`[fetchWorkspaceFile] Failed to read ${filePath}:`, e.message || e);
