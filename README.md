@@ -48,21 +48,51 @@ Most agent frameworks create **workflows**. IdeaCo manages **long-living AI empl
 
 ---
 
-## Quick Start
+## Download
+
+Grab the latest release for your platform:
+
+**[⬇ Download IdeaCo](https://github.com/ymssx/IdeaCo/releases/latest)**
+
+| Platform | File |
+|----------|------|
+| macOS (Apple Silicon) | `IdeaCo-x.x.x-arm64.dmg` |
+| macOS (Intel) | `IdeaCo-x.x.x-x64.dmg` |
+| Windows | `IdeaCo-x.x.x-Setup.exe` |
+| Linux | `IdeaCo-x.x.x.AppImage` / `.deb` |
+
+### macOS Security Notice
+
+Since IdeaCo is not signed with an Apple Developer certificate, macOS will show:
+
+> "Apple cannot verify that IdeaCo is free of malware."
+
+To open it:
+
+1. **First time**: Right-click (or Control-click) the app → click **Open** → click **Open** again in the dialog
+2. **Or**: Go to **System Settings → Privacy & Security**, scroll down to find the blocked message, click **Open Anyway**
+3. **Or via Terminal**:
+   ```bash
+   xattr -cr /Applications/IdeaCo.app
+   ```
+
+---
+
+## Quick Start (from source)
 
 ### Prerequisites
 
 - **Node.js** >= 20 (`.nvmrc` included)
-- **npm** or **yarn**
+- **yarn**
 
 ### Development
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/ymssx/IdeaCo.git
 cd IdeaCo
 nvm use 20
-npm install
-npm run dev
+yarn install
+yarn dev
 ```
 
 Open **http://localhost:9999** — the Setup Wizard will guide you through company creation and LLM configuration.
@@ -70,8 +100,8 @@ Open **http://localhost:9999** — the Setup Wizard will guide you through compa
 ### Production
 
 ```bash
-npm run build
-npm start
+yarn build
+yarn start
 ```
 
 ---
