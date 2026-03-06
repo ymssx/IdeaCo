@@ -51,9 +51,7 @@ export function initPluginRuntime({ sessionManager, cronScheduler, knowledgeMana
   if (messageBus) _messageBus = messageBus;
 }
 
-// Workspace directories
-const WORKSPACE_DIR = path.resolve(process.cwd(), 'workspace');
-const DATA_DIR = path.resolve(process.cwd(), 'data');
+import { WORKSPACE_DIR, DATA_DIR } from './paths.js';
 
 /**
  * Plugin lifecycle states

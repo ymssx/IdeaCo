@@ -20,9 +20,7 @@
 import fs from 'fs';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
-
-const DATA_DIR = path.resolve(process.cwd(), 'data');
-const CHATS_DIR = path.join(DATA_DIR, 'chats');
+import { CHATS_DIR } from './paths.js';
 
 // Max messages per chunk
 const MESSAGES_PER_CHUNK = 50;

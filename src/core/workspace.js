@@ -7,12 +7,10 @@
 import fs from 'fs/promises';
 import { existsSync, mkdirSync } from 'fs';
 import path from 'path';
-
-// Default workspace root directory
-const DEFAULT_ROOT = path.resolve(process.cwd(), 'workspace');
+import { WORKSPACE_DIR } from './paths.js';
 
 export class WorkspaceManager {
-  constructor(rootDir = DEFAULT_ROOT) {
+  constructor(rootDir = WORKSPACE_DIR) {
     this.rootDir = rootDir;
     if (!existsSync(rootDir)) {
       mkdirSync(rootDir, { recursive: true });

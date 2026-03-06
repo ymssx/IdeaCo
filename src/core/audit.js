@@ -13,6 +13,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs';
 import path from 'path';
+import { AUDIT_DIR } from './paths.js';
 
 /**
  * Audit event severity levels
@@ -79,7 +80,7 @@ export class AuditLogger {
    * @param {Function} options.onCritical - Callback for critical events
    */
   constructor(options = {}) {
-    this.logDir = options.logDir || path.resolve(process.cwd(), 'data', 'audit');
+    this.logDir = options.logDir || AUDIT_DIR;
     this.maxEvents = options.maxEvents ?? 1000;
     this.persistToDisk = options.persistToDisk ?? true;
     this.onCritical = options.onCritical || null;

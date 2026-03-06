@@ -11,9 +11,7 @@
  */
 import fs from 'fs';
 import path from 'path';
-
-const DATA_DIR = path.resolve(process.cwd(), 'data');
-const MEMORY_DIR = path.join(DATA_DIR, 'memories');
+import { MEMORY_DIR } from './paths.js';
 
 // Ensure directory exists
 if (!fs.existsSync(MEMORY_DIR)) {

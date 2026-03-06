@@ -5,12 +5,8 @@
  * Storage location: under project root data/ directory.
  */
 import fs from 'fs';
-import path from 'path';
 import { saveAllAgentMemories, loadAgentMemory, clearAllMemories } from './memory-store.js';
-
-const DATA_DIR = path.resolve(process.cwd(), 'data');
-const STATE_FILE = path.join(DATA_DIR, 'company-state.json');
-const BACKUP_FILE = path.join(DATA_DIR, 'company-state.backup.json');
+import { DATA_DIR, STATE_FILE, BACKUP_FILE } from './paths.js';
 
 // Ensure data directory exists
 if (!fs.existsSync(DATA_DIR)) {
