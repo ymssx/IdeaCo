@@ -704,9 +704,9 @@ Rules:
       name: sec.name,
       avatar: sec.avatar,
       gender: sec.gender,
-      age: currentAgent.age,
-      prompt: currentAgent.prompt,
-      signature: currentAgent.signature,
+      age: sec.age,
+      prompt: sec.prompt,
+      signature: sec.signature,
       provider: displayInfo.name,
       providerId: displayInfo.id,
     };
