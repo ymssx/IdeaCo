@@ -213,14 +213,14 @@ const { fetchRequirementDetail, requirementDetail, clearRequirementDetail, fetch
                   <span className="animate-pulse text-yellow-400 text-xs">{t('reqDetail.executingShort')}</span>
                 )}
               </div>
-              <div className="flex items-center gap-4 mt-1 text-xs text-[var(--muted)]">
-                <span>🏢 {req.departmentName}</span>
-                <span>📅 {new Date(req.createdAt).toLocaleString()}</span>
+              <div className="flex items-center gap-4 mt-1 text-xs text-[var(--muted)] flex-wrap">
+                <span className="whitespace-nowrap">🏢 {req.departmentName}</span>
+                <span className="whitespace-nowrap">📅 {new Date(req.createdAt).toLocaleString()}</span>
                 <span className="truncate max-w-md">{req.description}</span>
                 {req.summary && (
                   <>
-                    <span>{t('reqDetail.summary.tasks', { n: req.summary.successTasks, total: req.summary.totalTasks })}</span>
-                    <span>{t('reqDetail.summary.duration', { n: Math.round((req.summary.totalDuration || 0) / 1000) })}</span>
+                    <span className="whitespace-nowrap">{t('reqDetail.summary.tasks', { n: req.summary.successTasks, total: req.summary.totalTasks })}</span>
+                    <span className="whitespace-nowrap">{t('reqDetail.summary.duration', { n: Math.round((req.summary.totalDuration || 0) / 1000) })}</span>
                   </>
                 )}
               </div>
@@ -376,13 +376,13 @@ const { fetchRequirementDetail, requirementDetail, clearRequirementDetail, fetch
               )}
             </div>
             <p className="text-sm text-[var(--muted)] mt-1 line-clamp-2">{req.description}</p>
-            <div className="flex items-center gap-4 mt-2 text-xs text-[var(--muted)]">
-              <span>🏢 {req.departmentName}</span>
-              <span>📅 {new Date(req.createdAt).toLocaleString()}</span>
+            <div className="flex items-center gap-4 mt-2 text-xs text-[var(--muted)] flex-wrap">
+              <span className="whitespace-nowrap">🏢 {req.departmentName}</span>
+              <span className="whitespace-nowrap">📅 {new Date(req.createdAt).toLocaleString()}</span>
               {req.summary && (
                 <>
-                  <span>✅ {req.summary.successTasks}/{req.summary.totalTasks} {t('reqDetail.summary.tasks', { n: req.summary.successTasks, total: req.summary.totalTasks }).replace(/✅ \d+\/\d+ /, '')}</span>
-                  <span>⏱️ {Math.round((req.summary.totalDuration || 0) / 1000)}s</span>
+                  <span className="whitespace-nowrap">✅ {req.summary.successTasks}/{req.summary.totalTasks} {t('reqDetail.summary.tasks', { n: req.summary.successTasks, total: req.summary.totalTasks }).replace(/✅ \d+\/\d+ /, '')}</span>
+                  <span className="whitespace-nowrap">⏱️ {Math.round((req.summary.totalDuration || 0) / 1000)}s</span>
                 </>
               )}
             </div>

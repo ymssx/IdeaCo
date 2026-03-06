@@ -202,7 +202,7 @@ export default function DepartmentDetail() {
         </div>
         {/* Stats bar */}
         <div className="flex items-center gap-4 mt-2 text-xs text-[var(--muted)]">
-          <span>👥 {t('dept.members.count', { n: dept.members.length })}</span>
+          <span>👥 {t('dept.members', { n: dept.members.length })}</span>
           <span>💰 ${(dept.tokenUsage?.totalCost || 0).toFixed(4)}</span>
           <span>🔢 {(dept.tokenUsage?.totalTokens || 0).toLocaleString()} tokens</span>
           <span>📋 {deptRequirements.length} {t('dept.detail.requirements')}</span>

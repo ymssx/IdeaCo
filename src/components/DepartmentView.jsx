@@ -124,7 +124,7 @@ export default function DepartmentView() {
                   <span className="text-xs text-green-400">
                     ${(dept.tokenUsage?.totalCost || 0).toFixed(4)}
                   </span>
-                  <span className="text-sm text-[var(--muted)]">{t('dept.members.count', { n: dept.members.length })}</span>
+                  <span className="text-sm text-[var(--muted)]">{t('dept.members', { n: dept.members.length })}</span>
                   <span className="text-[var(--muted)] text-xs">{t('dept.viewDetail')}</span>
                 </div>
               </div>
