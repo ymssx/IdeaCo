@@ -1362,7 +1362,7 @@ const dept = this.findDepartment(departmentId);
 
     try {
       await this.requirementManager.planWorkflow(
-        requirement, members, leader.provider
+        requirement, members
       );
     } catch (e) {
       console.error('Workflow decomposition failed:', e.message);
@@ -1504,7 +1504,7 @@ const dept = this.findDepartment(departmentId);
 
     try {
       await this.requirementManager.planWorkflow(
-        requirement, members, leader.provider
+        requirement, members
       );
     } catch (e) {
       console.error('Sprint workflow decomposition failed:', e.message);
@@ -1685,7 +1685,7 @@ const dept = this.findDepartment(departmentId);
       (async () => {
         try {
           await this.requirementManager.planWorkflow(
-            requirement, members, leader.provider, adjustmentContext
+            requirement, members, adjustmentContext
           );
           this.save();
 

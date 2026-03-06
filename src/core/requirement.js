@@ -1,7 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { llmClient } from './agent/llm-agent/client.js';
 import { chatStore } from './agent/chat-store.js';
-import { cliBackendRegistry } from './agent/cli-agent/backends/index.js';
 import { WorkspaceManager } from './workspace.js';
 
 /**
@@ -213,13 +211,14 @@ export class RequirementManager {
   }
 
   /**
-   * Leader uses LLM to decompose requirement into workflow
+   * Leader decomposes requirement into workflow.
+   * Automatically finds a capable agent from members to perform the decomposition.
    * @param {Requirement} requirement - Requirement
-   * @param {Array} members - Department members list
-   * @param {object} leaderProvider - Leader's LLM provider
+   * @param {Array} members - Department members list (Employee instances)
+   * @param {object} [adjustmentContext] - If present, this is a workflow adjustment
    * @returns {object} Workflow
    */
-  async planWorkflow(requirement, members, leaderProvider, adjustmentContext = null) {
+  async planWorkflow(requirement, members, adjustmentContext = null) {
     requirement.status = RequirementStatus.PLANNING;
     if (adjustmentContext) {
       requirement.addGroupMessage(
@@ -235,42 +234,15 @@ export class RequirementManager {
       );
     }
 
-    // Ensure we have a usable LLM provider for decomposition
-    // If leader's provider is not valid, try to find one from any team member
-    let effectiveProvider = leaderProvider;
-    const isProviderUsable = (p) => p && p.enabled && p.apiKey && !p.isCLI;
-    if (!isProviderUsable(effectiveProvider)) {
-      for (const m of members) {
-        if (isProviderUsable(m.provider)) {
-          effectiveProvider = m.provider;
-          console.log(`  🔄 Leader provider unusable, borrowing provider from [${m.name}] (${m.provider.name}) for workflow decomposition`);
-          break;
-        }
-      }
+    // Find a member who can chat (LLM or CLI with chat ability) to do the decomposition.
+    // Prefer leader, then fall back to any member who canChat().
+    const leader = members.find(m => m.role === 'Project Leader') || members[0];
+    let planner = leader?.canChat() ? leader : null;
+    if (!planner) {
+      planner = members.find(m => m.canChat()) || null;
     }
-
-    // Determine if we should use CLI backend for decomposition
-    // (when no LLM provider is available but a CLI backend exists)
-    let cliBackendId = null;
-    let cliAgent = null;
-    if (!isProviderUsable(effectiveProvider)) {
-      // Find a member with a CLI backend to use for decomposition
-      const leader = members.find(m => m.role === 'Project Leader') || members[0];
-      if (leader?.cliBackend) {
-        cliBackendId = leader.cliBackend;
-        cliAgent = leader;
-      } else {
-        for (const m of members) {
-          if (m.cliBackend) {
-            cliBackendId = m.cliBackend;
-            cliAgent = m;
-            break;
-          }
-        }
-      }
-      if (cliBackendId) {
-        console.log(`  🖥️ No LLM provider available, using CLI backend [${cliBackendId}] from [${cliAgent.name}] for workflow decomposition`);
-      }
+    if (planner && planner !== leader) {
+      console.log(`  🔄 Leader cannot chat, borrowing [${planner.name}] for workflow decomposition`);
     }
 
     // Build member info
@@ -330,28 +302,22 @@ Requirements:
       ? `Requirement title: ${requirement.title}\nRequirement description: ${requirement.description}\n\n**ADJUSTMENT REQUEST FROM BOSS:**\n${adjustmentContext.bossMessage}\n\n**YOUR PLANNED ADJUSTMENTS:**\n${adjustmentContext.adjustments}\n\n**PREVIOUS WORKFLOW (for reference):**\n${adjustmentContext.previousWorkflow}\n\n**EXISTING OUTPUT FILES (must be preserved and built upon):**\n${adjustmentContext.existingOutputs || 'None'}\n\n**IMPORTANT:** This is an ADJUSTMENT, NOT a restart. You must:\n1. PRESERVE all existing output files - do NOT recreate them from scratch\n2. Only create tasks that MODIFY existing files or ADD new content\n3. When a task needs to change an existing file, the agent should READ the current file first, then modify it\n4. Only add NEW tasks for genuinely new work that wasn't done before\n5. Reuse the previous workflow structure where possible, adjusting only what the Boss requested\n\nPlease create an ADJUSTED workflow based on the Boss's instructions.`
       : `Requirement title: ${requirement.title}\nRequirement description: ${requirement.description}\n\nPlease decompose the workflow.`;
 
+    if (!planner) {
+      console.error('No member can chat, falling back to rule-based workflow');
+      const fallbackWorkflow = this._fallbackWorkflow(requirement, members);
+      requirement.addGroupMessage(
+        { name: 'System', role: 'system' },
+        `⚠️ No available agent for decomposition, generated a simple workflow using rules (${fallbackWorkflow.nodes.length} tasks)`,
+        'system'
+      );
+      return fallbackWorkflow;
+    }
+
     try {
-      let response;
-      if (cliBackendId && !isProviderUsable(effectiveProvider)) {
-        // Use CLI backend for decomposition
-        const cliResult = await cliBackendRegistry.executeTask(
-          cliBackendId,
-          cliAgent,
-          {
-            title: 'Workflow decomposition',
-            description: `${systemPrompt}\n\n${userPrompt}`,
-          },
-          cliAgent.toolKit?.workspaceDir || process.cwd(),
-          {},
-          { timeout: 120000 }
-        );
-        response = { content: cliResult.output || cliResult.errorOutput || '' };
-      } else {
-        response = await llmClient.chat(effectiveProvider, [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ], { temperature: 0.7, maxTokens: 2048 });
-      }
+      const response = await planner.chat([
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ], { temperature: 0.7, maxTokens: 2048 });
 
       // Parse JSON (robust extraction for both LLM and CLI output)
       const tick = String.fromCharCode(96);
