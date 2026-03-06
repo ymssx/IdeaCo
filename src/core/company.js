@@ -15,7 +15,7 @@ import { loadAgentMemory, saveAgentMemory } from './employee/memory/store.js';
 import { Memory } from './employee/memory/index.js';
 import { RequirementManager, RequirementStatus } from './requirement.js';
 import { TeamManager, SprintStatus } from './team.js';
-import { hookRegistry, HookEvent } from './hooks.js';
+import { hookRegistry, HookEvent } from '../lib/hooks.js';
 import { sessionManager } from './session.js';
 import { cronScheduler } from './cron.js';
 import { pluginRegistry } from './plugin.js';

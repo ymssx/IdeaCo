@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { resetCompany } from '@/lib/store';
 import { getApiT } from '@/lib/api-i18n';
 import fs from 'fs';
-import { DATA_DIR, WORKSPACE_DIR } from '@/core/paths.js';
+import { DATA_DIR, WORKSPACE_DIR } from '@/lib/paths.js';
 
 /**
  * POST /api/company/factory-reset

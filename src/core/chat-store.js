@@ -20,7 +20,7 @@
 import fs from 'fs';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { CHATS_DIR } from './paths.js';
+import { CHATS_DIR } from '../lib/paths.js';
 
 // Max messages per chunk
 const MESSAGES_PER_CHUNK = 50;

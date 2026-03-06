@@ -6,7 +6,7 @@
  */
 import fs from 'fs';
 import { saveAllAgentMemories, loadAgentMemory, clearAllMemories } from './employee/memory/store.js';
-import { DATA_DIR, STATE_FILE, BACKUP_FILE } from './paths.js';
+import { DATA_DIR, STATE_FILE, BACKUP_FILE } from '../lib/paths.js';
 
 // Ensure data directory exists
 if (!fs.existsSync(DATA_DIR)) {

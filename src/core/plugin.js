@@ -51,7 +51,7 @@ export function initPluginRuntime({ sessionManager, cronScheduler, knowledgeMana
   if (messageBus) _messageBus = messageBus;
 }
 
-import { WORKSPACE_DIR, DATA_DIR } from './paths.js';
+import { WORKSPACE_DIR, DATA_DIR } from '../lib/paths.js';
 
 /**
  * Plugin lifecycle states

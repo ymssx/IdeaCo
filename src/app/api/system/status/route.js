@@ -3,9 +3,9 @@ import { auditLogger, securityGuard } from '@/core/audit.js';
 import { providerRouter } from '@/core/provider-router.js';
 import { pluginRegistry } from '@/core/plugin.js';
 import { cronScheduler } from '@/core/cron.js';
-import { hookRegistry } from '@/core/hooks.js';
+import { hookRegistry } from '@/lib/hooks.js';
 import { sessionManager } from '@/core/session.js';
-import { configValidator } from '@/core/config-validator.js';
+import { configValidator } from '@/lib/config-validator.js';
 
 /**
  * GET /api/system/status - System status dashboard
