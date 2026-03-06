@@ -106,7 +106,7 @@ stats: { departments: '부서', workers: '직원', requirements: '요구사항' 
     title: '🏢 조직 구조', subtitle: '부서 제국을 관리 — 구축, 배치, 최적화 올인원',
     viewOrgTree: '🌳 조직도 보기', createDept: '➕ 새 부서 설립',
     empty: '아직 부서가 없습니다', emptyHint: '비서가 지치지 않는 AI 팀을 구성해줍니다',
-    viewDetail: '클릭하여 상세 보기 →', members: '{n}명',
+    viewDetail: '클릭하여 상세 보기 →', members: '{n}명', 'members.count': '{n}명',
     detail: {
       members: '👥 부서 구성원', requirements: '📋 요구사항 목록', reports: '📊 프로젝트 보고',
       adjustBtn: '🔧 인력 조정', disbandBtn: '💣 부서 해산',

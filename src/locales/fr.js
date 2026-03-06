@@ -93,7 +93,7 @@ stats: { departments: 'Dpts', workers: 'Ouvriers', requirements: 'Exigences' },
     title: "🏢 Structure de l'Entreprise", subtitle: 'Gérez votre empire — construisez, déployez et optimisez',
     viewOrgTree: "🌳 Voir l'Organigramme", createDept: '➕ Créer un Département',
     empty: 'Pas de départements', emptyHint: 'Le secrétaire vous aidera à former une équipe IA infatigable',
-    viewDetail: 'Cliquer pour voir →', members: '{n} membres',
+    viewDetail: 'Cliquer pour voir →', members: '{n} membres', 'members.count': '{n} membres',
     detail: {
       members: '👥 Membres', requirements: '📋 Exigences', reports: '📊 Rapports',
       adjustBtn: '🔧 Ajuster le Personnel', disbandBtn: '💣 Dissoudre',

@@ -93,7 +93,7 @@ stats: { departments: 'Abt.', workers: 'Arbeiter', requirements: 'Anforderungen'
     title: '🏢 Unternehmensstruktur', subtitle: 'Verwalten Sie Ihr Abteilungs-Imperium — aufbauen, einsetzen, optimieren',
     viewOrgTree: '🌳 Organigramm', createDept: '➕ Abteilung erstellen',
     empty: 'Keine Abteilungen', emptyHint: 'Der Sekretär hilft beim Aufbau eines unermüdlichen KI-Teams',
-    viewDetail: 'Klick für Details →', members: '{n} Mitglieder',
+    viewDetail: 'Klick für Details →', members: '{n} Mitglieder', 'members.count': '{n} Mitglieder',
     detail: {
       members: '👥 Mitglieder', requirements: '📋 Anforderungen', reports: '📊 Berichte',
       adjustBtn: '🔧 Personal anpassen', disbandBtn: '💣 Auflösen',

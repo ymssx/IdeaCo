@@ -93,7 +93,7 @@ stats: { departments: 'Dptos', workers: 'Obreros', requirements: 'Requisitos' },
     title: '🏢 Estructura Empresarial', subtitle: 'Gestiona tu imperio — construye, despliega y optimiza',
     viewOrgTree: '🌳 Ver Organigrama', createDept: '➕ Crear Departamento',
     empty: 'Sin departamentos', emptyHint: 'El secretario te ayudará a formar un equipo IA incansable',
-    viewDetail: 'Clic para ver detalles →', members: '{n} miembros',
+    viewDetail: 'Clic para ver detalles →', members: '{n} miembros', 'members.count': '{n} miembros',
     detail: {
       members: '👥 Miembros', requirements: '📋 Requisitos', reports: '📊 Informes',
       adjustBtn: '🔧 Ajustar Personal', disbandBtn: '💣 Disolver',

@@ -96,7 +96,7 @@ stats: { departments: '部門', workers: '社員', requirements: '要件' },
     title: '🏢 組織構造', subtitle: '部門帝国を管理——構築、配置、最適化をワンストップで',
     viewOrgTree: '🌳 組織図を見る', createDept: '➕ 新部門設立',
     empty: 'まだ部門がありません', emptyHint: '秘書が疲れ知らずのAIチームを編成してくれます',
-    viewDetail: 'クリックで詳細 →', members: '{n}名',
+    viewDetail: 'クリックで詳細 →', members: '{n}名', 'members.count': '{n}名',
     detail: {
       members: '👥 部門メンバー', requirements: '📋 要件リスト', reports: '📊 プロジェクト報告',
       adjustBtn: '🔧 人員調整', disbandBtn: '💣 部門解散',
