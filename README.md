@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="public/logo.jpeg" alt="Idea Unlimited Company" width="200" />
+  <img src="public/logo.jpeg" alt="IdeaCo" width="200" />
 </p>
 
 <h1 align="center">Idea Unlimited Company</h1>
 
 <p align="center">
-  An LLM-powered virtual enterprise where every employee is a real AI agent.
+  <b>Hire AI employees. Run Claude Code, Codex, and others in one company.</b>
 </p>
 
 <p align="center">
@@ -15,9 +15,24 @@
   <img src="https://img.shields.io/badge/License-MIT-green" />
 </p>
 
-**Idea Unlimited Company** (金点子无限公司) lets you run a company staffed entirely by AI. As the boss, you manage departments, assign requirements, and watch AI agents collaborate through group chats, code reviews, and real tool calls — producing actual deliverables.
+IdeaCo is not another multi-agent framework. It's an **AI employee management system** — you run a virtual company, hire AI agents as employees, assign tasks, and they collaborate autonomously to produce real deliverables.
 
-> The name is inspired by the fictional company in Yang Hongying's children's story *"The Wolf Without a Tail"*, playfully turning a "Limited Company" into "Unlimited".
+Each employee has persistent memory, a unique personality, and can be powered by different backends — from cloud LLMs to local CLI tools like **Claude Code**, **Codex**, and **CodeBuddy**.
+
+> The name comes from *Idea Unlimited Company* (金点子无限公司), inspired by Yang Hongying's children's story, playfully turning a "Limited Company" into "Unlimited".
+
+---
+
+## Why IdeaCo?
+
+Most agent frameworks create **workflows**. IdeaCo manages **long-living AI employees**.
+
+| | Typical Agent Framework | IdeaCo |
+|---|---|---|
+| Agents | Ephemeral, per-task | Persistent employees with memory & personality |
+| Orchestration | DAG / workflow graph | Company org structure — departments, teams, roles |
+| Backend | Single LLM | Mix LLMs + CLI tools (Claude Code, Codex, CodeBuddy) |
+| Interface | Code / YAML | Visual — pixel office, group chats, dashboards |
 
 ---
 
@@ -65,7 +80,7 @@ npm start
 
 ### LLM Providers
 
-At least one LLM provider must be configured for AI agents to work. Configure via the Setup Wizard on first launch, or later through the **Brain Providers** page.
+Configure via the Setup Wizard on first launch, or later through the **Brain Providers** page.
 
 | Provider | Endpoint | Notes |
 |----------|----------|-------|
@@ -74,7 +89,17 @@ At least one LLM provider must be configured for AI agents to work. Configure vi
 | Anthropic | [console.anthropic.com](https://console.anthropic.com) | Claude 3.5 / 4 |
 | Any OpenAI-compatible | Custom base URL | Ollama, vLLM, etc. |
 
-> The app runs without an API key — the system falls back to a rule engine, but agents can only give mechanical responses.
+### CLI Coding Backends
+
+IdeaCo can dispatch tasks to local CLI coding assistants. Install any of these and they'll be auto-detected:
+
+| Backend | Command | Description |
+|---------|---------|-------------|
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | `claude` | Anthropic's AI coding assistant |
+| [Codex](https://github.com/openai/codex) | `codex` | OpenAI's coding agent |
+| [CodeBuddy](https://codebuddy.ai) | `codebuddy` | Tencent's AI coding assistant |
+
+> No API key or CLI tool is strictly required — the system falls back to a built-in rule engine, but agents will only give mechanical responses.
 
 ---
 
@@ -108,36 +133,20 @@ The script detects Docker Compose version and runs `docker compose up -d --build
 ## Architecture
 
 ```
-ai-enterprise/
+IdeaCo/
 ├── src/
 │   ├── app/              # Next.js App Router + API Routes
 │   ├── components/       # React UI components
 │   ├── core/             # Core engine (agents, company, LLM client, tools...)
+│   │   └── cli-backends/ # Claude Code, Codex, CodeBuddy integrations
 │   ├── lib/              # Frontend utilities (Zustand store, i18n, avatar)
 │   └── locales/          # i18n translations (zh/en/ja/ko/es/de/fr)
 ├── data/                 # Runtime data (auto-created)
-│   ├── company-state.json
-│   └── memories/
 ├── workspace/            # Agent-produced files per department
 ├── Dockerfile
 ├── docker-compose.yml
-├── deploy.sh             # Production deploy script
 └── package.json
 ```
-
-### Core Modules
-
-| Module | Description |
-|--------|-------------|
-| `core/company.js` | Top-level company management |
-| `core/agent.js` | AI agent — LLM-driven task execution with tools |
-| `core/secretary.js` | AI secretary + HR assistant |
-| `core/department.js` | Department management & org structure |
-| `core/llm-client.js` | Unified LLM client (OpenAI-compatible) |
-| `core/memory.js` | Short-term / long-term agent memory |
-| `core/message-bus.js` | Inter-agent messaging |
-| `core/tools.js` | Agent toolset (file I/O, shell, messaging) |
-| `core/workspace.js` | Department workspace file system |
 
 ---
 
