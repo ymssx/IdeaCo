@@ -4,11 +4,16 @@
   "description": "Idea Unlimited - An LLM-powered AI enterprise simulator where you boss around AI employees",
   "license": "MIT",
   "type": "module",
+  "main": "electron/main.cjs",
   "scripts": {
     "dev": "next dev -p 9999",
     "build": "next build",
     "start": "next start -p 9999",
-    "demo": "node src/core/demo.js"
+    "electron:dev": "npm run build && electron .",
+    "electron:build": "npm run build && node scripts/prepare-electron.js && electron-builder",
+    "electron:build:mac": "npm run build && node scripts/prepare-electron.js && electron-builder --mac",
+    "electron:build:win": "npm run build && node scripts/prepare-electron.js && electron-builder --win",
+    "electron:build:linux": "npm run build && node scripts/prepare-electron.js && electron-builder --linux"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
@@ -25,5 +30,78 @@
     "tailwindcss": "^3.4.19",
     "uuid": "^9.0.0",
     "zustand": "^5.0.0"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.0"
+  },
+  "build": {
+    "appId": "com.ideaco.app",
+    "productName": "IdeaCo",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron/**/*",
+      "!node_modules",
+      "!src",
+      "!.next",
+      "!.git",
+      "!vendor"
+    ],
+    "extraResources": [
+      {
+        "from": "electron-dist/",
+        "to": "app",
+        "filter": ["**/*"]
+      }
+    ],
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["x64", "arm64"]
+        },
+        {
+          "target": "zip",
+          "arch": ["x64", "arm64"]
+        }
+      ],
+      "icon": "public/logo.jpeg",
+      "category": "public.app-category.developer-tools"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "zip",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "public/logo.jpeg"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": ["x64"]
+        },
+        {
+          "target": "deb",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "public/logo.jpeg",
+      "category": "Development"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
   }
 }

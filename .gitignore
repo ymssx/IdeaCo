@@ -4,3 +4,7 @@ workspace/
 data/
 .env
 .env.local
+
+# Electron
+electron-dist/
+release/
