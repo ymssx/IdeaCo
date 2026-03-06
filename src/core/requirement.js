@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { llmClient } from './agent/llm-agent/client.js';
-import { chatStore } from './chat-store.js';
+import { chatStore } from './agent/chat-store.js';
 import { cliBackendRegistry } from './agent/cli-agent/backends/index.js';
 import { WorkspaceManager } from './workspace.js';
 
@@ -569,7 +569,7 @@ Requirements:
       // Trigger the receiver's GroupChatLoop to process via heartflow
       // instead of auto-replying directly (bypassing flow thinking)
       try {
-        const { groupChatLoop } = await import('./group-chat-loop.js');
+        const { groupChatLoop } = await import('./organization/group-chat-loop.js');
         groupChatLoop.triggerImmediate(receiverAgent.id, requirement.id, {
           content: groupMsg,
           from: senderAgent,
@@ -1111,7 +1111,7 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
                 // Trigger downstream agent's GroupChatLoop to process via heartflow
                 // instead of auto-replying directly (bypassing flow thinking)
                 try {
-                  const { groupChatLoop } = await import('./group-chat-loop.js');
+                  const { groupChatLoop } = await import('./organization/group-chat-loop.js');
                   groupChatLoop.triggerImmediate(downAgent.id, requirement.id, {
                     content: mentionMsg,
                     from: agent,
@@ -1136,7 +1136,7 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
 
               // Trigger peer's GroupChatLoop to process via heartflow
               try {
-                const { groupChatLoop } = await import('./group-chat-loop.js');
+                const { groupChatLoop } = await import('./organization/group-chat-loop.js');
                 groupChatLoop.triggerImmediate(peerAgent.id, requirement.id, {
                   content: syncMsg,
                   from: agent,

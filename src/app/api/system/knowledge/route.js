@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { knowledgeManager, KnowledgeType, EntryType } from '@/core/knowledge.js';
+import { knowledgeManager, KnowledgeType, EntryType } from '@/core/employee/knowledge.js';
 import { getApiT } from '@/lib/api-i18n';
 
 /**

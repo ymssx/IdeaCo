@@ -740,14 +740,9 @@ export const ImagePlugin = new PluginManifest({
       _executor: async (args) => {
         // Real implementation: call the OpenAI DALL-E API
         try {
-          if (_llmClient) {
-            // Get the image model provider from provider-router
-            const { providerRouter } = await import('../provider-router.js');
-            const imgProvider = providerRouter.getProviderForCategory('image');
-            if (imgProvider) {
-              const result = await _llmClient.generateImage(imgProvider, args.prompt, { size: args.size || '1024x1024' });
-              return JSON.stringify({ status: 'generated', url: result.url, revisedPrompt: result.revisedPrompt });
-            }
+          if (_llmClient && _llmClient._imageProvider) {
+            const result = await _llmClient.generateImage(_llmClient._imageProvider, args.prompt, { size: args.size || '1024x1024' });
+            return JSON.stringify({ status: 'generated', url: result.url, revisedPrompt: result.revisedPrompt });
           }
           return JSON.stringify({ status: 'error', error: 'No image provider configured. Add an OpenAI provider with DALL-E support.' });
         } catch (e) {
@@ -951,28 +946,8 @@ export const TtsPlugin = new PluginManifest({
             return JSON.stringify({ status: 'error', error: 'openai package not installed. Run: npm install openai' });
           }
           const OpenAI = openaiModule.default || openaiModule;
-          const { providerRouter } = await import('../provider-router.js');
-          // Get OpenAI provider
-          const providers = providerRouter.listProviders();
-          const openaiProvider = providers.find(p => p.id.startsWith('openai-') && p.enabled && p.apiKey);
-          if (!openaiProvider) {
-            return JSON.stringify({ status: 'error', error: 'No OpenAI provider configured for TTS' });
-          }
-          const client = new OpenAI({ apiKey: openaiProvider.apiKey });
-          const voice = args.voice || config.voice || 'alloy';
-          const response = await client.audio.speech.create({
-            model: 'tts-1',
-            voice,
-            input: args.text,
-          });
-          // Save audio file
-          const audioDir = path.join(DATA_DIR, 'audio');
-          if (!existsSync(audioDir)) mkdirSync(audioDir, { recursive: true });
-          const filename = `tts-${Date.now()}.mp3`;
-          const filePath = path.join(audioDir, filename);
-          const buffer = Buffer.from(await response.arrayBuffer());
-          await fs.writeFile(filePath, buffer);
-          return JSON.stringify({ status: 'generated', path: filePath, voice, textLength: args.text.length, fileSize: buffer.length });
+          // TODO: TTS needs access to provider registry via Company instance
+          return JSON.stringify({ status: 'error', error: 'TTS plugin not yet connected to provider registry' });
         } catch (e) {
           return JSON.stringify({ status: 'error', error: e.message });
         }
@@ -1738,9 +1713,8 @@ export const LlmTaskPlugin = new PluginManifest({
         // Real implementation: use LLM for structured output tasks
         try {
           if (!_llmClient) return JSON.stringify({ status: 'error', error: 'LLMClient not initialized' });
-          const { providerRouter } = await import('../provider-router.js');
-          const provider = providerRouter.getProviderForCategory('general');
-          if (!provider) return JSON.stringify({ status: 'error', error: 'No general LLM provider available' });
+          // TODO: structured output plugin needs access to provider registry via Company instance
+          return JSON.stringify({ status: 'error', error: 'Structured output plugin not yet connected to provider registry' });
 
           const systemMsg = args.schema
             ? `You are a task execution assistant. You MUST respond in valid JSON only. Your output must conform to this JSON Schema:\n${JSON.stringify(args.schema)}\nDo not include any text outside the JSON.`
@@ -2140,9 +2114,8 @@ export const ThinkingPlugin = new PluginManifest({
         // Real implementation: use LLM for deep thinking
         try {
           if (!_llmClient) return JSON.stringify({ status: 'error', error: 'LLMClient not initialized' });
-          const { providerRouter } = await import('../provider-router.js');
-          const provider = providerRouter.getProviderForCategory('general');
-          if (!provider) return JSON.stringify({ status: 'error', error: 'No general LLM provider available' });
+          // TODO: deep thinking plugin needs access to provider registry via Company instance
+          return JSON.stringify({ status: 'error', error: 'Deep thinking plugin not yet connected to provider registry' });
 
           const level = args.level || 'medium';
           const tokenMap = { low: 1024, medium: 2048, high: 4096 };

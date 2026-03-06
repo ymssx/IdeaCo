@@ -5,7 +5,6 @@
  * as well as image models like DALL-E, Midjourney
  */
 import OpenAI from 'openai';
-import { providerRouter } from '../../provider-router.js';
 import { auditLogger, AuditCategory, AuditLevel } from '../../system/audit.js';
 import { hookRegistry, HookEvent } from '../../../lib/hooks.js';
 
@@ -129,9 +128,6 @@ export class LLMClient {
       const choice = response.choices[0];
       const latency = Date.now() - startTime;
 
-      // Record success in provider router health tracking
-      providerRouter.recordSuccess(provider.id, latency);
-
       // Audit log the LLM request
       auditLogger.log({
         category: AuditCategory.LLM_REQUEST,
@@ -163,8 +159,6 @@ export class LLMClient {
         usage: response.usage || {},
       };
     } catch (error) {
-      // Record failure in provider router health tracking
-      providerRouter.recordFailure(provider.id, error);
       // Fire hook: LLM error
       hookRegistry.trigger(HookEvent.LLM_ERROR, {
         providerId: provider.id, model, error: error.message,

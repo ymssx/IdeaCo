@@ -5,4 +5,4 @@
 export { Company } from './company.js';
 export { Department } from './department.js';
 export { TeamManager, Team, Sprint, SprintStatus } from './team.js';
-export { HRSystem, JobTemplates } from './hr.js';
+export { HRSystem, JobTemplates } from './workforce/hr.js';

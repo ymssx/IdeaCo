@@ -7,12 +7,12 @@
  * - Auto-saves to disk on state changes
  * - Uses globalThis to prevent state loss during hot reload
  */
-import { loadState, saveState, clearState } from '@/core/persistence.js';
+import { loadState, saveState, clearState } from '@/core/organization/persistence.js';
 import { Company } from '@/core/index.js';
 import { initPluginRuntime } from '@/core/system/plugin.js';
-import { sessionManager } from '@/core/session.js';
+import { sessionManager } from '@/core/agent/session.js';
 import { cronScheduler } from '@/core/system/cron.js';
-import { knowledgeManager } from '@/core/knowledge.js';
+import { knowledgeManager } from '@/core/employee/knowledge.js';
 import { llmClient } from '@/core/agent/llm-agent/client.js';
 
 const globalStore = globalThis;

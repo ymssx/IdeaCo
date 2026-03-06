@@ -1,10 +1,9 @@
 import { NextResponse } from 'next/server';
 import { auditLogger, securityGuard } from '@/core/system/audit.js';
-import { providerRouter } from '@/core/provider-router.js';
 import { pluginRegistry } from '@/core/system/plugin.js';
 import { cronScheduler } from '@/core/system/cron.js';
 import { hookRegistry } from '@/lib/hooks.js';
-import { sessionManager } from '@/core/session.js';
+import { sessionManager } from '@/core/agent/session.js';
 import { configValidator } from '@/lib/config-validator.js';
 
 /**
@@ -14,12 +13,6 @@ import { configValidator } from '@/lib/config-validator.js';
 export async function GET() {
   try {
     const status = {
-      // Provider Router health dashboard
-      routing: {
-        healthDashboard: providerRouter.getHealthDashboard(),
-        strategy: providerRouter.strategy,
-      },
-
       // Audit system summary
       audit: auditLogger.getSummary(),
 

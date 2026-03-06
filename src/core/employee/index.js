@@ -11,6 +11,7 @@
 
 import { Employee } from './base-employee.js';
 import { Secretary, HRAssistant } from './secretary.js';
+import { EmployeeLifecycle, InnerMonologue } from './lifecycle.js';
 
 /**
  * Create an Employee from a recruit config.
@@ -31,4 +32,4 @@ export function deserializeEmployee(data, providerRegistry) {
   return Employee.deserialize(data, providerRegistry);
 }
 
-export { Employee, Secretary, HRAssistant };
+export { Employee, Secretary, HRAssistant, EmployeeLifecycle, InnerMonologue };

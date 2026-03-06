@@ -295,7 +295,7 @@ export async function POST(request) {
     if (leader) {
       (async () => {
         try {
-          const { getTraitStyle, getAgeStyle } = await import('@/core/prompt-locale.js');
+          const { getTraitStyle, getAgeStyle } = await import('@/core/prompts.js');
 
           const members = team.memberIds.map(mid => dept.agents.get(mid)).filter(Boolean);
           const nonLeaderMembers = members.filter(m => m.id !== team.leaderId);
@@ -649,7 +649,7 @@ Speak in the same language as the original plan.`,
             // Run async so API returns immediately
             (async () => {
               try {
-                const { getTraitStyle, getAgeStyle } = await import('@/core/prompt-locale.js');
+                const { getTraitStyle, getAgeStyle } = await import('@/core/prompts.js');
 
                 // Leader revises the plan based on Boss feedback
                 const planReply = await leader.chat([

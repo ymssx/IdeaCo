@@ -17,7 +17,7 @@ import path from 'path';
 import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 import { skillRegistry } from '../../../employee/skills.js';
-import { knowledgeManager } from '../../../knowledge.js';
+import { knowledgeManager } from '../../../employee/knowledge.js';
 
 // Import each CLI model's configuration
 import { claudeCodeConfig } from './claude-code/config.js';

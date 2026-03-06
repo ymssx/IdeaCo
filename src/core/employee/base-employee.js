@@ -1,15 +1,16 @@
 import { v4 as uuidv4 } from 'uuid';
 import { Memory } from './memory/index.js';
-import { AgentToolKit } from '../tools.js';
+import { AgentToolKit } from '../agent/tools.js';
 import { generateAgentAvatar } from '../../lib/avatar.js';
 import { skillRegistry } from './skills.js';
-import { knowledgeManager } from '../knowledge.js';
+import { knowledgeManager } from './knowledge.js';
 import { pluginRegistry } from '../system/plugin.js';
-import { buildArchetypePrompt } from '../role-archetypes.js';
-import { chatStore } from '../chat-store.js';
-import { sessionManager } from '../session.js';
+import { buildArchetypePrompt } from '../organization/workforce/role-archetypes.js';
+import { chatStore } from '../agent/chat-store.js';
+import { sessionManager } from '../agent/session.js';
 import { cliBackendRegistry } from '../agent/cli-agent/backends/index.js';
 import { createAgent, deserializeAgent } from '../agent/index.js';
+import { EmployeeLifecycle } from './lifecycle.js';
 
 // Placeholder signature
 const DEFAULT_SIGNATURE = 'Just arrived, still thinking of what to say...';
@@ -135,6 +136,9 @@ export class Employee {
     // Toolkit and message bus
     this.toolKit = null;
     this.messageBus = null;
+
+    // Lifecycle — manages poll cycle, flow state, anti-spam, etc.
+    this.lifecycle = new EmployeeLifecycle(this);
   }
 
   // ======================== Agent Delegation ========================
