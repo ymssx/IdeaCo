@@ -29,7 +29,7 @@ import {
 
 // ─── Default Config ────────────────────────────────────────────────────
 const DEFAULT_CONFIG = {
-  pollIntervalMinMs: 30000,        // 30 s
+  pollIntervalMinMs: 10000,        // 10 s
   pollIntervalMaxMs: 300000,       // 5 min
   idleChatThresholdMs: 3600000,    // 1 h
   maxInnerMonologueLen: 5,
