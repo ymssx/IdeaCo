@@ -51,7 +51,9 @@
       "!src",
       "!.next",
       "!.git",
-      "!vendor"
+      "!vendor",
+      "!data",
+      "!workspace"
     ],
     "extraResources": [
       {

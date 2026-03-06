@@ -54,10 +54,14 @@ copyRecursive(staticDir, path.join(outDir, '.next', 'static'));
 const publicDir = path.join(root, 'public');
 copyRecursive(publicDir, path.join(outDir, 'public'));
 
-// 4. Create data directories
-const dataDirs = ['data', 'data/memories', 'data/audit', 'workspace'];
-for (const dir of dataDirs) {
-  fs.mkdirSync(path.join(outDir, dir), { recursive: true });
+// 4. Remove data/workspace directories if they were copied from standalone
+const removeDirs = ['data', 'workspace'];
+for (const dir of removeDirs) {
+  const dirPath = path.join(outDir, dir);
+  if (fs.existsSync(dirPath)) {
+    fs.rmSync(dirPath, { recursive: true });
+    console.log(`Removed ${dir}/ from distribution (runtime data, not for packaging)`);
+  }
 }
 
 console.log('Electron distribution prepared at:', outDir);
