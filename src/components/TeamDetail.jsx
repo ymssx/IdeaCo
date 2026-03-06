@@ -91,9 +91,11 @@ export default function TeamDetail() {
     return () => { running = false; clearInterval(interval); };
   }, [activeSprintId, activeTeamId]);
 
-  // Scroll chat
+  // Scroll chat to bottom
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    setTimeout(() => {
+      chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, 80);
   }, [sprintDetail?.groupChat?.length]);
 
   // File preview

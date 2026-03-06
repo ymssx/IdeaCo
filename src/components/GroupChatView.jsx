@@ -211,6 +211,13 @@ export default function GroupChatView({
   const internalChatEndRef = useRef(null);
   const chatEndRef = externalChatEndRef || internalChatEndRef;
 
+  // 自动滚动到底部：消息列表变化时
+  useEffect(() => {
+    setTimeout(() => {
+      chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, 80);
+  }, [groupChat.length, optimisticMessages.length]);
+
   // 心流偷看相关状态
   const [monologueAgentId, setMonologueAgentId] = useState(null);
   const [monologueData, setMonologueData] = useState(null);

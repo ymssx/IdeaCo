@@ -6,7 +6,7 @@
  */
 export default function AvatarGrid({ choices = [], selectedId, onSelect, cols = 8, gap = 'gap-1.5' }) {
   return (
-    <div className={`grid grid-cols-${cols} ${gap} overflow-auto pr-1`}>
+    <div className={`grid ${gap} overflow-auto pr-1`} style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
       {choices.map((choice) => (
         <button
           key={choice.id}
