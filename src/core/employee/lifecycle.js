@@ -298,8 +298,11 @@ export class EmployeeLifecycle {
       .filter(msg => msg.visibility !== 'flow')
       .some(msg => this._isMentionedInMessage(msg));
 
+    // Any group-visible message from others (including system summaries/reports)
+    // should trigger the monologue flow — the agent reads them, thinks, and
+    // may choose to stay silent. The key is to *enter* the thinking process.
     const othersMessages = unreadMessages.filter(msg =>
-      msg.from?.id !== agent.id && msg.type !== 'system' && msg.visibility !== 'flow'
+      msg.from?.id !== agent.id && msg.visibility !== 'flow'
     );
 
     if (othersMessages.length === 0 && !isMentioned) return;

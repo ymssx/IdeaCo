@@ -401,6 +401,90 @@ export class ChatStore {
   }
 
   // ========================================================================
+  // Group Chat Storage (Requirement / Department / Sprint group chats)
+  // ========================================================================
+
+  /**
+   * Append a group chat message to file storage.
+   * The message is stored as-is (preserving from, type, visibility, etc.).
+   * @param {string} groupId - Group identifier, e.g. "req-{id}", "dept-{id}", "sprint-{id}"
+   * @param {object} message - Full group chat message object { id, from, content, type, visibility, time }
+   */
+  appendGroupMessage(groupId, message) {
+    const sessionId = `group-${groupId}`;
+    const dir = ensureSessionDir(sessionId);
+
+    const cacheEntry = this._getOrInitCache(sessionId, dir);
+    const chunkPath = path.join(dir, chunkFileName(cacheEntry.currentChunkIndex));
+
+    // Store the message as-is, just ensure time is ISO string
+    const record = {
+      ...message,
+      time: message.time ? new Date(message.time).toISOString() : new Date().toISOString(),
+    };
+
+    fs.appendFileSync(chunkPath, JSON.stringify(record) + '\n', 'utf-8');
+    cacheEntry.currentChunkCount++;
+
+    if (cacheEntry.currentChunkCount >= MESSAGES_PER_CHUNK) {
+      cacheEntry.currentChunkIndex++;
+      cacheEntry.currentChunkCount = 0;
+    }
+
+    // Skip meta update for group chats (high frequency, meta is not critical)
+  }
+
+  /**
+   * Load group chat messages from file storage.
+   * @param {string} groupId - Group identifier
+   * @param {number} [limit=200] - Max messages to return (from tail)
+   * @returns {Array} Message list (ascending time order)
+   */
+  getGroupMessages(groupId, limit = 200) {
+    const sessionId = `group-${groupId}`;
+    const dir = getSessionDir(sessionId);
+    if (!fs.existsSync(dir)) return [];
+
+    const chunks = listChunkFiles(dir);
+    if (chunks.length === 0) return [];
+
+    const messages = [];
+    for (let i = chunks.length - 1; i >= 0 && messages.length < limit; i--) {
+      const chunkPath = path.join(dir, chunks[i]);
+      const chunkMessages = readChunkFile(chunkPath);
+      messages.unshift(...chunkMessages);
+    }
+
+    return messages.slice(-limit);
+  }
+
+  /**
+   * Migrate an in-memory groupChat array to file storage (one-time migration).
+   * @param {string} groupId - Group identifier
+   * @param {Array} groupChat - Legacy in-memory groupChat array
+   */
+  migrateGroupChat(groupId, groupChat) {
+    if (!groupChat || groupChat.length === 0) return;
+    const sessionId = `group-${groupId}`;
+    // Skip if already migrated
+    if (this.getGroupMessages(groupId, 1).length > 0) return;
+
+    ensureSessionDir(sessionId);
+    for (const msg of groupChat) {
+      this.appendGroupMessage(groupId, msg);
+    }
+    console.log(`📦 Migrated ${groupChat.length} group chat messages for ${groupId} to file storage`);
+  }
+
+  /**
+   * Delete group chat file storage
+   * @param {string} groupId 
+   */
+  deleteGroupChat(groupId) {
+    this.deleteSession(`group-${groupId}`);
+  }
+
+  // ========================================================================
   // Internal Methods
   // ========================================================================
 

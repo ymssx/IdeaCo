@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
+import { chatStore } from '../agent/chat-store.js';
 
 /**
  * Sprint status enum
@@ -61,7 +62,7 @@ export class Sprint {
 
   addGroupMessage(from, content, type = 'message', visibility = null) {
     const resolvedVisibility = visibility || (type === 'tool_call' || type === 'output' ? 'flow' : 'group');
-    this.groupChat.push({
+    const msg = {
       id: uuidv4(),
       from: {
         id: from.id || 'system',
@@ -73,7 +74,10 @@ export class Sprint {
       type,
       visibility: resolvedVisibility,
       time: new Date(),
-    });
+    };
+    this.groupChat.push(msg);
+    // Persist to file storage
+    try { chatStore.appendGroupMessage(`sprint-${this.id}`, msg); } catch {}
     this.liveStatus.heartbeat = new Date();
     this.liveStatus.lastActiveAt = new Date();
   }
@@ -95,7 +99,7 @@ export class Sprint {
       plan: this.plan,
       requirementId: this.requirementId,
       workflow: this.workflow,
-      groupChat: this.groupChat.slice(-200),
+      // groupChat is persisted in chatStore files (data/chats/group-sprint-{id}/)
       outputs: this.outputs,
       createdAt: this.createdAt,
       startedAt: this.startedAt,
@@ -117,7 +121,14 @@ export class Sprint {
     s.plan = data.plan;
     s.requirementId = data.requirementId || null;
     s.workflow = data.workflow;
-    s.groupChat = data.groupChat || [];
+
+    // Load groupChat from file storage; migrate legacy inline data if present
+    const groupId = `sprint-${s.id}`;
+    if (data.groupChat && data.groupChat.length > 0) {
+      chatStore.migrateGroupChat(groupId, data.groupChat);
+    }
+    s.groupChat = chatStore.getGroupMessages(groupId, 500);
+
     s.outputs = data.outputs || [];
     s.createdAt = data.createdAt ? new Date(data.createdAt) : new Date();
     s.startedAt = data.startedAt ? new Date(data.startedAt) : null;

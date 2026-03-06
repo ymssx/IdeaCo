@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { JobTemplates } from './workforce/hr.js';
 import { cliBackendRegistry } from '../agent/cli-agent/backends/index.js';
+import { chatStore } from '../agent/chat-store.js';
 // Agent instances are passed in from outside; no direct import needed
 
 /**
@@ -30,7 +31,7 @@ export class Department {
    * @param {string} visibility - Visibility: 'group' (broadcast) | 'flow' (worklog only)
    */
   addGroupMessage(from, content, type = 'message', visibility = 'group') {
-    this.groupChat.push({
+    const msg = {
       id: uuidv4(),
       from: {
         id: from.id || 'system',
@@ -42,7 +43,23 @@ export class Department {
       type,
       visibility,
       time: new Date(),
-    });
+    };
+    this.groupChat.push(msg);
+    // Persist to file storage
+    try { chatStore.appendGroupMessage(`dept-${this.id}`, msg); } catch {}
+  }
+
+  /**
+   * Load group chat from file storage (called during deserialization).
+   * Also handles one-time migration of legacy inline groupChat data.
+   * @param {Array} [legacyGroupChat] - Legacy inline data to migrate
+   */
+  loadGroupChatFromStore(legacyGroupChat = null) {
+    const groupId = `dept-${this.id}`;
+    if (legacyGroupChat && legacyGroupChat.length > 0) {
+      chatStore.migrateGroupChat(groupId, legacyGroupChat);
+    }
+    this.groupChat = chatStore.getGroupMessages(groupId, 500);
   }
 
   /** Add an Agent to the department */

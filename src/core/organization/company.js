@@ -2102,7 +2102,7 @@ const dept = this.findDepartment(departmentId);
         leader: dept.leader,
         workspacePath: dept.workspacePath,
         createdAt: dept.createdAt,
-        groupChat: (dept.groupChat || []).slice(-200),
+        // groupChat is persisted in chatStore files (data/chats/group-dept-{id}/)
         members,
       });
     });
@@ -2248,7 +2248,8 @@ const dept = this.findDepartment(departmentId);
         try { mkdirSync(dept.workspacePath, { recursive: true }); } catch { /* ignore */ }
       }
       dept.createdAt = deptData.createdAt ? new Date(deptData.createdAt) : new Date();
-      dept.groupChat = deptData.groupChat || [];
+      // Load groupChat from file storage (with legacy inline data migration)
+      dept.loadGroupChatFromStore(deptData.groupChat);
 
       // Restore Agents
       for (const agentData of (deptData.members || [])) {

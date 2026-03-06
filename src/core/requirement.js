@@ -2,6 +2,9 @@ import { v4 as uuidv4 } from 'uuid';
 import { chatStore } from './agent/chat-store.js';
 import { WorkspaceManager } from './workspace.js';
 
+/** Group chat prefix for requirement group chats in chatStore */
+const REQ_GROUP_PREFIX = 'req-';
+
 /**
  * Requirement status enum
  */
@@ -92,7 +95,7 @@ export class Requirement {
   addGroupMessage(from, content, type = 'message', visibility = null) {
     // Auto-infer visibility: tool_call and output types default to 'flow', others default to 'group'
     const resolvedVisibility = visibility || (type === 'tool_call' || type === 'output' ? 'flow' : 'group');
-    this.groupChat.push({
+    const msg = {
       id: uuidv4(),
       from: {
         id: from.id || 'system',
@@ -104,7 +107,10 @@ export class Requirement {
       type,  // message | system | tool_call | output
       visibility: resolvedVisibility,  // group | flow
       time: new Date(),
-    });
+    };
+    this.groupChat.push(msg);
+    // Persist to file storage (non-blocking, fire-and-forget)
+    try { chatStore.appendGroupMessage(`${REQ_GROUP_PREFIX}${this.id}`, msg); } catch {}
     // Sync update heartbeat
     this.liveStatus.heartbeat = new Date();
     this.liveStatus.lastActiveAt = new Date();
@@ -124,7 +130,7 @@ export class Requirement {
     });
   }
 
-  /** Serialize */
+  /** Serialize (groupChat is stored in separate files, not included here) */
   serialize() {
     return {
       id: this.id,
@@ -135,7 +141,7 @@ export class Requirement {
       bossMessage: this.bossMessage,
       status: this.status,
       workflow: this.workflow,
-      groupChat: this.groupChat.slice(-200), // Keep latest 200 entries
+      // groupChat is persisted in chatStore files (data/chats/group-req-{id}/)
       outputs: this.outputs,
       createdAt: this.createdAt,
       startedAt: this.startedAt,
@@ -157,7 +163,15 @@ export class Requirement {
     req.id = data.id;
     req.status = data.status;
     req.workflow = data.workflow;
-    req.groupChat = data.groupChat || [];
+
+    // Load groupChat from file storage; migrate legacy inline data if present
+    const groupId = `${REQ_GROUP_PREFIX}${req.id}`;
+    if (data.groupChat && data.groupChat.length > 0) {
+      // Legacy data found inline — migrate to file storage, then discard from state
+      chatStore.migrateGroupChat(groupId, data.groupChat);
+    }
+    req.groupChat = chatStore.getGroupMessages(groupId, 500);
+
     req.outputs = data.outputs || [];
     req.createdAt = data.createdAt ? new Date(data.createdAt) : new Date();
     req.startedAt = data.startedAt ? new Date(data.startedAt) : null;
@@ -360,7 +374,7 @@ Requirements:
         reviewerName: node.reviewerName || null,
         reviewCriteria: node.reviewCriteria || null,
         reviewRounds: 0,       // Review iteration round counter
-        maxReviewRounds: 3,    // Max review iterations (prevents infinite loops)
+        maxReviewRounds: 10,   // Max review iterations (prevents infinite loops)
         result: null,
         startedAt: null,
         completedAt: null,
@@ -798,7 +812,7 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
 
               let currentOutput = result.output;
               let approved = false;
-              const maxRounds = node.maxReviewRounds || 3;
+              const maxRounds = node.maxReviewRounds || 10;
 
               while (!approved && node.reviewRounds < maxRounds) {
                 node.reviewRounds++;

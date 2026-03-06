@@ -6,7 +6,7 @@
  */
 import fs from 'fs';
 import { saveAllAgentMemories, loadAgentMemory, clearAllMemories } from '../employee/memory/store.js';
-import { DATA_DIR, STATE_FILE, BACKUP_FILE } from '../../lib/paths.js';
+import { DATA_DIR, STATE_FILE, BACKUP_FILE, CHATS_DIR } from '../../lib/paths.js';
 
 // Ensure data directory exists
 if (!fs.existsSync(DATA_DIR)) {
@@ -87,7 +87,12 @@ export function clearState() {
     if (fs.existsSync(STATE_FILE)) fs.unlinkSync(STATE_FILE);
     if (fs.existsSync(BACKUP_FILE)) fs.unlinkSync(BACKUP_FILE);
     clearAllMemories();
-    console.log('🗑️ Persisted data cleared (including separate memory files)');
+    // Clear all chat files (including group chats stored in data/chats/)
+    if (fs.existsSync(CHATS_DIR)) {
+      fs.rmSync(CHATS_DIR, { recursive: true, force: true });
+      fs.mkdirSync(CHATS_DIR, { recursive: true });
+    }
+    console.log('🗑️ Persisted data cleared (including memory, chat files)');
   } catch (e) {
     console.error('❌ Clear failed:', e.message);
   }
