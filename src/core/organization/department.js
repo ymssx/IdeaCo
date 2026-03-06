@@ -1,4 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
+import { JobTemplates } from './workforce/hr.js';
+import { cliBackendRegistry } from '../agent/cli-agent/backends/index.js';
 // Agent instances are passed in from outside; no direct import needed
 
 /**
@@ -273,6 +275,439 @@ export class Department {
     node.subordinates.forEach(sub => {
       this.printOrgChart(sub, indent + '│   ');
     });
+  }
+
+  // ======================== Team Design ========================
+
+  /**
+   * AI-analyze requirements and design team architecture for this department.
+   * @param {string} requirement - The mission/requirement description
+   * @param {import('../employee/base-employee.js').Employee} analyst - An LLM-capable employee (e.g. secretary) to perform the analysis
+   * @param {import('./workforce/providers.js').ProviderRegistry} providerRegistry - Provider registry for hiring constraints
+   * @returns {Promise<object>} Team plan
+   */
+  async designTeam(requirement, analyst, providerRegistry) {
+    console.log(`\n🗂️ [${this.name}] AI-analyzing requirements and designing team architecture...`);
+    console.log(`   Requirement: "${requirement}"\n`);
+
+    const isCLI = analyst.agentType === 'cli';
+    const canChat = analyst.canChat();
+    if (!canChat && !isCLI) {
+      throw new Error('Analyst AI is not configured. Please configure a valid API Key or CLI backend for the analyst provider first.');
+    }
+
+    const plan = isCLI && !canChat
+      ? await this._cliAnalyzeRequirement(requirement, analyst, providerRegistry)
+      : await this._aiAnalyzeRequirement(requirement, analyst, providerRegistry);
+
+    console.log(`📋 [${this.name}] Team plan:`);
+    console.log(`   Department: ${plan.departmentName}`);
+    console.log(`   Mission: ${plan.mission}`);
+    console.log(`   Team size: ${plan.members.length} people`);
+    plan.members.forEach((m, i) => {
+      const indent = m.reportsTo !== null ? '      ' : '    ';
+      const prefix = m.isLeader ? '👔' : '👤';
+      console.log(`${indent}${prefix} ${m.name} - ${m.templateTitle} ${m.reportsTo !== null ? `(reports to: ${plan.members[m.reportsTo].name})` : '(leader)'}`);
+    });
+
+    return plan;
+  }
+
+  async _aiAnalyzeRequirement(requirement, analyst, providerRegistry) {
+    const availableRoles = Object.values(JobTemplates).map(t => ({
+      id: t.id, title: t.title, category: t.category, skills: t.skills,
+    }));
+    const enabledProviders = providerRegistry.listEnabled().map(p => ({
+      id: p.id, name: p.name, category: p.category, rating: p.rating,
+      isCLI: p.isCLI || false, cliBackendId: p.cliBackendId || null,
+    }));
+    const availableCategories = [...new Set(enabledProviders.map(p => p.category))];
+
+    const systemPrompt = `You are an experienced corporate secretary skilled at team planning and talent matching.
+
+Here are the available job templates (you can only choose from these):
+${JSON.stringify(availableRoles, null, 2)}
+
+## Currently enabled providers (IMPORTANT - only templates whose category has an enabled provider can be hired!):
+${JSON.stringify(enabledProviders, null, 2)}
+
+Available categories: ${availableCategories.join(', ')}
+
+⚠️ CRITICAL RULES for provider-aware hiring:
+- You can ONLY use templates whose category has at least one enabled provider above.
+- If the boss mentions a specific provider name (e.g. "CodeBuddy", "Claude Code", "Codex"), you MUST use a CLI template (category: "cli") for that position.
+- CLI templates (cli-software-engineer, cli-fullstack-developer, cli-code-reviewer) use local CLI tools as execution engines. They are powerful coding assistants.
+- When CLI providers are available and the task is coding-related, PREFER CLI templates over general templates — they can directly execute code on the local machine.
+- If the boss says something like "hire a CodeBuddy employee" or "add a CodeBuddy developer", choose a cli-* template.
+
+Based on the boss's requirements, output a team plan in JSON format as follows:
+{
+  "departmentName": "Department name",
+  "mission": "Department mission (concise description)",
+  "reasoning": "Your analysis rationale (why this configuration)",
+  "members": [
+    {
+      "templateId": "Job template ID",
+      "name": "Employee nickname (use creative, fun names)",
+      "isLeader": true/false,
+      "reportsTo": null or numeric index,
+      "reason": "Why this position is needed"
+    }
+  ]
+}
+
+Requirements:
+1. The first member must be project-leader with isLeader=true
+2. Other members' reportsTo should be the index of their direct supervisor (0 = project leader)
+3. Team size should be reasonable, typically 2-6 people, don't pad the roster
+4. Employee names should be distinctive and fun
+5. Return JSON only, no other content`;
+
+    const response = await analyst.chat([
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: `Boss's requirement: ${requirement}` },
+    ], { temperature: 0.7, maxTokens: 2048 });
+
+    let aiPlan;
+    try {
+      const jsonStr = response.content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      aiPlan = JSON.parse(jsonStr);
+    } catch (e) {
+      throw new Error('Failed to parse AI response format');
+    }
+
+    if (!aiPlan.members || aiPlan.members.length === 0) {
+      throw new Error('AI did not plan any members');
+    }
+
+    const validTemplateIds = new Set(Object.values(JobTemplates).map(t => t.id));
+    aiPlan.members = aiPlan.members.filter(m => validTemplateIds.has(m.templateId));
+    if (aiPlan.members.length === 0) throw new Error('AI planned invalid job templates');
+
+    console.log(`  🧠 AI analysis rationale: ${aiPlan.reasoning || 'N/A'}`);
+
+    return {
+      departmentName: aiPlan.departmentName || 'New Project Dept',
+      mission: aiPlan.mission || requirement,
+      reasoning: aiPlan.reasoning,
+      members: aiPlan.members.map((m, i) => {
+        const template = Object.values(JobTemplates).find(t => t.id === m.templateId);
+        return {
+          templateId: m.templateId,
+          templateTitle: template?.title || m.templateId,
+          name: m.name || `Employee${i + 1}`,
+          isLeader: m.isLeader || false,
+          reportsTo: m.reportsTo ?? (i === 0 ? null : 0),
+          reason: m.reason,
+        };
+      }),
+      collaborationRules: Department._designCollaboration(aiPlan.members),
+    };
+  }
+
+  async _cliAnalyzeRequirement(requirement, analyst, providerRegistry) {
+    console.log(`  🖥️ [${this.name}] Using CLI backend for team design: ${analyst.cliBackend}`);
+
+    const availableRoles = Object.values(JobTemplates).map(t => ({
+      id: t.id, title: t.title, category: t.category, skills: t.skills,
+    }));
+    const enabledProviders = providerRegistry.listEnabled().map(p => ({
+      id: p.id, name: p.name, category: p.category, rating: p.rating,
+      isCLI: p.isCLI || false, cliBackendId: p.cliBackendId || null,
+    }));
+    const availableCategories = [...new Set(enabledProviders.map(p => p.category))];
+
+    const prompt = `You are an experienced corporate secretary skilled at team planning and talent matching.
+
+Here are the available job templates (you can only choose from these):
+${JSON.stringify(availableRoles, null, 2)}
+
+## Currently enabled providers (IMPORTANT - only templates whose category has an enabled provider can be hired!):
+${JSON.stringify(enabledProviders, null, 2)}
+
+Available categories: ${availableCategories.join(', ')}
+
+⚠️ CRITICAL RULES for provider-aware hiring:
+- You can ONLY use templates whose category has at least one enabled provider above.
+- If the boss mentions a specific provider name (e.g. "CodeBuddy", "Claude Code", "Codex"), you MUST use a CLI template (category: "cli") for that position.
+- CLI templates (cli-software-engineer, cli-fullstack-developer, cli-code-reviewer) use local CLI tools as execution engines.
+- When CLI providers are available and the task is coding-related, PREFER CLI templates over general templates.
+
+Based on the boss's requirements, output a team plan in JSON format as follows:
+{
+  "departmentName": "Department name",
+  "mission": "Department mission (concise description)",
+  "reasoning": "Your analysis rationale",
+  "members": [
+    {
+      "templateId": "Job template ID",
+      "name": "Employee nickname",
+      "isLeader": true/false,
+      "reportsTo": null or numeric index,
+      "reason": "Why this position is needed"
+    }
+  ]
+}
+
+Requirements:
+1. The first member must be project-leader with isLeader=true
+2. Other members' reportsTo should be the index of their direct supervisor (0 = project leader)
+3. Team size should be reasonable, typically 2-6 people
+4. Employee names should be distinctive and fun
+5. Return JSON only, no other content
+
+Boss's requirement: ${requirement}`;
+
+    const cliResult = await cliBackendRegistry.executeTask(
+      analyst.cliBackend, analyst, { title: 'Team design analysis', description: prompt },
+      analyst.toolKit?.workspaceDir || process.cwd(), {}, { timeout: 120000 }
+    );
+
+    const rawOutput = cliResult.output || cliResult.errorOutput || '';
+    let aiPlan;
+    try { aiPlan = Department._extractJSON(rawOutput); }
+    catch (e) { throw new Error(`Failed to parse CLI response for team design: ${e.message}`); }
+
+    if (!aiPlan.members || aiPlan.members.length === 0) throw new Error('CLI did not plan any members');
+
+    const validTemplateIds = new Set(Object.values(JobTemplates).map(t => t.id));
+    aiPlan.members = aiPlan.members.filter(m => validTemplateIds.has(m.templateId));
+    if (aiPlan.members.length === 0) throw new Error('CLI planned invalid job templates');
+
+    console.log(`  🧠 CLI analysis rationale: ${aiPlan.reasoning || 'N/A'}`);
+
+    return {
+      departmentName: aiPlan.departmentName || 'New Project Dept',
+      mission: aiPlan.mission || requirement,
+      reasoning: aiPlan.reasoning,
+      members: aiPlan.members.map((m, i) => {
+        const template = Object.values(JobTemplates).find(t => t.id === m.templateId);
+        return {
+          templateId: m.templateId,
+          templateTitle: template?.title || m.templateId,
+          name: m.name || `Employee${i + 1}`,
+          isLeader: m.isLeader || false,
+          reportsTo: m.reportsTo ?? (i === 0 ? null : 0),
+          reason: m.reason,
+        };
+      }),
+      collaborationRules: Department._designCollaboration(aiPlan.members),
+    };
+  }
+
+  // ======================== Team Adjustment ========================
+
+  /**
+   * Analyze and plan team adjustment for this department.
+   * @param {string} adjustGoal - Adjustment goal description
+   * @param {import('../employee/base-employee.js').Employee} analyst - An LLM-capable employee to perform the analysis
+   * @param {import('./workforce/providers.js').ProviderRegistry} providerRegistry - Provider registry
+   * @returns {Promise<object>} Adjustment plan { reasoning, fires, hires }
+   */
+  async adjustTeam(adjustGoal, analyst, providerRegistry) {
+    console.log(`\n🔧 [${this.name}] Analyzing adjustment plan...`);
+    console.log(`   Adjustment goal: "${adjustGoal}"\n`);
+
+    const currentMembers = this.getMembers().map(m => ({
+      id: m.id, name: m.name, role: m.role, skills: m.skills,
+      avgScore: m.avgScore || null, taskCount: m.taskCount || 0,
+    }));
+    const availableRoles = Object.values(JobTemplates).map(t => ({
+      id: t.id, title: t.title, category: t.category, skills: t.skills,
+    }));
+
+    const isCLI = analyst.agentType === 'cli';
+    const canChat = analyst.canChat();
+    if (!canChat && !isCLI) {
+      throw new Error('Analyst AI is not configured. Please configure a valid API Key or CLI backend for the analyst provider first.');
+    }
+
+    const plan = isCLI && !canChat
+      ? await this._cliAnalyzeAdjustment(currentMembers, availableRoles, adjustGoal, analyst, providerRegistry)
+      : await this._aiAnalyzeAdjustment(currentMembers, availableRoles, adjustGoal, analyst, providerRegistry);
+
+    console.log(`📋 [${this.name}] Adjustment plan:`);
+    console.log(`   Fires: ${plan.fires.length} people, Hires: ${plan.hires.length} people`);
+
+    return plan;
+  }
+
+  async _aiAnalyzeAdjustment(currentMembers, availableRoles, adjustGoal, analyst, providerRegistry) {
+    const enabledProviders = providerRegistry.listEnabled().map(p => ({
+      id: p.id, name: p.name, category: p.category, rating: p.rating,
+      isCLI: p.isCLI || false, cliBackendId: p.cliBackendId || null,
+    }));
+    const availableCategories = [...new Set(enabledProviders.map(p => p.category))];
+
+    const systemPrompt = `You are an experienced corporate secretary skilled at organizational restructuring and HR planning.
+
+Current department info:
+- Name: ${this.name}
+- Mission: ${this.mission}
+- Current members: ${JSON.stringify(currentMembers, null, 2)}
+
+Available job templates (hiring can only choose from these):
+${JSON.stringify(availableRoles, null, 2)}
+
+## Currently enabled providers (IMPORTANT - only templates whose category has an enabled provider can be hired!):
+${JSON.stringify(enabledProviders, null, 2)}
+
+Available categories: ${availableCategories.join(', ')}
+
+⚠️ CRITICAL RULES for provider-aware hiring:
+- You can ONLY use templates whose category has at least one enabled provider above.
+- If the boss mentions a specific provider/tool name (e.g. "CodeBuddy", "Claude Code", "Codex"), you MUST use a CLI template (category: "cli") for that position.
+- CLI templates use local CLI tools as execution engines — they are powerful coding assistants that can directly execute code.
+- When CLI providers are available and the task involves coding, PREFER CLI templates over general templates.
+
+Based on the boss's adjustment goal, output an adjustment plan in JSON format as follows:
+{
+  "reasoning": "Your analysis rationale (why this adjustment)",
+  "fires": [
+    { "agentId": "Member ID to fire", "name": "Member name", "reason": "Firing reason" }
+  ],
+  "hires": [
+    {
+      "templateId": "Job template ID",
+      "name": "New employee nickname (use creative, fun names)",
+      "isLeader": false,
+      "reportsTo": 0,
+      "reason": "Why this position is needed"
+    }
+  ]
+}
+
+Requirements:
+1. Make reasonable decisions based on boss's goal: could be pure layoff, pure hiring, or both
+2. When firing, prioritize low performers and skill mismatches
+3. When hiring, fill capability gaps with distinctive names
+4. hires reportsTo is the index (0-based) in the current member list, or -1 for direct report to leader
+5. If no firing needed, fires is an empty array; if no hiring needed, hires is an empty array
+6. Return JSON only, no other content`;
+
+    const response = await analyst.chat([
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: `Boss's adjustment goal: ${adjustGoal}` },
+    ], { temperature: 0.7, maxTokens: 2048 });
+
+    let aiPlan;
+    try {
+      const jsonStr = response.content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      aiPlan = JSON.parse(jsonStr);
+    } catch (e) { throw new Error('Failed to parse AI response format'); }
+
+    const memberIds = new Set(currentMembers.map(m => m.id));
+    aiPlan.fires = (aiPlan.fires || []).filter(f => memberIds.has(f.agentId));
+
+    const validTemplateIds = new Set(Object.values(JobTemplates).map(t => t.id));
+    aiPlan.hires = (aiPlan.hires || []).filter(h => validTemplateIds.has(h.templateId));
+    aiPlan.hires = aiPlan.hires.map((h, i) => {
+      const template = Object.values(JobTemplates).find(t => t.id === h.templateId);
+      return { ...h, templateTitle: template?.title || h.templateId, name: h.name || `NewHire${i + 1}` };
+    });
+
+    return { reasoning: aiPlan.reasoning || 'Adjusting based on goal', fires: aiPlan.fires || [], hires: aiPlan.hires || [] };
+  }
+
+  async _cliAnalyzeAdjustment(currentMembers, availableRoles, adjustGoal, analyst, providerRegistry) {
+    console.log(`  🖥️ [${this.name}] Using CLI backend for adjustment analysis: ${analyst.cliBackend}`);
+
+    const enabledProviders = providerRegistry.listEnabled().map(p => ({
+      id: p.id, name: p.name, category: p.category, rating: p.rating,
+      isCLI: p.isCLI || false, cliBackendId: p.cliBackendId || null,
+    }));
+    const availableCategories = [...new Set(enabledProviders.map(p => p.category))];
+
+    const prompt = `You are an experienced corporate secretary skilled at organizational restructuring and HR planning.
+
+Current department info:
+- Name: ${this.name}
+- Mission: ${this.mission}
+- Current members: ${JSON.stringify(currentMembers, null, 2)}
+
+Available job templates (hiring can only choose from these):
+${JSON.stringify(availableRoles, null, 2)}
+
+## Currently enabled providers (IMPORTANT - only templates whose category has an enabled provider can be hired!):
+${JSON.stringify(enabledProviders, null, 2)}
+
+Available categories: ${availableCategories.join(', ')}
+
+⚠️ CRITICAL RULES for provider-aware hiring:
+- You can ONLY use templates whose category has at least one enabled provider above.
+- CLI templates use local CLI tools as execution engines — they are powerful coding assistants.
+- When CLI providers are available and the task involves coding, PREFER CLI templates over general templates.
+
+Based on the boss's adjustment goal, output an adjustment plan in JSON format as follows:
+{
+  "reasoning": "Your analysis rationale",
+  "fires": [
+    { "agentId": "Member ID to fire", "name": "Member name", "reason": "Firing reason" }
+  ],
+  "hires": [
+    {
+      "templateId": "Job template ID",
+      "name": "New employee nickname",
+      "isLeader": false,
+      "reportsTo": 0,
+      "reason": "Why this position is needed"
+    }
+  ]
+}
+
+Requirements:
+1. Make reasonable decisions based on boss's goal
+2. When firing, prioritize low performers and skill mismatches
+3. When hiring, fill capability gaps with distinctive names
+4. hires reportsTo is the index (0-based) in the current member list, or -1 for direct report to leader
+5. If no firing needed, fires is an empty array; if no hiring needed, hires is an empty array
+6. Return JSON only, no other content
+
+Boss's adjustment goal: ${adjustGoal}`;
+
+    const cliResult = await cliBackendRegistry.executeTask(
+      analyst.cliBackend, analyst,
+      { title: 'Department adjustment analysis', description: prompt },
+      analyst.toolKit?.workspaceDir || process.cwd(), {}, { timeout: 120000 }
+    );
+
+    const rawOutput = cliResult.output || cliResult.errorOutput || '';
+    let aiPlan;
+    try { aiPlan = Department._extractJSON(rawOutput); }
+    catch (e) { throw new Error(`Failed to parse CLI response for adjustment: ${e.message}`); }
+
+    const memberIds = new Set(currentMembers.map(m => m.id));
+    aiPlan.fires = (aiPlan.fires || []).filter(f => memberIds.has(f.agentId));
+
+    const validTemplateIds = new Set(Object.values(JobTemplates).map(t => t.id));
+    aiPlan.hires = (aiPlan.hires || []).filter(h => validTemplateIds.has(h.templateId));
+    aiPlan.hires = aiPlan.hires.map((h, i) => {
+      const template = Object.values(JobTemplates).find(t => t.id === h.templateId);
+      return { ...h, templateTitle: template?.title || h.templateId, name: h.name || `NewHire${i + 1}` };
+    });
+
+    return { reasoning: aiPlan.reasoning || 'Adjusting based on goal', fires: aiPlan.fires || [], hires: aiPlan.hires || [] };
+  }
+
+  // ======================== Static Helpers ========================
+
+  static _extractJSON(rawOutput) {
+    try { return JSON.parse(rawOutput.trim()); } catch {}
+    const jsonMatch = rawOutput.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (jsonMatch) return JSON.parse(jsonMatch[1].trim());
+    const start = rawOutput.indexOf('{');
+    const end = rawOutput.lastIndexOf('}');
+    if (start !== -1 && end > start) return JSON.parse(rawOutput.slice(start, end + 1));
+    throw new Error('Cannot extract JSON from output');
+  }
+
+  static _designCollaboration(members) {
+    return [
+      '1. Project leader coordinates overall operations, assigns tasks and tracks progress',
+      '2. Members report to their direct supervisor upon task completion',
+      '3. Peers at the same level can collaborate horizontally',
+      '4. Project progresses in phases, each with clear deliverables',
+    ];
   }
 
   /** Get department summary */

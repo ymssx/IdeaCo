@@ -1,13 +1,11 @@
-import { v4 as uuidv4 } from 'uuid';
 import { Employee } from './base-employee.js';
+import { createEmployee } from './index.js';
 
-import { JobTemplates } from '../organization/workforce/hr.js';
 import { pluginRegistry } from '../system/plugin.js';
 import { skillRegistry } from './skills.js';
 import { knowledgeManager } from './knowledge.js';
 import { chatStore } from '../agent/chat-store.js';
 import { cliBackendRegistry } from '../agent/cli-agent/backends/index.js';
-import { createEmployee } from './index.js';
 
 
 /**
@@ -83,466 +81,15 @@ executing the recruitment process, and coordinating new employee onboarding. You
     if (matchCount >= template.skills.length * 0.5) return 'recall';
     return 'new';
   }
-}
 
-/**
- * Secretary — A specialized Employee.
- * Extends Employee with team design, recruitment coordination,
- * boss message handling, and direct task execution abilities.
- */
-export class Secretary extends Employee {
-  constructor({ company, providerConfig, secretaryName, secretaryAvatar, secretaryGender, secretaryAge }) {
-    super({
-      name: secretaryName || 'Secretary',
-      role: 'Personal Secretary',
-      prompt: `You are the boss's personal secretary, responsible for understanding business requirements, analyzing required team composition,
-designing organizational structure (who does what, who reports to whom, how to collaborate), and coordinating HR for talent recruitment.
-You need to plan the number and types of positions based on project requirements to ensure the team can efficiently achieve its goals.
-You have a dedicated HR assistant to help you handle specific recruitment tasks, including searching and recalling talent from the talent market.
-
-When communicating with the boss, you need to:
-1. Understand the boss's intent (task assignment, progress inquiry, or casual conversation)
-2. If it's a task, assign it to the corresponding department
-3. Periodically report department progress to the boss`,
-      skills: ['requirements-analysis', 'team-planning', 'org-design', 'hr-coordination', 'project-management', 'task-assignment', 'progress-reporting'],
-      provider: providerConfig,
-      avatar: secretaryAvatar,
-      gender: secretaryGender || 'female',
-      age: secretaryAge || 18,
-    });
-
-    this.company = company;
-
-    // Initialize dedicated HR assistant
-    this.hrAssistant = new HRAssistant({
-      secretary: this,
-      providerConfig,
-    });
-
-    console.log(`  🧑‍💼 Secretary's dedicated HR assistant is ready: ${this.hrAssistant.employee.name}`);
-  }
-
-  // ======================== Team Design ========================
-
-  async designTeam(requirement) {
-    console.log(`\n🗂️ [Secretary] AI-analyzing requirements and designing team architecture...`);
-    console.log(`   Requirement: "${requirement}"\n`);
-
-    const isCLI = this.agentType === 'cli';
-    const canChat = this.canChat();
-    if (!canChat && !isCLI) {
-      throw new Error('Secretary AI is not configured. Please configure a valid API Key or CLI backend for the secretary provider first.');
-    }
-
-    const plan = isCLI && !canChat
-      ? await this._cliAnalyzeRequirement(requirement)
-      : await this._aiAnalyzeRequirement(requirement);
-
-    console.log(`📋 [Secretary] Team plan:`);
-    console.log(`   Department: ${plan.departmentName}`);
-    console.log(`   Mission: ${plan.mission}`);
-    console.log(`   Team size: ${plan.members.length} people`);
-    plan.members.forEach((m, i) => {
-      const indent = m.reportsTo !== null ? '      ' : '    ';
-      const prefix = m.isLeader ? '👔' : '👤';
-      console.log(`${indent}${prefix} ${m.name} - ${m.templateTitle} ${m.reportsTo !== null ? `(reports to: ${plan.members[m.reportsTo].name})` : '(leader)'}`);
-    });
-
-    return plan;
-  }
-
-  async _aiAnalyzeRequirement(requirement) {
-    const availableRoles = Object.values(JobTemplates).map(t => ({
-      id: t.id, title: t.title, category: t.category, skills: t.skills,
-    }));
-    const enabledProviders = this.company.providerRegistry.listEnabled().map(p => ({
-      id: p.id, name: p.name, category: p.category, rating: p.rating,
-      isCLI: p.isCLI || false, cliBackendId: p.cliBackendId || null,
-    }));
-    const availableCategories = [...new Set(enabledProviders.map(p => p.category))];
-
-    const systemPrompt = `You are an experienced corporate secretary skilled at team planning and talent matching.
-
-Here are the available job templates (you can only choose from these):
-${JSON.stringify(availableRoles, null, 2)}
-
-## Currently enabled providers (IMPORTANT - only templates whose category has an enabled provider can be hired!):
-${JSON.stringify(enabledProviders, null, 2)}
-
-Available categories: ${availableCategories.join(', ')}
-
-⚠️ CRITICAL RULES for provider-aware hiring:
-- You can ONLY use templates whose category has at least one enabled provider above.
-- If the boss mentions a specific provider name (e.g. "CodeBuddy", "Claude Code", "Codex"), you MUST use a CLI template (category: "cli") for that position.
-- CLI templates (cli-software-engineer, cli-fullstack-developer, cli-code-reviewer) use local CLI tools as execution engines. They are powerful coding assistants.
-- When CLI providers are available and the task is coding-related, PREFER CLI templates over general templates — they can directly execute code on the local machine.
-- If the boss says something like "hire a CodeBuddy employee" or "add a CodeBuddy developer", choose a cli-* template.
-
-Based on the boss's requirements, output a team plan in JSON format as follows:
-{
-  "departmentName": "Department name",
-  "mission": "Department mission (concise description)",
-  "reasoning": "Your analysis rationale (why this configuration)",
-  "members": [
-    {
-      "templateId": "Job template ID",
-      "name": "Employee nickname (use creative, fun names)",
-      "isLeader": true/false,
-      "reportsTo": null or numeric index,
-      "reason": "Why this position is needed"
-    }
-  ]
-}
-
-Requirements:
-1. The first member must be project-leader with isLeader=true
-2. Other members' reportsTo should be the index of their direct supervisor (0 = project leader)
-3. Team size should be reasonable, typically 2-6 people, don't pad the roster
-4. Employee names should be distinctive and fun
-5. Return JSON only, no other content`;
-
-    const response = await this.chat([
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: `Boss's requirement: ${requirement}` },
-    ], { temperature: 0.7, maxTokens: 2048 });
-
-    let aiPlan;
-    try {
-      const jsonStr = response.content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      aiPlan = JSON.parse(jsonStr);
-    } catch (e) {
-      throw new Error('Failed to parse AI response format');
-    }
-
-    if (!aiPlan.members || aiPlan.members.length === 0) {
-      throw new Error('AI did not plan any members');
-    }
-
-    const validTemplateIds = new Set(Object.values(JobTemplates).map(t => t.id));
-    aiPlan.members = aiPlan.members.filter(m => validTemplateIds.has(m.templateId));
-    if (aiPlan.members.length === 0) throw new Error('AI planned invalid job templates');
-
-    console.log(`  🧠 AI analysis rationale: ${aiPlan.reasoning || 'N/A'}`);
-
-    return {
-      departmentName: aiPlan.departmentName || 'New Project Dept',
-      mission: aiPlan.mission || requirement,
-      reasoning: aiPlan.reasoning,
-      members: aiPlan.members.map((m, i) => {
-        const template = Object.values(JobTemplates).find(t => t.id === m.templateId);
-        return {
-          templateId: m.templateId,
-          templateTitle: template?.title || m.templateId,
-          name: m.name || `Employee${i + 1}`,
-          isLeader: m.isLeader || false,
-          reportsTo: m.reportsTo ?? (i === 0 ? null : 0),
-          reason: m.reason,
-        };
-      }),
-      collaborationRules: this._designCollaboration(aiPlan.members),
-    };
-  }
-
-  async _cliAnalyzeRequirement(requirement) {
-    console.log(`  🖥️ [Secretary] Using CLI backend for team design: ${this.cliBackend}`);
-
-    const availableRoles = Object.values(JobTemplates).map(t => ({
-      id: t.id, title: t.title, category: t.category, skills: t.skills,
-    }));
-    const enabledProviders = this.company.providerRegistry.listEnabled().map(p => ({
-      id: p.id, name: p.name, category: p.category, rating: p.rating,
-      isCLI: p.isCLI || false, cliBackendId: p.cliBackendId || null,
-    }));
-    const availableCategories = [...new Set(enabledProviders.map(p => p.category))];
-
-    const prompt = `You are an experienced corporate secretary skilled at team planning and talent matching.
-
-Here are the available job templates (you can only choose from these):
-${JSON.stringify(availableRoles, null, 2)}
-
-## Currently enabled providers (IMPORTANT - only templates whose category has an enabled provider can be hired!):
-${JSON.stringify(enabledProviders, null, 2)}
-
-Available categories: ${availableCategories.join(', ')}
-
-⚠️ CRITICAL RULES for provider-aware hiring:
-- You can ONLY use templates whose category has at least one enabled provider above.
-- If the boss mentions a specific provider name (e.g. "CodeBuddy", "Claude Code", "Codex"), you MUST use a CLI template (category: "cli") for that position.
-- CLI templates (cli-software-engineer, cli-fullstack-developer, cli-code-reviewer) use local CLI tools as execution engines.
-- When CLI providers are available and the task is coding-related, PREFER CLI templates over general templates.
-
-Based on the boss's requirements, output a team plan in JSON format as follows:
-{
-  "departmentName": "Department name",
-  "mission": "Department mission (concise description)",
-  "reasoning": "Your analysis rationale",
-  "members": [
-    {
-      "templateId": "Job template ID",
-      "name": "Employee nickname",
-      "isLeader": true/false,
-      "reportsTo": null or numeric index,
-      "reason": "Why this position is needed"
-    }
-  ]
-}
-
-Requirements:
-1. The first member must be project-leader with isLeader=true
-2. Other members' reportsTo should be the index of their direct supervisor (0 = project leader)
-3. Team size should be reasonable, typically 2-6 people
-4. Employee names should be distinctive and fun
-5. Return JSON only, no other content
-
-Boss's requirement: ${requirement}`;
-
-    const cliResult = await cliBackendRegistry.executeTask(
-      this.cliBackend, this, { title: 'Team design analysis', description: prompt },
-      this.toolKit?.workspaceDir || process.cwd(), {}, { timeout: 120000 }
-    );
-
-    const rawOutput = cliResult.output || cliResult.errorOutput || '';
-    let aiPlan;
-    try { aiPlan = this._extractJSON(rawOutput); }
-    catch (e) { throw new Error(`Failed to parse CLI response for team design: ${e.message}`); }
-
-    if (!aiPlan.members || aiPlan.members.length === 0) throw new Error('CLI did not plan any members');
-
-    const validTemplateIds = new Set(Object.values(JobTemplates).map(t => t.id));
-    aiPlan.members = aiPlan.members.filter(m => validTemplateIds.has(m.templateId));
-    if (aiPlan.members.length === 0) throw new Error('CLI planned invalid job templates');
-
-    console.log(`  🧠 CLI analysis rationale: ${aiPlan.reasoning || 'N/A'}`);
-
-    return {
-      departmentName: aiPlan.departmentName || 'New Project Dept',
-      mission: aiPlan.mission || requirement,
-      reasoning: aiPlan.reasoning,
-      members: aiPlan.members.map((m, i) => {
-        const template = Object.values(JobTemplates).find(t => t.id === m.templateId);
-        return {
-          templateId: m.templateId,
-          templateTitle: template?.title || m.templateId,
-          name: m.name || `Employee${i + 1}`,
-          isLeader: m.isLeader || false,
-          reportsTo: m.reportsTo ?? (i === 0 ? null : 0),
-          reason: m.reason,
-        };
-      }),
-      collaborationRules: this._designCollaboration(aiPlan.members),
-    };
-  }
-
-  _extractJSON(rawOutput) {
-    try { return JSON.parse(rawOutput.trim()); } catch {}
-    const jsonMatch = rawOutput.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (jsonMatch) return JSON.parse(jsonMatch[1].trim());
-    const start = rawOutput.indexOf('{');
-    const end = rawOutput.lastIndexOf('}');
-    if (start !== -1 && end > start) return JSON.parse(rawOutput.slice(start, end + 1));
-    throw new Error('Cannot extract JSON from output');
-  }
-
-  _designCollaboration(members) {
-    return [
-      '1. Project leader coordinates overall operations, assigns tasks and tracks progress',
-      '2. Members report to their direct supervisor upon task completion',
-      '3. Peers at the same level can collaborate horizontally',
-      '4. Project progresses in phases, each with clear deliverables',
-    ];
-  }
-
-  // ======================== Team Adjustment ========================
-
-  async adjustTeam(department, adjustGoal) {
-    console.log(`\n🔧 [Secretary] Analyzing adjustment plan for "${department.name}" department...`);
-    console.log(`   Adjustment goal: "${adjustGoal}"\n`);
-
-    const currentMembers = department.members.map(m => ({
-      id: m.id, name: m.name, role: m.role, skills: m.skills,
-      avgScore: m.avgScore || null, taskCount: m.taskCount || 0,
-    }));
-    const availableRoles = Object.values(JobTemplates).map(t => ({
-      id: t.id, title: t.title, category: t.category, skills: t.skills,
-    }));
-
-    const isCLI = this.agentType === 'cli';
-    const canChat = this.canChat();
-    if (!canChat && !isCLI) {
-      throw new Error('Secretary AI is not configured. Please configure a valid API Key or CLI backend for the secretary provider first.');
-    }
-
-    const plan = isCLI && !canChat
-      ? await this._cliAnalyzeAdjustment(department, currentMembers, availableRoles, adjustGoal)
-      : await this._aiAnalyzeAdjustment(department, currentMembers, availableRoles, adjustGoal);
-
-    console.log(`📋 [Secretary] Adjustment plan:`);
-    console.log(`   Fires: ${plan.fires.length} people, Hires: ${plan.hires.length} people`);
-
-    return plan;
-  }
-
-  async _aiAnalyzeAdjustment(department, currentMembers, availableRoles, adjustGoal) {
-    const enabledProviders = this.company.providerRegistry.listEnabled().map(p => ({
-      id: p.id, name: p.name, category: p.category, rating: p.rating,
-      isCLI: p.isCLI || false, cliBackendId: p.cliBackendId || null,
-    }));
-    const availableCategories = [...new Set(enabledProviders.map(p => p.category))];
-
-    const systemPrompt = `You are an experienced corporate secretary skilled at organizational restructuring and HR planning.
-
-Current department info:
-- Name: ${department.name}
-- Mission: ${department.mission}
-- Current members: ${JSON.stringify(currentMembers, null, 2)}
-
-Available job templates (hiring can only choose from these):
-${JSON.stringify(availableRoles, null, 2)}
-
-## Currently enabled providers (IMPORTANT - only templates whose category has an enabled provider can be hired!):
-${JSON.stringify(enabledProviders, null, 2)}
-
-Available categories: ${availableCategories.join(', ')}
-
-⚠️ CRITICAL RULES for provider-aware hiring:
-- You can ONLY use templates whose category has at least one enabled provider above.
-- If the boss mentions a specific provider/tool name (e.g. "CodeBuddy", "Claude Code", "Codex"), you MUST use a CLI template (category: "cli") for that position.
-- CLI templates use local CLI tools as execution engines — they are powerful coding assistants that can directly execute code.
-- When CLI providers are available and the task involves coding, PREFER CLI templates over general templates.
-
-Based on the boss's adjustment goal, output an adjustment plan in JSON format as follows:
-{
-  "reasoning": "Your analysis rationale (why this adjustment)",
-  "fires": [
-    { "agentId": "Member ID to fire", "name": "Member name", "reason": "Firing reason" }
-  ],
-  "hires": [
-    {
-      "templateId": "Job template ID",
-      "name": "New employee nickname (use creative, fun names)",
-      "isLeader": false,
-      "reportsTo": 0,
-      "reason": "Why this position is needed"
-    }
-  ]
-}
-
-Requirements:
-1. Make reasonable decisions based on boss's goal: could be pure layoff, pure hiring, or both
-2. When firing, prioritize low performers and skill mismatches
-3. When hiring, fill capability gaps with distinctive names
-4. hires reportsTo is the index (0-based) in the current member list, or -1 for direct report to leader
-5. If no firing needed, fires is an empty array; if no hiring needed, hires is an empty array
-6. Return JSON only, no other content`;
-
-    const response = await this.chat([
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: `Boss's adjustment goal: ${adjustGoal}` },
-    ], { temperature: 0.7, maxTokens: 2048 });
-
-    let aiPlan;
-    try {
-      const jsonStr = response.content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      aiPlan = JSON.parse(jsonStr);
-    } catch (e) { throw new Error('Failed to parse AI response format'); }
-
-    const memberIds = new Set(currentMembers.map(m => m.id));
-    aiPlan.fires = (aiPlan.fires || []).filter(f => memberIds.has(f.agentId));
-
-    const validTemplateIds = new Set(Object.values(JobTemplates).map(t => t.id));
-    aiPlan.hires = (aiPlan.hires || []).filter(h => validTemplateIds.has(h.templateId));
-    aiPlan.hires = aiPlan.hires.map((h, i) => {
-      const template = Object.values(JobTemplates).find(t => t.id === h.templateId);
-      return { ...h, templateTitle: template?.title || h.templateId, name: h.name || `NewHire${i + 1}` };
-    });
-
-    return { reasoning: aiPlan.reasoning || 'Adjusting based on goal', fires: aiPlan.fires || [], hires: aiPlan.hires || [] };
-  }
-
-  async _cliAnalyzeAdjustment(department, currentMembers, availableRoles, adjustGoal) {
-    console.log(`  🖥️ [Secretary] Using CLI backend for adjustment analysis: ${this.cliBackend}`);
-
-    const enabledProviders = this.company.providerRegistry.listEnabled().map(p => ({
-      id: p.id, name: p.name, category: p.category, rating: p.rating,
-      isCLI: p.isCLI || false, cliBackendId: p.cliBackendId || null,
-    }));
-    const availableCategories = [...new Set(enabledProviders.map(p => p.category))];
-
-    const prompt = `You are an experienced corporate secretary skilled at organizational restructuring and HR planning.
-
-Current department info:
-- Name: ${department.name}
-- Mission: ${department.mission}
-- Current members: ${JSON.stringify(currentMembers, null, 2)}
-
-Available job templates (hiring can only choose from these):
-${JSON.stringify(availableRoles, null, 2)}
-
-## Currently enabled providers (IMPORTANT - only templates whose category has an enabled provider can be hired!):
-${JSON.stringify(enabledProviders, null, 2)}
-
-Available categories: ${availableCategories.join(', ')}
-
-⚠️ CRITICAL RULES for provider-aware hiring:
-- You can ONLY use templates whose category has at least one enabled provider above.
-- CLI templates use local CLI tools as execution engines — they are powerful coding assistants.
-- When CLI providers are available and the task involves coding, PREFER CLI templates over general templates.
-
-Based on the boss's adjustment goal, output an adjustment plan in JSON format as follows:
-{
-  "reasoning": "Your analysis rationale",
-  "fires": [
-    { "agentId": "Member ID to fire", "name": "Member name", "reason": "Firing reason" }
-  ],
-  "hires": [
-    {
-      "templateId": "Job template ID",
-      "name": "New employee nickname",
-      "isLeader": false,
-      "reportsTo": 0,
-      "reason": "Why this position is needed"
-    }
-  ]
-}
-
-Requirements:
-1. Make reasonable decisions based on boss's goal
-2. When firing, prioritize low performers and skill mismatches
-3. When hiring, fill capability gaps with distinctive names
-4. hires reportsTo is the index (0-based) in the current member list, or -1 for direct report to leader
-5. If no firing needed, fires is an empty array; if no hiring needed, hires is an empty array
-6. Return JSON only, no other content
-
-Boss's adjustment goal: ${adjustGoal}`;
-
-    const cliResult = await cliBackendRegistry.executeTask(
-      this.cliBackend, this,
-      { title: 'Department adjustment analysis', description: prompt },
-      this.toolKit?.workspaceDir || process.cwd(), {}, { timeout: 120000 }
-    );
-
-    const rawOutput = cliResult.output || cliResult.errorOutput || '';
-    let aiPlan;
-    try { aiPlan = this._extractJSON(rawOutput); }
-    catch (e) { throw new Error(`Failed to parse CLI response for adjustment: ${e.message}`); }
-
-    const memberIds = new Set(currentMembers.map(m => m.id));
-    aiPlan.fires = (aiPlan.fires || []).filter(f => memberIds.has(f.agentId));
-
-    const validTemplateIds = new Set(Object.values(JobTemplates).map(t => t.id));
-    aiPlan.hires = (aiPlan.hires || []).filter(h => validTemplateIds.has(h.templateId));
-    aiPlan.hires = aiPlan.hires.map((h, i) => {
-      const template = Object.values(JobTemplates).find(t => t.id === h.templateId);
-      return { ...h, templateTitle: template?.title || h.templateId, name: h.name || `NewHire${i + 1}` };
-    });
-
-    return { reasoning: aiPlan.reasoning || 'Adjusting based on goal', fires: aiPlan.fires || [], hires: aiPlan.hires || [] };
-  }
-
-  // ======================== Recruitment ========================
-
+  /**
+   * Execute recruitment based on a team plan.
+   * @param {object} plan - Team plan with members array
+   * @param {object} hr - HRSystem instance
+   * @returns {Array} Array of recruited employees
+   */
   executeRecruitment(plan, hr) {
-    console.log(`\n🔔 [Secretary] Starting recruitment, HR assistant [${this.hrAssistant.employee.name}] handling operations...`);
+    console.log(`\n🔔 [HR] Starting recruitment, HR assistant [${this.employee.name}] handling operations...`);
 
     const employees = [];
     const skipped = [];
@@ -551,7 +98,7 @@ Boss's adjustment goal: ${adjustGoal}`;
       console.log(`\n  📌 Position: ${memberPlan.templateTitle} (${memberPlan.name})`);
 
       try {
-        const recruitConfig = this.hrAssistant.smartRecruit(
+        const recruitConfig = this.smartRecruit(
           { templateId: memberPlan.templateId, name: memberPlan.name, preferRecall: true },
           hr
         );
@@ -596,62 +143,50 @@ Boss's adjustment goal: ${adjustGoal}`;
     }
 
     if (skipped.length > 0) {
-      console.log(`\n⚠️ [Secretary] ${skipped.length} positions skipped due to unconfigured providers:`);
+      console.log(`\n⚠️ [HR] ${skipped.length} positions skipped due to unconfigured providers:`);
       skipped.forEach(s => console.log(`   - ${s.templateTitle}: ${s.reason}`));
     }
 
-    console.log(`\n✅ [Secretary] Recruitment complete! Successfully hired ${validEmployees.length}, skipped ${skipped.length}`);
+    console.log(`\n✅ [HR] Recruitment complete! Successfully hired ${validEmployees.length}, skipped ${skipped.length}`);
     return validEmployees;
   }
+}
 
-  // ======================== Project Planning ========================
+/**
+ * Secretary — A specialized Employee.
+ * Extends Employee with team design, recruitment coordination,
+ * boss message handling, and direct task execution abilities.
+ */
+export class Secretary extends Employee {
+  constructor({ company, providerConfig, secretaryName, secretaryAvatar, secretaryGender, secretaryAge }) {
+    super({
+      name: secretaryName || 'Secretary',
+      role: 'Personal Secretary',
+      prompt: `You are the boss's personal secretary, responsible for understanding business requirements, analyzing required team composition,
+designing organizational structure (who does what, who reports to whom, how to collaborate), and coordinating HR for talent recruitment.
+You need to plan the number and types of positions based on project requirements to ensure the team can efficiently achieve its goals.
+You have a dedicated HR assistant to help you handle specific recruitment tasks, including searching and recalling talent from the talent market.
 
-  designProjectPlan(projectName, description, employees) {
-    console.log(`\n📝 [Secretary] Designing project execution plan...`);
-
-    const phases = [];
-
-    const planners = employees.filter(a =>
-      ['Product Manager', 'Project Leader'].includes(a.role)
-    );
-    if (planners.length > 0) {
-      phases.push({
-        name: 'Requirements Analysis & Planning',
-        description: 'Define project goals, scope, and key milestones',
-        tasks: planners.map(a => ({ title: `${a.role}: Analyze requirements and create plan`, assigneeId: a.id })),
-      });
-    }
-
-    const creators = employees.filter(a =>
-      !['Product Manager', 'Project Leader'].includes(a.role)
-    );
-    if (creators.length > 0) {
-      phases.push({
-        name: 'Core Creation & Development',
-        description: 'All roles execute core work in parallel',
-        tasks: creators.map(a => ({ title: `${a.role}: Execute core work`, assigneeId: a.id })),
-      });
-    }
-
-    const leader = employees.find(a => a.role === 'Project Leader');
-    if (leader) {
-      phases.push({
-        name: 'Integration & Delivery',
-        description: 'Consolidate all member outputs and deliver final result',
-        tasks: [{ title: 'Project Leader: Integrate results and deliver final output', assigneeId: leader.id }],
-      });
-    }
-
-    const project = {
-      id: uuidv4(), name: projectName, description, phases, createdAt: new Date(),
-    };
-
-    console.log(`   Project plan: ${phases.length} phases`);
-    phases.forEach((p, i) => {
-      console.log(`   Phase${i + 1}: ${p.name} (${p.tasks.length} tasks)`);
+When communicating with the boss, you need to:
+1. Understand the boss's intent (task assignment, progress inquiry, or casual conversation)
+2. If it's a task, assign it to the corresponding department
+3. Periodically report department progress to the boss`,
+      skills: ['requirements-analysis', 'team-planning', 'org-design', 'hr-coordination', 'project-management', 'task-assignment', 'progress-reporting'],
+      provider: providerConfig,
+      avatar: secretaryAvatar,
+      gender: secretaryGender || 'female',
+      age: secretaryAge || 18,
     });
 
-    return project;
+    this.company = company;
+
+    // Initialize dedicated HR assistant
+    this.hrAssistant = new HRAssistant({
+      secretary: this,
+      providerConfig,
+    });
+
+    console.log(`  🧑‍💼 Secretary's dedicated HR assistant is ready: ${this.hrAssistant.employee.name}`);
   }
 
   // ======================== Boss Message Handling ========================

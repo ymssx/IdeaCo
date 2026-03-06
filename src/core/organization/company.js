@@ -802,7 +802,9 @@ Rules:
    * Step 1: Generate recruitment plan (don't execute, wait for boss approval)
    */
   async planDepartment(name, mission) {
-    const teamPlan = await this.secretary.designTeam(mission);
+    // Use a temporary Department instance for team design analysis
+    const tempDept = new Department({ name, mission, company: this.id });
+    const teamPlan = await tempDept.designTeam(mission, this.secretary, this.providerRegistry);
     teamPlan.departmentName = name;
 
     const planId = uuidv4();
@@ -856,8 +858,8 @@ Rules:
 
     const { teamPlan, name, mission } = plan;
 
-    // Recruit
-    const agents = this.secretary.executeRecruitment(teamPlan, this.hr);
+    // Recruit via HR assistant
+    const agents = this.secretary.hrAssistant.executeRecruitment(teamPlan, this.hr);
 
     // Create department
     const dept = new Department({ name, mission, company: this.id });
@@ -1079,23 +1081,7 @@ const dept = this.findDepartment(departmentId);
 const dept = this.findDepartment(departmentId);
     if (!dept) throw new Error(`Department not found: ${departmentId}`);
 
-    // Build department data
-    const deptData = {
-      name: dept.name,
-      mission: dept.mission,
-      members: dept.getMembers().map(a => ({
-        id: a.id,
-        name: a.name,
-        role: a.role,
-        skills: a.skills,
-        avgScore: a.performanceHistory.length > 0
-          ? Math.round(a.performanceHistory.reduce((s, p) => s + p.score, 0) / a.performanceHistory.length)
-          : null,
-        taskCount: a.taskHistory.length,
-      })),
-    };
-
-    const adjustPlan = await this.secretary.adjustTeam(deptData, adjustGoal);
+    const adjustPlan = await dept.adjustTeam(adjustGoal, this.secretary, this.providerRegistry);
 
     const planId = uuidv4();
     this.pendingPlans.set(planId, {
@@ -1175,7 +1161,7 @@ const dept = this.findDepartment(departmentId);
         })),
       };
 
-      const agents = this.secretary.executeRecruitment(hirePlan, this.hr);
+      const agents = this.secretary.hrAssistant.executeRecruitment(hirePlan, this.hr);
       for (const agent of agents) {
         if (!agent) continue;
         dept.addAgent(agent);
