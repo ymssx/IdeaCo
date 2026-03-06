@@ -12,10 +12,6 @@ services:
       - "${PORT:-9999}:9999"
     environment:
       - NODE_ENV=production
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
-      - QWEN_API_KEY=${QWEN_API_KEY:-}
     volumes:
       # Persist company data and workspace across restarts
       - app-data:/app/data
