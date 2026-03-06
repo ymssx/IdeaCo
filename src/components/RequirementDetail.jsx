@@ -92,8 +92,22 @@ const { fetchRequirementDetail, requirementDetail, clearRequirementDetail, fetch
     if (!requirementDetail?.departmentId) return;
     setPreviewFile({ path: filePath, content: null, loading: true });
     try {
-      const content = await fetchWorkspaceFile(requirementDetail.departmentId, filePath);
-      setPreviewFile({ path: filePath, content: content?.content || content || t('reqDetail.files.noContent'), loading: false });
+      const result = await fetchWorkspaceFile(requirementDetail.departmentId, filePath);
+      // Check if API returned an error (e.g. permission denied)
+      if (result?.error) {
+        setPreviewFile({
+          path: filePath,
+          content: `⚠ ${result.error}`,
+          loading: false,
+        });
+        return;
+      }
+      const fileContent = result?.content ?? result ?? null;
+      setPreviewFile({
+        path: filePath,
+        content: fileContent != null ? String(fileContent) : t('reqDetail.files.noContent'),
+        loading: false,
+      });
     } catch {
       setPreviewFile({ path: filePath, content: t('reqDetail.files.readFailed'), loading: false });
     }

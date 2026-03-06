@@ -623,7 +623,9 @@ chatMinimized: false,
       const data = await apiCall(`/workspace/${departmentId}/file?path=${encodeURIComponent(filePath)}`);
       return data.data;
     } catch (e) {
-      return null;
+      console.error(`[fetchWorkspaceFile] Failed to read ${filePath}:`, e.message || e);
+      // Return error info so the UI can display a meaningful message
+      return { path: filePath, content: null, error: e.message || 'Unknown error' };
     }
   },
 

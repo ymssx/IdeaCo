@@ -488,7 +488,7 @@ export default function FilesView({ fileChanges, departmentId, previewFile, onPr
                 <MonacoEditor
                   height="100%"
                   language={getLanguage(previewFile.path)}
-                  value={previewFile.content || t('reqDetail.files.emptyFile')}
+                  value={previewFile.content != null ? previewFile.content : t('reqDetail.files.emptyFile')}
                   theme={CUSTOM_THEME_NAME}
                   beforeMount={defineCustomTheme}
                   options={{

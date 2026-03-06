@@ -264,7 +264,7 @@ export class AgentToolKit {
       mkdirSync(dir, { recursive: true });
     }
 
-    await fs.writeFile(fullPath, content, 'utf-8');
+    await fs.writeFile(fullPath, content, { encoding: 'utf-8', mode: 0o644 });
     return `File written: ${filePath} (${content.length} chars)`;
   }
 

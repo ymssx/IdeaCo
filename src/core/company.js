@@ -7,6 +7,7 @@ import { Agent } from './agent.js';
 import { PerformanceSystem } from './performance.js';
 import { TalentMarket } from './talent-market.js';
 import { MessageBus } from './message-bus.js';
+import { existsSync, mkdirSync } from 'fs';
 import { WorkspaceManager } from './workspace.js';
 import { debouncedSave } from './persistence.js';
 import { llmClient } from './llm-client.js';
@@ -2264,6 +2265,10 @@ const dept = this.findDepartment(departmentId);
       dept.status = deptData.status || 'active';
       dept.leader = deptData.leader;
       dept.workspacePath = deptData.workspacePath;
+      // Ensure workspace directory exists (may be missing after migration or cleanup)
+      if (dept.workspacePath && !existsSync(dept.workspacePath)) {
+        try { mkdirSync(dept.workspacePath, { recursive: true }); } catch { /* ignore */ }
+      }
       dept.createdAt = deptData.createdAt ? new Date(deptData.createdAt) : new Date();
       dept.groupChat = deptData.groupChat || [];
 

@@ -124,6 +124,7 @@ export class WorkspaceManager {
 
   /**
    * Read a file within the workspace
+   * Automatically attempts to fix permission issues
    */
   async readFile(wsPath, filePath) {
     const fullPath = path.join(wsPath, filePath);
@@ -134,7 +135,27 @@ export class WorkspaceManager {
       throw new Error('Path is outside workspace boundary');
     }
 
-    return fs.readFile(resolved, 'utf-8');
+    try {
+      return await fs.readFile(resolved, 'utf-8');
+    } catch (err) {
+      if (err.code === 'EACCES' || err.code === 'EPERM') {
+        // Auto-fix: try to grant read permission and retry
+        try {
+          await fs.chmod(resolved, 0o644);
+          console.log(`[workspace] Auto-fixed permission for: ${resolved}`);
+          return await fs.readFile(resolved, 'utf-8');
+        } catch (chmodErr) {
+          // chmod itself failed — re-throw with clear message
+          const error = new Error(
+            `Permission denied reading "${filePath}". Auto-fix failed. ` +
+            `Try running: chmod -R a+r "${path.resolve(wsPath)}"`
+          );
+          error.code = 'EACCES';
+          throw error;
+        }
+      }
+      throw err;
+    }
   }
 
   /**
