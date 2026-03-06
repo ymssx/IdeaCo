@@ -18,6 +18,7 @@ export default function Sidebar() {
 
   const NAV_ITEMS = [
     { id: 'overview', label: t('sidebar.nav.overview'), icon: '📊' },
+    { id: 'office', label: t('sidebar.nav.office'), icon: '🎮' },
     { id: 'mailbox', label: t('sidebar.nav.mailbox'), icon: '💬' },
     { id: 'requirements', label: t('sidebar.nav.requirements'), icon: '📋' },
     { id: 'departments', label: t('sidebar.nav.departments'), icon: '🏢' },

@@ -14,6 +14,7 @@ import RequirementsBoard from '@/components/RequirementsBoard';
 import RequirementDetail from '@/components/RequirementDetail';
 import TeamDetail from '@/components/TeamDetail';
 import ChatPanel from '@/components/ChatPanel';
+import PixelOffice from '@/components/PixelOffice';
 
 export default function Home() {
   const { company, initialized, activeTab, fetchCompany, error, clearError } = useStore();
@@ -49,6 +50,7 @@ export default function Home() {
       case 'team-detail': return <TeamDetail />;
       case 'mailbox': return <Mailbox />;
       case 'messages': return <MessagesView />;
+      case 'office': return <PixelOffice />;
       default: return <Overview />;
     }
   };

@@ -49,7 +49,7 @@ When the boss communicates with you, you need to:
   sidebar: {
     clickToChat: '클릭하여 대화 · {provider}', secretarySettings: '⚙️ 비서 설정 · 세뇌 스크립트',
     budgetUsage: '💰 예산 소비', tokenLabel: 'Token',
-    nav: { overview: '대시보드', requirements: '요구사항 보드', departments: '조직 구조', mailbox: '메시지', providers: 'AI 공급자', systemSettings: '시스템 설정' },
+    nav: { overview: '대시보드', requirements: '요구사항 보드', departments: '조직 구조', mailbox: '메시지', office: '사무실', providers: 'AI 공급자', systemSettings: '시스템 설정' },
 stats: { departments: '부서', workers: '직원', requirements: '요구사항' },
   },
   overview: {
@@ -231,7 +231,7 @@ stats: { departments: '부서', workers: '직원', requirements: '요구사항' 
     executingShort: '⚙️ 실행 중',
     status: { pending: '대기', planning: '계획 중', in_progress: '실행 중', completed: '완료', failed: '실패' },
     deleteBtn: '🗑 삭제', restartBtn: '🔄 재실행',
-    tabs: { workflow: '📊 워크플로우', chat: '💬 그룹 채팅', outputs: '📦 산출물', files: '📁 파일' },
+    tabs: { workflow: '📊 워크플로우', chat: '💬 그룹 채팅', outputs: '📦 산출물', files: '📁 파일', office: '🏢 사무실' },
     deleteConfirm: { title: '🗑 요구사항 삭제', desc: '이 요구사항을 삭제하시겠습니까? 되돌릴 수 없습니다.', confirmBtn: '삭제 확인' },
     summary: { tasks: '✅ {n}/{total} 작업', duration: '⏱️ {n}초' },
     timeDuration: '⏱ 소요 시간 {n}초',
@@ -464,6 +464,21 @@ stats: { departments: '부서', workers: '직원', requirements: '요구사항' 
     sprintApproved: '✅ 승인되었습니다! 계획이 수락되어 팀을 위한 요구사항 작업을 생성 중입니다.',
     sprintRequirementCreated: '📋 요구사항 「{title}」이 생성되어 시작되었습니다. 요구사항 보드에서 세부 내용을 확인할 수 있습니다.',
     sprintRequirementFailed: '❌ 요구사항 생성 또는 실행에 실패했습니다: {error}',
+  },
+  pixelOffice: {
+    title: '사무실',
+    depts: '개 부서',
+    agents: '명의 에이전트',
+    agentInfo: '에이전트 정보',
+    name: '이름',
+    role: '역할',
+    department: '부서',
+    motto: '좌우명',
+    skills: '스킬',
+    lastMessage: '최신 메시지',
+    clickAgent: '에이전트를 클릭하여 정보 확인',
+    bubbleHint: '말풍선은 최근 채팅을 표시',
+    walkHint: '에이전트가 사무실을 돌아다닙니다',
   },
 };
 export default ko;

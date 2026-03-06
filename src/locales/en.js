@@ -94,6 +94,7 @@ When the boss communicates with you, you need to:
       requirements: 'Requirements',
       departments: 'Company Structure',
       mailbox: 'Messages',
+      office: 'Office',
       providers: 'Brain Providers',
       systemSettings: 'System Settings',
     },
@@ -616,6 +617,7 @@ When the boss communicates with you, you need to:
       chat: '💬 Group Chat',
       outputs: '📦 Outputs',
       files: '📁 Files',
+      office: '🏢 Office',
     },
     deleteConfirm: {
       title: '🗑 Delete Requirement',
@@ -938,6 +940,21 @@ When the boss communicates with you, you need to:
     monologue: '🧠 Monologue',
     noMonologueYet: 'This agent has not produced any monologue yet',
     sendToGroupChat: '[Send to group chat]',
+  },
+  pixelOffice: {
+    title: 'Office',
+    depts: 'departments',
+    agents: 'agents',
+    agentInfo: 'Agent Profile',
+    name: 'Name',
+    role: 'Role',
+    department: 'Department',
+    motto: 'Motto',
+    skills: 'Skills',
+    lastMessage: 'Latest Message',
+    clickAgent: 'Click agent to view info',
+    bubbleHint: 'Chat bubbles show recent messages',
+    walkHint: 'Agents wander around their offices',
   },
 };
 

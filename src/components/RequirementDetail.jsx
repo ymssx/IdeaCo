@@ -7,6 +7,7 @@ import GroupChatView from './GroupChatView';
 import AgentDetailModal from './AgentDetailModal';
 import CachedAvatar from './CachedAvatar';
 import FilesView from './FilesView';
+import PixelOffice from './PixelOffice';
 
 import { useRouter } from 'next/navigation';
 
@@ -273,6 +274,7 @@ const { fetchRequirementDetail, requirementDetail, clearRequirementDetail, fetch
               {[
                 { id: 'workflow', label: t('reqDetail.tabs.workflow'), badge: req.workflow?.nodes?.length },
                 { id: 'files', label: t('reqDetail.tabs.files'), badge: new Set((req.liveStatus?.recentFileChanges || []).filter(f => f.filePath).map(f => f.filePath.replace(/^\.[\/\\]/, ''))).size },
+                { id: 'office', label: t('reqDetail.tabs.office') },
               ].map(tab => (
                 <button
                   key={tab.id}
@@ -292,7 +294,7 @@ const { fetchRequirementDetail, requirementDetail, clearRequirementDetail, fetch
             </div>
 
             {/* Content area */}
-            <div className={`flex-1 min-h-0 flex flex-col pb-6 ${activeTab === 'files' ? 'overflow-hidden' : 'overflow-auto'}`}>
+            <div className={`flex-1 min-h-0 flex flex-col pb-6 ${activeTab === 'files' || activeTab === 'office' ? 'overflow-hidden' : 'overflow-auto'}`}>
               {activeTab === 'workflow' && (
                 <>
                   {(req.status === 'in_progress' || req.status === 'planning' || req.status === 'failed') && req.liveStatus && (
@@ -316,6 +318,11 @@ const { fetchRequirementDetail, requirementDetail, clearRequirementDetail, fetch
                     onPreview={loadFilePreview}
                     onClosePreview={() => setPreviewFile(null)}
                   />
+                </div>
+              )}
+              {activeTab === 'office' && (
+                <div className="flex-1 min-h-0">
+                  <PixelOffice embedded groupChat={req.groupChat} members={req.members} />
                 </div>
               )}
             </div>
@@ -389,6 +396,7 @@ const { fetchRequirementDetail, requirementDetail, clearRequirementDetail, fetch
             { id: 'workflow', label: t('reqDetail.tabs.workflow'), badge: req.workflow?.nodes?.length },
             { id: 'chat', label: t('reqDetail.tabs.chat'), badge: req.groupChat?.length },
             { id: 'files', label: t('reqDetail.tabs.files'), badge: new Set((req.liveStatus?.recentFileChanges || []).filter(f => f.filePath).map(f => f.filePath.replace(/^\.[\/\\]/, ''))).size },
+            { id: 'office', label: t('reqDetail.tabs.office') },
           ].map(tab => (
             <button
               key={tab.id}
@@ -408,7 +416,7 @@ const { fetchRequirementDetail, requirementDetail, clearRequirementDetail, fetch
         </div>
 
         {/* Content area */}
-        <div className={`flex-1 min-h-0 flex flex-col pb-6 ${activeTab === 'files' ? 'overflow-hidden' : 'overflow-auto'}`} style={{ minHeight: activeTab === 'files' ? '400px' : undefined }}>
+        <div className={`flex-1 min-h-0 flex flex-col pb-6 ${activeTab === 'files' || activeTab === 'office' ? 'overflow-hidden' : 'overflow-auto'}`} style={{ minHeight: activeTab === 'files' || activeTab === 'office' ? '400px' : undefined }}>
           {activeTab === 'workflow' && (
             <>
               {/* Live progress panel (only shown under workflow tab) */}
@@ -459,6 +467,11 @@ const { fetchRequirementDetail, requirementDetail, clearRequirementDetail, fetch
                 onPreview={loadFilePreview}
                 onClosePreview={() => setPreviewFile(null)}
               />
+            </div>
+          )}
+          {activeTab === 'office' && (
+            <div className="flex-1 min-h-0">
+              <PixelOffice embedded groupChat={req.groupChat} members={req.members} />
             </div>
           )}
         </div>

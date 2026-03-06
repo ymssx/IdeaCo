@@ -43,7 +43,7 @@ When the boss communicates with you, you need to:
   sidebar: {
     clickToChat: 'Klick zum Chatten · {provider}', secretarySettings: '⚙️ Sekretär-Einstellungen',
     budgetUsage: '💰 Budgetverbrauch', tokenLabel: 'Token',
-    nav: { overview: 'Dashboard', requirements: 'Anforderungen', departments: 'Struktur', mailbox: 'Nachrichten', providers: 'KI-Anbieter', systemSettings: 'Systemeinstellungen' },
+    nav: { overview: 'Dashboard', requirements: 'Anforderungen', departments: 'Struktur', mailbox: 'Nachrichten', office: 'Büro', providers: 'KI-Anbieter', systemSettings: 'Systemeinstellungen' },
 stats: { departments: 'Abt.', workers: 'Arbeiter', requirements: 'Anforderungen' },
   },
   overview: {
@@ -198,7 +198,7 @@ stats: { departments: 'Abt.', workers: 'Arbeiter', requirements: 'Anforderungen'
     back: '← Zurück zur Liste', backShort: 'Zurück', executingShort: '⚙️ Läuft',
     status: { pending: 'Ausstehend', planning: 'Planung', in_progress: 'In Arbeit', completed: 'Fertig', failed: 'Fehlgeschlagen' },
     deleteBtn: '🗑 Löschen', restartBtn: '🔄 Neustarten',
-    tabs: { workflow: '📊 Workflow', chat: '💬 Gruppenchat', outputs: '📦 Ergebnisse', files: '📁 Dateien' },
+    tabs: { workflow: '📊 Workflow', chat: '💬 Gruppenchat', outputs: '📦 Ergebnisse', files: '📁 Dateien', office: '🏢 Büro' },
     deleteConfirm: { title: '🗑 Anforderung löschen', desc: 'Diese Anforderung löschen? Nicht rückgängig machbar.', confirmBtn: 'Bestätigen' },
     summary: { tasks: '✅ {n}/{total} Aufgaben', duration: '⏱️ {n}s' },
     timeDuration: '⏱ Dauer {n}s',
@@ -345,6 +345,21 @@ stats: { departments: 'Abt.', workers: 'Arbeiter', requirements: 'Anforderungen'
     sprintApproved: '✅ Genehmigt! Der Plan wurde akzeptiert und eine Anforderung für das Team wird erstellt.',
     sprintRequirementCreated: '📋 Anforderung „{title}" wurde erstellt und gestartet. Details können im Anforderungs-Board eingesehen werden.',
     sprintRequirementFailed: '❌ Anforderung konnte nicht erstellt oder ausgeführt werden: {error}',
+  },
+  pixelOffice: {
+    title: 'Büro',
+    depts: 'Abteilungen',
+    agents: 'Agenten',
+    agentInfo: 'Agenten-Info',
+    name: 'Name',
+    role: 'Rolle',
+    department: 'Abteilung',
+    motto: 'Motto',
+    skills: 'Fähigkeiten',
+    lastMessage: 'Letzte Nachricht',
+    clickAgent: 'Agent anklicken für Infos',
+    bubbleHint: 'Sprechblasen zeigen neueste Nachrichten',
+    walkHint: 'Agenten laufen in ihren Büros herum',
   },
 };
 export default de;
