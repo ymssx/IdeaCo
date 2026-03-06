@@ -226,18 +226,18 @@ const { fetchRequirementDetail, requirementDetail, clearRequirementDetail, fetch
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0 ml-4">
+          <div className="flex items-center gap-2 shrink-0 ml-4 electron-no-drag relative z-[10000]">
             <button
               onClick={() => restartRequirement(req.id)}
-              className="text-sm px-4 py-2 rounded-lg bg-blue-600/15 hover:bg-blue-600/25 text-blue-400 border border-blue-500/20 transition-colors flex items-center gap-1.5 cursor-pointer min-h-[36px]"
+              className="text-sm px-4 py-2 rounded-lg bg-blue-600/15 hover:bg-blue-600/25 text-blue-400 border border-blue-500/20 transition-colors flex items-center gap-1.5 cursor-pointer min-h-[36px] select-none"
             >
-              🔄 {t('reqDetail.live.restart')}
+              {t('reqDetail.live.restart')}
             </button>
             <button
               onClick={() => { if (confirm(t('reqDetail.live.confirmDelete'))) deleteRequirement(req.id); }}
-              className="text-sm px-4 py-2 rounded-lg bg-red-600/15 hover:bg-red-600/25 text-red-400 border border-red-500/20 transition-colors flex items-center gap-1.5 cursor-pointer min-h-[36px]"
+              className="text-sm px-4 py-2 rounded-lg bg-red-600/15 hover:bg-red-600/25 text-red-400 border border-red-500/20 transition-colors flex items-center gap-1.5 cursor-pointer min-h-[36px] select-none"
             >
-              🗑️ {t('reqDetail.live.deleteReq')}
+              {t('reqDetail.live.deleteReq')}
             </button>
           </div>
         </div>

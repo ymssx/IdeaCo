@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { llmClient } from './llm-client.js';
 import { chatStore } from './chat-store.js';
+import { cliBackendRegistry } from './cli-backends/index.js';
 
 /**
  * Requirement status enum
@@ -233,6 +234,44 @@ export class RequirementManager {
       );
     }
 
+    // Ensure we have a usable LLM provider for decomposition
+    // If leader's provider is not valid, try to find one from any team member
+    let effectiveProvider = leaderProvider;
+    const isProviderUsable = (p) => p && p.enabled && p.apiKey && !p.isCLI;
+    if (!isProviderUsable(effectiveProvider)) {
+      for (const m of members) {
+        if (isProviderUsable(m.provider)) {
+          effectiveProvider = m.provider;
+          console.log(`  🔄 Leader provider unusable, borrowing provider from [${m.name}] (${m.provider.name}) for workflow decomposition`);
+          break;
+        }
+      }
+    }
+
+    // Determine if we should use CLI backend for decomposition
+    // (when no LLM provider is available but a CLI backend exists)
+    let cliBackendId = null;
+    let cliAgent = null;
+    if (!isProviderUsable(effectiveProvider)) {
+      // Find a member with a CLI backend to use for decomposition
+      const leader = members.find(m => m.role === 'Project Leader') || members[0];
+      if (leader?.cliBackend) {
+        cliBackendId = leader.cliBackend;
+        cliAgent = leader;
+      } else {
+        for (const m of members) {
+          if (m.cliBackend) {
+            cliBackendId = m.cliBackend;
+            cliAgent = m;
+            break;
+          }
+        }
+      }
+      if (cliBackendId) {
+        console.log(`  🖥️ No LLM provider available, using CLI backend [${cliBackendId}] from [${cliAgent.name}] for workflow decomposition`);
+      }
+    }
+
     // Build member info
     const memberInfo = members.map(m => ({
       id: m.id,
@@ -286,15 +325,34 @@ Requirements:
     - NOT every task needs a reviewer — only complex, high-risk, or important tasks. Simple straightforward tasks can skip review
     - The reviewer acts as a strict quality gate: they should not easily approve, but provide detailed feedback when rejecting`;
 
-    try {
-      const response = await llmClient.chat(leaderProvider, [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: adjustmentContext
-          ? `Requirement title: ${requirement.title}\nRequirement description: ${requirement.description}\n\n**ADJUSTMENT REQUEST FROM BOSS:**\n${adjustmentContext.bossMessage}\n\n**YOUR PLANNED ADJUSTMENTS:**\n${adjustmentContext.adjustments}\n\n**PREVIOUS WORKFLOW (for reference):**\n${adjustmentContext.previousWorkflow}\n\n**EXISTING OUTPUT FILES (must be preserved and built upon):**\n${adjustmentContext.existingOutputs || 'None'}\n\n**IMPORTANT:** This is an ADJUSTMENT, NOT a restart. You must:\n1. PRESERVE all existing output files - do NOT recreate them from scratch\n2. Only create tasks that MODIFY existing files or ADD new content\n3. When a task needs to change an existing file, the agent should READ the current file first, then modify it\n4. Only add NEW tasks for genuinely new work that wasn't done before\n5. Reuse the previous workflow structure where possible, adjusting only what the Boss requested\n\nPlease create an ADJUSTED workflow based on the Boss's instructions.`
-          : `Requirement title: ${requirement.title}\nRequirement description: ${requirement.description}\n\nPlease decompose the workflow.` },
-      ], { temperature: 0.7, maxTokens: 2048 });
+    const userPrompt = adjustmentContext
+      ? `Requirement title: ${requirement.title}\nRequirement description: ${requirement.description}\n\n**ADJUSTMENT REQUEST FROM BOSS:**\n${adjustmentContext.bossMessage}\n\n**YOUR PLANNED ADJUSTMENTS:**\n${adjustmentContext.adjustments}\n\n**PREVIOUS WORKFLOW (for reference):**\n${adjustmentContext.previousWorkflow}\n\n**EXISTING OUTPUT FILES (must be preserved and built upon):**\n${adjustmentContext.existingOutputs || 'None'}\n\n**IMPORTANT:** This is an ADJUSTMENT, NOT a restart. You must:\n1. PRESERVE all existing output files - do NOT recreate them from scratch\n2. Only create tasks that MODIFY existing files or ADD new content\n3. When a task needs to change an existing file, the agent should READ the current file first, then modify it\n4. Only add NEW tasks for genuinely new work that wasn't done before\n5. Reuse the previous workflow structure where possible, adjusting only what the Boss requested\n\nPlease create an ADJUSTED workflow based on the Boss's instructions.`
+      : `Requirement title: ${requirement.title}\nRequirement description: ${requirement.description}\n\nPlease decompose the workflow.`;
 
-      // Parse JSON
+    try {
+      let response;
+      if (cliBackendId && !isProviderUsable(effectiveProvider)) {
+        // Use CLI backend for decomposition
+        const cliResult = await cliBackendRegistry.executeTask(
+          cliBackendId,
+          cliAgent,
+          {
+            title: 'Workflow decomposition',
+            description: `${systemPrompt}\n\n${userPrompt}`,
+          },
+          cliAgent.toolKit?.workspaceDir || process.cwd(),
+          {},
+          { timeout: 120000 }
+        );
+        response = { content: cliResult.output || cliResult.errorOutput || '' };
+      } else {
+        response = await llmClient.chat(effectiveProvider, [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ], { temperature: 0.7, maxTokens: 2048 });
+      }
+
+      // Parse JSON (robust extraction for both LLM and CLI output)
       const tick = String.fromCharCode(96);
       const fence = tick + tick + tick;
       let jsonStr = response.content
@@ -302,7 +360,24 @@ Requirements:
         .replace(fence + 'json', '').replace(fence, '')
         .trim();
 
-      const workflow = JSON.parse(jsonStr);
+      let workflow;
+      try {
+        workflow = JSON.parse(jsonStr);
+      } catch {
+        // CLI output may contain extra text; try to extract JSON object
+        const jsonMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
+        if (jsonMatch) {
+          workflow = JSON.parse(jsonMatch[1].trim());
+        } else {
+          const start = jsonStr.indexOf('{');
+          const end = jsonStr.lastIndexOf('}');
+          if (start !== -1 && end > start) {
+            workflow = JSON.parse(jsonStr.slice(start, end + 1));
+          } else {
+            throw new Error('Cannot extract JSON from response');
+          }
+        }
+      }
 
       // Validate and complete
       const memberIds = new Set(members.map(m => m.id));
