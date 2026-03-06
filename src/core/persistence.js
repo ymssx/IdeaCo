@@ -32,11 +32,11 @@ export function saveState(company) {
       });
     });
     // Secretary's memory also saved separately
-    if (company.secretary?.agent) {
+    if (company.secretary) {
       agentMemories.push({
-        agentId: company.secretary.agent.id,
-        memoryData: company.secretary.agent.memory.serialize(),
-        meta: { name: company.secretary.agent.name, role: 'Personal Secretary', department: 'HQ' },
+        agentId: company.secretary.id,
+        memoryData: company.secretary.memory.serialize(),
+        meta: { name: company.secretary.name, role: 'Personal Secretary', department: 'HQ' },
       });
     }
     saveAllAgentMemories(agentMemories);

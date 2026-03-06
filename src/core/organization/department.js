@@ -48,7 +48,8 @@ export class Department {
     agent.department = this.id;
     this.agents.set(agent.id, agent);
     console.log(`  ✅ [${agent.name}] (${agent.role}) joined department "${this.name}"`);
-    console.log(`     Model provider: ${agent.provider.name} (${agent.provider.provider})`);
+    const providerInfo = agent.getProviderDisplayInfo?.() || {};
+    console.log(`     Model provider: ${providerInfo.name || 'Unknown'} (${providerInfo.provider || 'Unknown'})`);
     return agent;
   }
 
