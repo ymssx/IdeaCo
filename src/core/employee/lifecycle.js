@@ -172,6 +172,7 @@ export class EmployeeLifecycle {
           groupId: monologue.groupId,
           startedAt: monologue.startedAt,
           thoughtCount: monologue.thoughts.length,
+          status: 'thinking',
         });
       }
     }
@@ -456,6 +457,7 @@ export class EmployeeLifecycle {
 
       // Finalise monologue
       monologue.status = 'done';
+      monologue.finishedAt = Date.now();
       monologue.decision = thinkingResult.shouldSpeak ? 'spoke' : 'silent';
 
       if (!this._monologueHistory.has(groupId)) this._monologueHistory.set(groupId, []);
@@ -482,6 +484,8 @@ export class EmployeeLifecycle {
         agentId: agent.id, agentName: agent.name, groupId,
         decision: monologue.decision,
         thoughtCount: monologue.thoughts.length,
+        thoughts: monologue.thoughts,
+        reason: thinkingResult.reason || '',
       });
 
     } catch (error) {

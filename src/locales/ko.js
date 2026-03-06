@@ -261,7 +261,7 @@ stats: { departments: '부서', workers: '직원', requirements: '요구사항' 
       title: '{name}의 플로우 엿보기', tabFlow: '📋 작업 로그', tabThoughts: '💭 독백', tabHistory: '📜 기록',
       loading: '마음을 엿보는 중...', noFlowLogs: '작업 로그 없음', noFlowLogsHint: '에이전트가 작업을 시작하면 여기에 표시됩니다',
       thinking: '🧠 생각 중...', decided: '💬 발언 결정', silent: '🤫 침묵', thought: '💭 독백', organizing: '생각 정리 중...',
-      noMonologue: '활성 독백 없음', noHistory: '기록 없음', spoke: '💬 발언함', keptSilent: '🤫 침묵 유지', codeBlock: '[코드 블록]',
+      noMonologue: '활성 독백 없음', noHistory: '기록 없음', recentlyThought: '방금 생각함', spoke: '💬 발언함', keptSilent: '🤫 침묵 유지', codeBlock: '[코드 블록]',
     },
   },
   display: {

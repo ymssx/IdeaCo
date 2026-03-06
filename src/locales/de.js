@@ -217,7 +217,7 @@ stats: { departments: 'Abt.', workers: 'Arbeiter', requirements: 'Anforderungen'
       title: '{name}s Flow ansehen', tabFlow: '📋 Arbeitsprotokoll', tabThoughts: '💭 Monolog', tabHistory: '📜 Verlauf',
       loading: 'Gedanken ausspähen...', noFlowLogs: 'Keine Arbeitsprotokolle', noFlowLogsHint: 'Operationen erscheinen hier wenn der Agent beginnt',
       thinking: '🧠 Denkt nach...', decided: '💬 Hat sich entschieden zu sprechen', silent: '🤫 Schweigt', thought: '💭 Gedanke', organizing: 'Gedanken ordnen...',
-      noMonologue: 'Kein aktiver Monolog', noHistory: 'Kein Verlauf', spoke: '💬 Hat gesprochen', keptSilent: '🤫 Blieb still', codeBlock: '[Codeblock]',
+      noMonologue: 'Kein aktiver Monolog', noHistory: 'Kein Verlauf', recentlyThought: 'hat gerade nachgedacht', spoke: '💬 Hat gesprochen', keptSilent: '🤫 Blieb still', codeBlock: '[Codeblock]',
     },
   },
   time: { justNow: 'gerade', minutesAgo: 'vor {n}m', sun: 'So', mon: 'Mo', tue: 'Di', wed: 'Mi', thu: 'Do', fri: 'Fr', sat: 'Sa' },

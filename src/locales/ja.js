@@ -249,7 +249,7 @@ stats: { departments: '部門', workers: '社員', requirements: '要件' },
       title: '{name}のフローを覗く', tabFlow: '📋 作業ログ', tabThoughts: '💭 独白', tabHistory: '📜 履歴',
       loading: '心を覗いています...', noFlowLogs: '作業ログなし', noFlowLogsHint: 'エージェントが作業を開始するとここに表示されます',
       thinking: '🧠 思考中...', decided: '💬 発言を決定', silent: '🤫 沈黙', thought: '💭 独白', organizing: '思考整理中...',
-      noMonologue: 'アクティブな独白なし', noHistory: '履歴なし', spoke: '💬 発言', keptSilent: '🤫 沈黙を維持', codeBlock: '[コードブロック]',
+      noMonologue: 'アクティブな独白なし', noHistory: '履歴なし', recentlyThought: 'さっき思考した', spoke: '💬 発言', keptSilent: '🤫 沈黙を維持', codeBlock: '[コードブロック]',
     },
   },
   display: {

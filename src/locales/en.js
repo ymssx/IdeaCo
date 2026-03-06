@@ -724,6 +724,7 @@ When the boss communicates with you, you need to:
       organizing: 'Organizing thoughts...',
       noMonologue: 'No active monologue',
       noHistory: 'No flow history',
+      recentlyThought: 'just thought',
       spoke: '💬 Spoke',
       keptSilent: '🤫 Kept silent',
       codeBlock: '[code block]',

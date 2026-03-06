@@ -503,6 +503,7 @@ const zh = {
       organizing: '正在组织思绪...',
       noMonologue: '该员工当前没有活跃的内心独白',
       noHistory: '暂无历史心流记录',
+      recentlyThought: '刚刚思考过',
       spoke: '💬 已发言',
       keptSilent: '🤫 保持沉默',
       codeBlock: '[代码块]',
