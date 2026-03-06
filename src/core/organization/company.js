@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
+import path from 'path';
 import { ProviderRegistry, ModelProviders, JobCategory, JobCategoryLabel } from './workforce/providers.js';
 import { HRSystem } from './workforce/hr.js';
 import { Department } from './department.js';
@@ -23,6 +24,44 @@ import { auditLogger, AuditCategory, AuditLevel } from '../system/audit.js';
 import { chatStore } from '../agent/chat-store.js';
 import { cliBackendRegistry } from '../agent/cli-agent/backends/index.js';
 import { groupChatLoop } from './group-chat-loop.js';
+
+// Expand short-form file references: [[file:path]] → [[file:deptId:path|name]]
+// Also fix incomplete references: [[file:deptId:path]] → [[file:deptId:path|name]]
+// Only creates clickable references for files that actually exist on disk.
+// Returns { content, invalidRefs } so caller can provide feedback for bad references.
+const SIMPLE_FILE_REF = /\[\[file:([^\]|:]+)\]\]/g;
+const INCOMPLETE_FILE_REF = /\[\[file:([^:]+):([^\]|]+)\]\]/g;
+function expandFileReferences(content, departmentId, workspacePath) {
+  if (!content || !departmentId) return { content, invalidRefs: [] };
+  const invalidRefs = [];
+  // First: fix incomplete refs [[file:deptId:path]] → [[file:deptId:path|name]]
+  let expanded = content.replace(INCOMPLETE_FILE_REF, (_match, deptId, filePath) => {
+    const trimmed = filePath.trim();
+    if (workspacePath) {
+      const fullPath = path.join(workspacePath, trimmed);
+      if (!existsSync(fullPath)) {
+        invalidRefs.push(trimmed);
+        return trimmed;
+      }
+    }
+    const displayName = path.basename(trimmed);
+    return `[[file:${deptId}:${trimmed}|${displayName}]]`;
+  });
+  // Then: expand simple refs [[file:path]] → [[file:deptId:path|name]]
+  expanded = expanded.replace(SIMPLE_FILE_REF, (_match, filePath) => {
+    const trimmed = filePath.trim();
+    if (workspacePath) {
+      const fullPath = path.join(workspacePath, trimmed);
+      if (!existsSync(fullPath)) {
+        invalidRefs.push(trimmed);
+        return trimmed;
+      }
+    }
+    const displayName = path.basename(trimmed);
+    return `[[file:${departmentId}:${trimmed}|${displayName}]]`;
+  });
+  return { content: expanded, invalidRefs };
+}
 
 
 /**
@@ -464,11 +503,7 @@ Rules:
     const agentMsg = { role: 'agent', content: replyContent, time: new Date() };
     chatStore.appendMessage(sessionId, agentMsg);
 
-    // Add to agent's short-term memory
-    targetAgent.memory.addShortTerm(
-      `Chatted with boss: "${message.slice(0, 50)}..." → replied`,
-      'conversation'
-    );
+
 
     this.save();
 
@@ -1037,10 +1072,7 @@ const dept = this.findDepartment(departmentId);
 
     const profile = this.talentMarket.register(agent, reason, performanceData);
 
-    agent.memory.addLongTerm(
-      `Left the "${dept.name}" department, reason: ${reason}. Entered talent market awaiting new opportunities.`,
-      'experience'
-    );
+
 
     // Clean up message bus inbox
     this.messageBus.clearInbox(agentId);
@@ -1387,7 +1419,7 @@ const dept = this.findDepartment(departmentId);
       requirement.addGroupMessage(
         { name: 'System', role: 'system' },
         `❌ Requirement execution failed: ${e.message}`,
-        'system'
+        'system', null, { auto: true }
       );
       this.save();
       summary = requirement.summary;
@@ -1525,7 +1557,7 @@ const dept = this.findDepartment(departmentId);
       requirement.addGroupMessage(
         { name: 'System', role: 'system' },
         `❌ Sprint requirement execution failed: ${e.message}`,
-        'system'
+        'system', null, { auto: true }
       );
       this.save();
       summary = requirement.summary;
@@ -1549,7 +1581,8 @@ const dept = this.findDepartment(departmentId);
 
     // 5. Update sprint status based on requirement result
     const { SprintStatus } = await import('@/core/organization/team.js');
-    if (requirement.status === 'completed') {
+    if (requirement.status === 'completed' || requirement.status === 'pending_approval') {
+      // For pending_approval, the sprint is done but the requirement awaits Boss review
       sprint.status = SprintStatus.COMPLETED;
       sprint.completedAt = new Date();
       sprint.summary = requirement.summary;
@@ -1580,7 +1613,8 @@ const dept = this.findDepartment(departmentId);
     const leader = dept.getLeader() || dept.getMembers()[0];
     if (!leader) throw new Error('No leader found in department');
 
-    // 1. Add Boss message to group chat
+    // 1. Add Boss message to group chat (expand [[file:path]] → full format)
+    const { content: expandedMessage, invalidRefs } = expandFileReferences(message, requirement.departmentId, dept.workspacePath);
     requirement.addGroupMessage(
       {
         id: 'boss',
@@ -1588,9 +1622,18 @@ const dept = this.findDepartment(departmentId);
         avatar: this.bossAvatar || null,
         role: 'Boss',
       },
-      message,
+      expandedMessage,
       'message'
     );
+    // Auto-feedback: notify about invalid file references
+    if (invalidRefs.length > 0) {
+      const invalidList = invalidRefs.map(f => `  - ${f}`).join('\n');
+      requirement.addGroupMessage(
+        { id: 'system', name: 'System', role: 'system' },
+        `⚠️ File reference error: the following files do not exist in workspace:\n${invalidList}`,
+        'message', null, { auto: true }
+      );
+    }
     this.save();
 
     // 1.5 Trigger group chat loop: notify all members of new message (Boss message, everyone should pay attention)
@@ -1607,7 +1650,7 @@ const dept = this.findDepartment(departmentId);
 
     // 3. Add Leader reply to group chat
     if (leaderResponse.reply) {
-      requirement.addGroupMessage(leader, leaderResponse.reply, 'message');
+      requirement.addGroupMessage(leader, leaderResponse.reply, 'message', null, { auto: true });
     }
 
     // 4. Execute operations based on Leader decision
@@ -1622,14 +1665,14 @@ const dept = this.findDepartment(departmentId);
       requirement.addGroupMessage(
         { name: 'System', role: 'system' },
         `⏹️ Project stopped by Boss request`,
-        'system'
+        'system', null, { auto: true }
       );
     } else if (leaderResponse.action === 'restart') {
       // Restart project (mark as failed, frontend can use restart button)
       requirement.addGroupMessage(
         { name: 'System', role: 'system' },
         `🔄 Boss requested project restart, replanning...`,
-        'system'
+        'system', null, { auto: true }
       );
       // Async re-execute, non-blocking
       const title = requirement.title;
@@ -1712,11 +1755,34 @@ const dept = this.findDepartment(departmentId);
           requirement.addGroupMessage(
             { name: 'System', role: 'system' },
             `❌ Adjustment plan execution failed: ${e.message}`,
-            'system'
+            'system', null, { auto: true }
           );
           this.save();
         }
       })();
+    } else if (leaderResponse.action === 'approve') {
+      // Boss approved the requirement — finalize it
+      requirement.status = RequirementStatus.COMPLETED;
+      requirement.completedAt = new Date();
+      requirement.updateLiveStatus({
+        currentAction: 'Boss approved — requirement completed',
+        currentAgent: null,
+      });
+      requirement.addGroupMessage(
+        { name: 'System', role: 'system' },
+        `✅ Requirement "${requirement.title}" has been approved by Boss and is now completed!`,
+        'system', null, { auto: true }
+      );
+
+      // Leader sends completion report email
+      if (leader) {
+        const summary = requirement.summary || {};
+        let reportContent = `Requirement "${requirement.title}" has been approved and completed!\n\n`;
+        reportContent += `📊 Execution Results:\n`;
+        reportContent += `- Completed tasks: ${summary.successTasks || 0}/${summary.totalTasks || 0}\n`;
+        reportContent += `- Total duration: ${Math.round((summary.totalDuration || 0) / 1000)}s\n`;
+        leader.sendMailToBoss(`✅ Requirement Approved: ${requirement.title}`, reportContent, this);
+      }
     }
     // action === 'continue' → No special handling needed, continue as normal
 
@@ -1813,12 +1879,13 @@ The Boss (your employer) just sent a message in the group chat. You need to:
 You MUST reply in JSON format:
 {
   "reply": "Your natural reply to the Boss (addressing them as Boss, speaking in your personality style, explaining what you'll do)",
-  "action": "continue|adjust|stop|restart",
+  "action": "continue|adjust|stop|restart|approve",
   "adjustments": "If action is 'adjust', briefly describe what changes you'll make to the plan"
 }
 
 Action rules:
 - "continue": Boss is just commenting/encouraging, no changes needed. Or giving minor feedback that doesn't change the plan.
+- "approve": Boss is satisfied with the results and wants to close/accept/finalize the requirement. Use when Boss says things like "looks good", "approved", "OK", "done", "accept", "通过", "可以", "没问题", "完成", "好的", "确认", "LGTM", "ship it", etc. ${requirement.status === 'pending_approval' ? '**IMPORTANT: The project is currently PENDING APPROVAL. If the Boss seems satisfied or gives positive feedback, use "approve".**' : ''}
 - "adjust": Boss wants to modify, supplement, or revise the current plan. IMPORTANT: This means working on top of existing results — existing files and outputs will be PRESERVED, only new/modified content will be added. Use this when Boss says things like "add more", "revise", "change X to Y", "also include", "supplement", "modify", "adjust" etc.
 - "stop": Boss explicitly says to stop, halt, or cancel the project.
 - "restart": Boss EXPLICITLY wants to start over completely from scratch, redo everything, or completely restart. Use ONLY when Boss clearly says "start over", "redo from scratch", "start fresh" etc. All existing files will be DELETED.
@@ -1843,7 +1910,7 @@ Reply in the same language the Boss used. Be concise but warm.`
         const parsed = JSON.parse(jsonStr);
         return {
           reply: parsed.reply || 'Understood, Boss!',
-          action: ['continue', 'adjust', 'stop', 'restart'].includes(parsed.action) ? parsed.action : 'continue',
+          action: ['continue', 'adjust', 'stop', 'restart', 'approve'].includes(parsed.action) ? parsed.action : 'continue',
           adjustments: parsed.adjustments || null,
         };
       } catch {

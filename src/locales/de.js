@@ -153,7 +153,7 @@ stats: { departments: 'Abt.', workers: 'Arbeiter', requirements: 'Anforderungen'
     title: '📋 Anforderungstafel', subtitle: 'Alle Anforderungen verwalten — Fortschritt, Ergebnisse und Chats',
     stats: { all: 'Alle', inProgress: 'In Arbeit', completed: 'Fertig', failed: 'Fehlgeschlagen' },
     empty: 'Keine Anforderungen', emptyHint: 'Chatten Sie mit dem Sekretär und weisen Sie Aufgaben zu!',
-    status: { pending: 'Ausstehend', planning: 'Planung', in_progress: 'In Arbeit', completed: 'Fertig', failed: 'Fehlgeschlagen' },
+    status: { pending: 'Ausstehend', planning: 'Planung', in_progress: 'In Arbeit', pending_approval: 'Genehmigung ausstehend', completed: 'Fertig', failed: 'Fehlgeschlagen' },
     summary: { success: '✅ {n}/{total} erfolgreich', duration: '⏱️ {n}s' },
   },
   messages: {
@@ -197,7 +197,7 @@ stats: { departments: 'Abt.', workers: 'Arbeiter', requirements: 'Anforderungen'
   },
   reqDetail: {
     back: '← Zurück zur Liste', backShort: 'Zurück', executingShort: '⚙️ Läuft',
-    status: { pending: 'Ausstehend', planning: 'Planung', in_progress: 'In Arbeit', completed: 'Fertig', failed: 'Fehlgeschlagen' },
+    status: { pending: 'Ausstehend', planning: 'Planung', in_progress: 'In Arbeit', pending_approval: 'Genehmigung ausstehend', completed: 'Fertig', failed: 'Fehlgeschlagen' },
     deleteBtn: '🗑 Löschen', restartBtn: '🔄 Neustarten',
     tabs: { workflow: '📊 Workflow', chat: '💬 Gruppenchat', outputs: '📦 Ergebnisse', files: '📁 Dateien', office: '🏢 Büro' },
     deleteConfirm: { title: '🗑 Anforderung löschen', desc: 'Diese Anforderung löschen? Nicht rückgängig machbar.', confirmBtn: 'Bestätigen' },
@@ -205,6 +205,7 @@ stats: { departments: 'Abt.', workers: 'Arbeiter', requirements: 'Anforderungen'
     timeDuration: '⏱ Dauer {n}s',
     workflow: { progress: 'Gesamtfortschritt', running: 'Läuft', completed: 'Fertig', failed: 'Fehlgeschlagen', pending: 'Ausstehend', typing: 'Arbeitet...', notParsed: 'Workflow nicht analysiert', leader: 'Leiter', planning: 'Analysiert und zerlegt die Anforderung...' },
     live: { stuck: '🔴 Möglicherweise hängt', waiting: '🟡 Wartet auf Antwort...', running: '🟢 Läuft', secondsAgo: 'vor {n}s', minutesAgo: 'vor {n}min', restarting: '🔄 Neustart...', restart: '🔄 Neustarten', deleteReq: '🗑️ Anforderung löschen', confirmDelete: 'Löschung bestätigen?', recentFiles: 'Letzte Dateien:' },
+    approvalHint: '"OK" zum Genehmigen eingeben oder Feedback senden...',
     chat: { noMessages: 'Keine Nachrichten', noMessagesHint: 'Kommunikation während der Ausführung erscheint hier' },
     outputs: { noOutputs: 'Keine Ergebnisse', noOutputsHint: 'Ergebnisse erscheinen nach Aufgabenabschluss', noOutputsShort: 'Keine Ergebnisse', collapse: 'Einklappen ▲', expand: 'Ausklappen ▼' },
     files: { noChanges: 'Keine Dateiänderungen', noChangesHint: 'Generierte Dateien erscheinen hier', explorer: 'Explorer', fileCount: '{n} Dateien', syncing: 'Live-Synchronisation', syncingShort: 'Synchronisiere...', loading: 'Laden...', emptyFile: '(leere Datei)', noContent: '(kein Inhalt)', readFailed: '(Lesefehler)', lines: '{n} Zeilen', readOnly: 'Nur lesen', clickToView: 'Datei anklicken zum Anzeigen', syntaxHighlight: 'Syntaxhervorhebung · Live-Sync' },
@@ -279,6 +280,7 @@ stats: { departments: 'Abt.', workers: 'Arbeiter', requirements: 'Anforderungen'
     monologue: '🧠 Innerer Monolog',
     noMonologueYet: 'Dieser Agent hat noch keinen Monolog erstellt',
     sendToGroupChat: '[An Gruppenchat senden]',
+    autoSent: 'Auto',
   },
 
   // === API-Antwortnachrichten ===

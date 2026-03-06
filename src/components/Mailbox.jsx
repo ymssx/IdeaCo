@@ -607,6 +607,7 @@ for (const agent of (dept.members || dept.agents || [])) {
                           pending: { label: t('requirements.status.pending'), color: 'text-gray-400', bg: 'bg-gray-900/30' },
                           planning: { label: t('requirements.status.planning'), color: 'text-blue-400', bg: 'bg-blue-900/30' },
                           in_progress: { label: t('requirements.status.in_progress'), color: 'text-yellow-400', bg: 'bg-yellow-900/30' },
+                          pending_approval: { label: t('requirements.status.pending_approval'), color: 'text-orange-400', bg: 'bg-orange-900/30' },
                           completed: { label: t('requirements.stats.completed'), color: 'text-green-400', bg: 'bg-green-900/30' },
                           failed: { label: t('requirements.status.failed'), color: 'text-red-400', bg: 'bg-red-900/30' },
                         };
@@ -823,12 +824,13 @@ function buildConversations(secretary, secretaryHistory, requirements = [], t = 
 
   // Requirement group chat sessions (pinned below secretary)
   const activeReqs = requirements.filter(r =>
-    r.status === 'in_progress' || r.status === 'planning' || r.status === 'completed' || r.status === 'failed'
+    r.status === 'in_progress' || r.status === 'planning' || r.status === 'pending_approval' || r.status === 'completed' || r.status === 'failed'
   );
   for (const req of activeReqs) {
     const statusEmoji = {
       planning: '📝',
       in_progress: '⚙️',
+      pending_approval: '🔍',
       completed: '✅',
       failed: '❌',
     };

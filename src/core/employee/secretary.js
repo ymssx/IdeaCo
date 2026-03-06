@@ -109,10 +109,6 @@ executing the recruitment process, and coordinating new employee onboarding. You
         }
 
         if (recruitConfig.isRecalled) {
-          employee.memory.addLongTerm(
-            `Recalled to a new position, carrying past experience and memories back to work`,
-            'experience'
-          );
           console.log(`  🔄 [${employee.name}] is a former employee recalled from talent market, carrying original memories`);
         }
 
@@ -582,7 +578,6 @@ ${memoryContext}
           );
           const content = cliResult.output || cliResult.errorOutput || '...';
           console.log(`✅ [Secretary] CLI task completed, output ${content.length} chars`);
-          this.memory.addShortTerm(`Completed task directly (via CLI): ${taskDescription.slice(0, 80)}`, 'task');
           return { content, success: true };
         } catch (cliErr) {
           if (!this.canChat()) {
@@ -609,7 +604,6 @@ ${memoryContext}
       }
 
       console.log(`✅ [Secretary] Task completed, output ${response.content.length} chars`);
-      this.memory.addShortTerm(`Completed task directly: ${taskDescription.slice(0, 80)}`, 'task');
       return { content: response.content, success: true };
     } catch (err) {
       console.error(`❌ [Secretary] Task execution failed:`, err.message);

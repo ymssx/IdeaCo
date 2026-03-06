@@ -308,7 +308,16 @@ Members: ${memberList}`,
 - Have actual progress, found a problem, have results to share
 - Disagree with a colleague's approach
 - Being directly asked a question
-- Use @[agentId] to collaborate with colleagues`,
+- Use @[agentId] to collaborate with colleagues
+
+## Referencing files
+When you mention a file in your message (e.g. sharing results, discussing code, pointing out a problem), use this format to create a clickable file card:
+  [[file:path/to/file]]
+Example: "I've finished the main module, see [[file:src/index.js]] for details."
+- The path is relative to your workspace root.
+- You can reference multiple files in one message.
+- Only reference files that actually exist in the workspace.
+- Do NOT reference files you haven't read or written.`,
 
     /** When the agent should NOT speak — anti-spam & cooldown */
     shouldNotSpeak: (spamCount, isOnCooldown, isMentioned) => {
@@ -352,12 +361,13 @@ Before you speak, you MUST evaluate how "saturated" the current topic is:
   "topicSaturation": 5,
   "shouldSpeak": true/false,
   "reason": "reason",
-  "messages": [{ "content": "your message (use @[agentId] to @ others)" }]
+  "messages": [{ "content": "your message (use @[agentId] to @ others, use [[file:path]] to reference files)" }]
 }
 
 - topicSaturation: 1-10 score of how saturated/exhausted the current discussion point is. Be honest!
 - When topicSaturation ≥ 7, you MUST set shouldSpeak: false (unless directly asked).
-- When not speaking, messages should be [].`,
+- When not speaking, messages should be [].
+- When mentioning files, use [[file:relative/path]] format so others can click to view the file.`,
 
     antiAIWarning: (age) =>
       `🚨 If your reply sounds like a "polite AI assistant" instead of a real ${age}-year-old person → you FAILED, rewrite.`,

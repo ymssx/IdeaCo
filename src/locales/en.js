@@ -399,6 +399,7 @@ When the boss communicates with you, you need to:
       pending: 'Pending',
       planning: 'Planning',
       in_progress: 'In Progress',
+      pending_approval: 'Pending Approval',
       completed: 'Completed',
       failed: 'Failed',
     },
@@ -620,6 +621,7 @@ When the boss communicates with you, you need to:
       pending: 'Pending',
       planning: 'Planning',
       in_progress: 'In Progress',
+      pending_approval: 'Pending Approval',
       completed: 'Completed',
       failed: 'Failed',
     },
@@ -665,6 +667,7 @@ When the boss communicates with you, you need to:
       confirmDelete: 'Confirm delete?',
       recentFiles: 'Recent files:',
     },
+    approvalHint: 'Reply "OK" to approve, or send feedback...',
     chat: {
       noMessages: 'No group chat messages yet',
       noMessagesHint: 'Employee communications during task execution will appear here',
@@ -970,6 +973,7 @@ When the boss communicates with you, you need to:
     monologue: '🧠 Monologue',
     noMonologueYet: 'This agent has not produced any monologue yet',
     sendToGroupChat: '[Send to group chat]',
+    autoSent: 'Auto',
   },
   onboarding: {
     dialogues: [

@@ -211,12 +211,16 @@ export default function GroupChatView({
   const internalChatEndRef = useRef(null);
   const chatEndRef = externalChatEndRef || internalChatEndRef;
 
-  // 自动滚动到底部：消息列表变化时
+  // 自动滚动到底部：仅首次进入时
+  const hasInitialScrolled = useRef(false);
   useEffect(() => {
-    setTimeout(() => {
-      chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, 80);
-  }, [groupChat.length, optimisticMessages.length]);
+    if (!hasInitialScrolled.current && groupChat.length > 0) {
+      hasInitialScrolled.current = true;
+      setTimeout(() => {
+        chatEndRef.current?.scrollIntoView({ behavior: 'auto' });
+      }, 80);
+    }
+  }, [groupChat.length]);
 
   // 心流偷看相关状态
   const [monologueAgentId, setMonologueAgentId] = useState(null);
@@ -509,6 +513,9 @@ content: `⚠️ ${t('mailbox.sendFailed')}: ${err.message}`,
                   >{firstMsg.from?.name}</span>
                   {firstMsg.from?.role && (
                     <span className="text-[10px] text-[var(--muted)] bg-white/5 px-1 py-0.5 rounded">{firstMsg.from.role}</span>
+                  )}
+                  {firstMsg.auto && (
+                    <span className="text-[9px] text-yellow-500/70 bg-yellow-900/20 px-1 py-0.5 rounded">{t('systemSettings.autoSent')}</span>
                   )}
                   <span className="text-[10px] text-[var(--muted)]">
                     {new Date(firstMsg.time).toLocaleTimeString('zh', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}

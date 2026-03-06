@@ -182,7 +182,7 @@ stats: { departments: '부서', workers: '직원', requirements: '요구사항' 
     title: '📋 요구사항 보드', subtitle: '모든 요구사항 관리 — 진행 추적, 산출물 확인, 그룹 채팅 관찰',
     stats: { all: '전체 요구사항', inProgress: '진행 중', completed: '완료', failed: '실패' },
     empty: '아직 요구사항이 없습니다', emptyHint: '비서와 채팅하여 작업을 할당하세요!',
-    status: { pending: '대기', planning: '계획 중', in_progress: '실행 중', completed: '완료', failed: '실패' },
+    status: { pending: '대기', planning: '계획 중', in_progress: '실행 중', pending_approval: '승인 대기', completed: '완료', failed: '실패' },
     summary: { success: '✅ {n}/{total} 성공', duration: '⏱️ {n}초' },
   },
   messages: {
@@ -230,7 +230,7 @@ stats: { departments: '부서', workers: '직원', requirements: '요구사항' 
     back: '← 목록으로 돌아가기',
     backShort: '돌아가기',
     executingShort: '⚙️ 실행 중',
-    status: { pending: '대기', planning: '계획 중', in_progress: '실행 중', completed: '완료', failed: '실패' },
+    status: { pending: '대기', planning: '계획 중', in_progress: '실행 중', pending_approval: '승인 대기', completed: '완료', failed: '실패' },
     deleteBtn: '🗑 삭제', restartBtn: '🔄 재실행',
     tabs: { workflow: '📊 워크플로우', chat: '💬 그룹 채팅', outputs: '📦 산출물', files: '📁 파일', office: '🏢 사무실' },
     deleteConfirm: { title: '🗑 요구사항 삭제', desc: '이 요구사항을 삭제하시겠습니까? 되돌릴 수 없습니다.', confirmBtn: '삭제 확인' },
@@ -243,6 +243,7 @@ stats: { departments: '부서', workers: '직원', requirements: '요구사항' 
       restarting: '🔄 재시작 중...', restart: '🔄 재시작',
       deleteReq: '🗑️ 요구사항 삭제', confirmDelete: '삭제 확인?', recentFiles: '최근 파일:',
     },
+    approvalHint: '"확인"을 입력하여 승인하거나, 피드백을 보내세요...',
     chat: { noMessages: '그룹 채팅 메시지 없음', noMessagesHint: '작업 실행 시 직원 간 대화가 여기에 표시됩니다' },
     outputs: { noOutputs: '산출물 없음', noOutputsHint: '작업 완료 후 산출물이 여기에 표시됩니다', noOutputsShort: '산출물 없음', collapse: '접기 ▲', expand: '펼치기 ▼' },
     files: {
@@ -399,6 +400,7 @@ stats: { departments: '부서', workers: '직원', requirements: '요구사항' 
     monologue: '🧠 내면의 독백',
     noMonologueYet: '이 에이전트는 아직 독백을 생성하지 않았습니다',
     sendToGroupChat: '[그룹 채팅에 전송]',
+    autoSent: '자동 전송',
   },
 
   // === API 응답 메시지 ===

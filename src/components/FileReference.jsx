@@ -1,36 +1,65 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useStore } from '@/lib/client-store';
 import { useI18n } from '@/lib/i18n';
 
 /**
- * 文件引用格式: [[file:departmentId:filePath|displayName]]
+ * 文件引用格式:
+ *   完整格式: [[file:departmentId:filePath|displayName]]
+ *   无显示名: [[file:departmentId:filePath]]
  * 例如: [[file:dept_abc123:src/index.js|index.js]]
+ *       [[file:dept_abc123:src/index.js]]
  */
-const FILE_REF_REGEX = /\[\[file:([^:]+):([^|]+)\|([^\]]+)\]\]/g;
+const FILE_REF_FULL_REGEX = /\[\[file:([^:]+):([^|\]]+)\|([^\]]+)\]\]/g;
+const FILE_REF_NO_NAME_REGEX = /\[\[file:([^:]+):([^\]]+)\]\]/g;
 
 /**
  * 从消息内容中解析文件引用，返回纯文本（去掉引用标记）+ 文件引用列表
+ * 同时兼容有 |displayName 和没有 |displayName 的两种格式
  */
 export function parseFileReferences(content) {
   if (!content || typeof content !== 'string') return { cleanContent: content, fileRefs: [] };
 
   const fileRefs = [];
   let match;
-  const regex = new RegExp(FILE_REF_REGEX.source, 'g');
 
-  while ((match = regex.exec(content)) !== null) {
+  // 先匹配完整格式 [[file:deptId:path|name]]
+  const fullRegex = new RegExp(FILE_REF_FULL_REGEX.source, 'g');
+  while ((match = fullRegex.exec(content)) !== null) {
+    const filePath = match[2]?.trim();
+    const displayName = match[3]?.trim();
+    // Skip invalid refs with empty path or name
+    if (!filePath || !displayName) continue;
     fileRefs.push({
       fullMatch: match[0],
       departmentId: match[1],
-      filePath: match[2],
-      displayName: match[3],
+      filePath,
+      displayName,
     });
   }
 
-  // 将文件引用标记从正文中移除，放到末尾作为附件展示
-  const cleanContent = content.replace(FILE_REF_REGEX, '').trim();
+  // 去掉已匹配的完整格式后，再匹配无显示名格式 [[file:deptId:path]]
+  let remaining = content.replace(FILE_REF_FULL_REGEX, '\0FILE_REF_PLACEHOLDER\0');
+  const noNameRegex = new RegExp(FILE_REF_NO_NAME_REGEX.source, 'g');
+  while ((match = noNameRegex.exec(remaining)) !== null) {
+    const filePath = match[2].trim();
+    // Skip invalid refs with empty or pipe-only paths (malformed tool args)
+    if (!filePath || filePath === '|') continue;
+    const displayName = filePath.split('/').pop() || filePath;
+    fileRefs.push({
+      fullMatch: match[0],
+      departmentId: match[1],
+      filePath,
+      displayName,
+    });
+  }
+
+  // 将所有文件引用标记从正文中移除，放到末尾作为附件展示
+  const cleanContent = content
+    .replace(FILE_REF_FULL_REGEX, '')
+    .replace(FILE_REF_NO_NAME_REGEX, '')
+    .trim();
 
   return { cleanContent, fileRefs };
 }
@@ -58,14 +87,14 @@ export function FileRefChip({ departmentId, filePath, displayName }) {
     <>
       <button
         onClick={(e) => { e.stopPropagation(); setShowModal(true); }}
-        className="inline-flex items-center gap-1.5 px-2.5 py-1 my-0.5 mx-0.5 rounded-lg
-          bg-blue-900/20 border border-blue-500/20 hover:bg-blue-900/40 hover:border-blue-500/40
-          text-blue-300 text-xs font-medium transition-all cursor-pointer group"
+        className="inline px-2.5 py-1 my-0.5 mx-0.5 rounded-lg
+          bg-[#0f2418] border border-[#1e3a2a] hover:bg-[#152e1f] hover:border-[#2a4d38]
+          text-[#8cc9a1] text-xs font-medium transition-all cursor-pointer group text-left shadow-sm"
         title={filePath}
       >
-        <span>{icon}</span>
-        <span className="max-w-[200px] truncate">{displayName}</span>
-        <span className="text-blue-500/60 group-hover:text-blue-400 transition-colors">↗</span>
+        <span className="mr-1.5">{icon}</span>
+        <span className="break-all">{displayName}</span>
+        <span className="ml-1.5 text-[#4a8a5c]/60 group-hover:text-[#6abf7e] transition-colors">↗</span>
       </button>
 
       {showModal && (
@@ -98,10 +127,12 @@ function FileViewerModal({ departmentId, filePath, displayName, icon, onClose })
     setError(null);
     try {
       const data = await fetchWorkspaceFile(departmentId, filePath);
-      if (data?.content !== undefined) {
+      if (typeof data?.content === 'string') {
         setContent(data.content);
       } else if (typeof data === 'string') {
         setContent(data);
+      } else if (data?.error) {
+        setError(data.error);
       } else {
         setError(t('fileRef.loadFailed'));
       }
@@ -112,9 +143,9 @@ function FileViewerModal({ departmentId, filePath, displayName, icon, onClose })
   }, [departmentId, filePath, fetchWorkspaceFile, t]);
 
   // 首次加载
-  useState(() => {
+  useEffect(() => {
     loadContent();
-  });
+  }, [loadContent]);
 
   const handleCopyPath = () => {
     navigator.clipboard.writeText(filePath);
@@ -133,7 +164,7 @@ function FileViewerModal({ departmentId, filePath, displayName, icon, onClose })
   };
   const lang = langMap[ext] || 'text';
 
-  const lineCount = content ? content.split('\n').length : 0;
+  const lineCount = content?.split('\n').length ?? 0;
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[100] !m-0" onClick={onClose}>
@@ -191,7 +222,7 @@ function FileViewerModal({ departmentId, filePath, displayName, icon, onClose })
           ) : (
             <pre className="p-4 text-sm font-mono leading-relaxed overflow-x-auto">
               <code>
-                {content.split('\n').map((line, i) => (
+                {(content ?? '').split('\n').map((line, i) => (
                   <div key={i} className="flex hover:bg-white/[0.03] transition-colors">
                     <span className="inline-block w-12 text-right pr-4 text-[var(--muted)]/40 select-none text-xs leading-relaxed shrink-0">
                       {i + 1}

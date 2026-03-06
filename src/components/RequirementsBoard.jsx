@@ -32,7 +32,7 @@ export default function RequirementsBoard() {
 
   const statusCounts = {
     all: requirements.length,
-    in_progress: requirements.filter(r => r.status === 'in_progress' || r.status === 'planning').length,
+    in_progress: requirements.filter(r => r.status === 'in_progress' || r.status === 'planning' || r.status === 'pending_approval').length,
     completed: requirements.filter(r => r.status === 'completed').length,
     failed: requirements.filter(r => r.status === 'failed').length,
   };
@@ -41,6 +41,7 @@ export default function RequirementsBoard() {
     pending: { label: t('requirements.status.pending'), color: 'text-gray-400', bg: 'bg-gray-900/30', icon: '⏳' },
     planning: { label: t('requirements.status.planning'), color: 'text-blue-400', bg: 'bg-blue-900/30', icon: '📝' },
     in_progress: { label: t('requirements.status.in_progress'), color: 'text-yellow-400', bg: 'bg-yellow-900/30', icon: '⚙️' },
+    pending_approval: { label: t('requirements.status.pending_approval'), color: 'text-orange-400', bg: 'bg-orange-900/30', icon: '🔍' },
     completed: { label: t('requirements.stats.completed'), color: 'text-green-400', bg: 'bg-green-900/30', icon: '✅' },
     failed: { label: t('requirements.status.failed'), color: 'text-red-400', bg: 'bg-red-900/30', icon: '❌' },
   };
@@ -89,7 +90,7 @@ export default function RequirementsBoard() {
             const st = statusConfig[req.status] || statusConfig.pending;
             const progress = req.workflow && req.workflow.nodeCount > 0
               ? Math.round((req.workflow.completedCount / req.workflow.nodeCount) * 100)
-              : (req.status === 'completed' ? 100 : 0);
+              : (req.status === 'completed' || req.status === 'pending_approval' ? 100 : 0);
             // SVG ring progress parameters
             const radius = 18;
             const stroke = 3;
@@ -97,6 +98,7 @@ export default function RequirementsBoard() {
             const dashOffset = circumference - (progress / 100) * circumference;
             const progressColor =
               req.status === 'completed' ? '#22c55e' :
+              req.status === 'pending_approval' ? '#f97316' :
               req.status === 'failed' ? '#ef4444' :
               'var(--accent)';
 

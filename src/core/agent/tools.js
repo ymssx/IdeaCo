@@ -65,11 +65,13 @@ export class AgentToolKit {
         type: 'function',
         function: {
           name: 'file_read',
-          description: 'Read the contents of a file at the given path. Path is relative to workspace directory.',
+          description: 'Read the contents of a file. For large files, use offset and limit to read specific line ranges to avoid context overflow. If the file is too large (>800 lines), it will be automatically truncated with a hint to use offset/limit for the remaining content.',
           parameters: {
             type: 'object',
             properties: {
               path: { type: 'string', description: 'File path (relative to workspace)' },
+              offset: { type: 'integer', description: 'Start reading from this line number (1-based). Omit to start from beginning.' },
+              limit: { type: 'integer', description: 'Maximum number of lines to read. Omit to read all (subject to auto-truncation for large files).' },
             },
             required: ['path'],
           },
@@ -151,16 +153,71 @@ export class AgentToolKit {
       {
         type: 'function',
         function: {
-          name: 'save_memory',
-          description: 'Save an important insight, lesson, preference, or fact to your personal memory. Use this proactively when you discover something worth remembering for future tasks — e.g. a lesson learned, a useful pattern, a colleague\'s preference, or a project-specific fact. Short-term memories expire after a while; long-term memories persist permanently.',
+          name: 'file_stats',
+          description: 'Get file metadata (size, line count, last modified) WITHOUT reading the content. Use this to check file size before reading, especially for large files. This helps you decide whether to use offset/limit with file_read.',
           parameters: {
             type: 'object',
             properties: {
-              content: { type: 'string', description: 'What to remember (be concise and specific)' },
-              type: { type: 'string', enum: ['short-term', 'long-term'], description: 'short-term for temporary context (expires in 24h), long-term for permanent lessons/facts' },
-              category: { type: 'string', enum: ['experience', 'reflection', 'skill', 'feedback', 'preference', 'fact', 'instruction'], description: 'Memory category (for long-term). Defaults to "experience"' },
+              path: { type: 'string', description: 'File path (relative to workspace)' },
             },
-            required: ['content', 'type'],
+            required: ['path'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'file_append',
+          description: 'Append content to the end of an existing file (or create it if it does not exist). Useful for building up long files incrementally without having to rewrite the entire content.',
+          parameters: {
+            type: 'object',
+            properties: {
+              path: { type: 'string', description: 'File path (relative to workspace)' },
+              content: { type: 'string', description: 'Content to append' },
+            },
+            required: ['path', 'content'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'file_patch',
+          description: 'Replace a specific text segment in a file. Use this to edit part of a file without rewriting the entire content. The old_text must match exactly (including whitespace).',
+          parameters: {
+            type: 'object',
+            properties: {
+              path: { type: 'string', description: 'File path (relative to workspace)' },
+              old_text: { type: 'string', description: 'The exact text to find and replace (must be unique in the file)' },
+              new_text: { type: 'string', description: 'The replacement text' },
+            },
+            required: ['path', 'old_text', 'new_text'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'workspace_files',
+          description: 'List ALL files in the workspace recursively. Returns a flat list of all file paths relative to workspace root. Use this to see what files exist before referencing them in your messages. This is especially useful before writing [[file:path]] references to ensure the file actually exists.',
+          parameters: {
+            type: 'object',
+            properties: {},
+            required: [],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'file_search',
+          description: 'Search for files by name pattern in the workspace. Returns matching file paths. Use this when you want to find a file but are unsure of its exact name or location. Supports partial name matching (case-insensitive).',
+          parameters: {
+            type: 'object',
+            properties: {
+              query: { type: 'string', description: 'Search query — partial filename or keyword to match against file names (case-insensitive)' },
+            },
+            required: ['query'],
           },
         },
       },
@@ -197,7 +254,7 @@ export class AgentToolKit {
       case 'file_read': {
         const filePath = resolvePath(args);
         if (!filePath) throw new Error(`Missing required parameter: path (received args: ${JSON.stringify(args)})`);
-        result = await this._fileRead(filePath);
+        result = await this._fileRead(filePath, args.offset, args.limit);
         break;
       }
       case 'file_write': {
@@ -235,8 +292,38 @@ export class AgentToolKit {
       case 'send_message':
         result = await this._sendMessage(args.targetAgentId, args.content, args.type);
         break;
-      case 'save_memory':
-        result = this._saveMemory(args.content, args.type, args.category);
+      case 'file_stats': {
+        const filePath = resolvePath(args);
+        if (!filePath) throw new Error(`Missing required parameter: path (received args: ${JSON.stringify(args)})`);
+        result = await this._fileStats(filePath);
+        break;
+      }
+      case 'file_append': {
+        const filePath = resolvePath(args);
+        const content = args.content ?? args.text ?? args.data ?? null;
+        if (!filePath) throw new Error(`Missing required parameter: path (received args: ${JSON.stringify(Object.keys(args))})`);
+        if (content === undefined || content === null) throw new Error(`Missing required parameter: content`);
+        const writeCheck = securityGuard.validateFileWrite(filePath, content, this.agentId, this.agentName);
+        if (!writeCheck.allowed) return `Security blocked: ${writeCheck.reason}`;
+        securityGuard.scanForSecrets(content, `file_append:${filePath}`, this.agentId);
+        result = await this._fileAppend(filePath, content);
+        break;
+      }
+      case 'file_patch': {
+        const filePath = resolvePath(args);
+        const oldText = args.old_text || args.oldText || null;
+        const newText = args.new_text ?? args.newText ?? null;
+        if (!filePath) throw new Error(`Missing required parameter: path`);
+        if (!oldText) throw new Error(`Missing required parameter: old_text`);
+        if (newText === null || newText === undefined) throw new Error(`Missing required parameter: new_text`);
+        result = await this._filePatch(filePath, oldText, newText);
+        break;
+      }
+      case 'workspace_files':
+        result = await this._workspaceFiles();
+        break;
+      case 'file_search':
+        result = await this._fileSearch(args.query || args.keyword || args.pattern || '');
         break;
       default: {
         // Try plugin tools before giving up
@@ -259,16 +346,35 @@ export class AgentToolKit {
   }
 
   /**
-   * Read a file
+   * Read a file with optional line-based offset/limit and auto-truncation for large files
    */
-  async _fileRead(filePath) {
+  async _fileRead(filePath, offset, limit) {
     const fullPath = this._safePath(filePath);
+    const MAX_LINES = 800; // Auto-truncation threshold
     try {
       const content = await fs.readFile(fullPath, 'utf-8');
+      const lines = content.split('\n');
+      const totalLines = lines.length;
+
+      // Apply offset/limit if provided
+      if (offset || limit) {
+        const startLine = Math.max(1, offset || 1);
+        const endLine = limit ? Math.min(totalLines, startLine + limit - 1) : totalLines;
+        const slice = lines.slice(startLine - 1, endLine);
+        const header = `[Lines ${startLine}-${endLine} of ${totalLines} total]\n`;
+        return header + slice.join('\n');
+      }
+
+      // Auto-truncation for large files
+      if (totalLines > MAX_LINES) {
+        const truncated = lines.slice(0, MAX_LINES).join('\n');
+        return `${truncated}\n\n--- FILE TRUNCATED ---\nShowing ${MAX_LINES} of ${totalLines} lines. Use file_read with offset=${MAX_LINES + 1} to read more, or file_stats to check file info.`;
+      }
+
       return content;
     } catch (error) {
       if (error.code === 'ENOENT') {
-        return `Error: file not found "${filePath}"`;
+        return `Error: file not found "${filePath}". Use workspace_files or file_search to find available files.`;
       }
       throw error;
     }
@@ -378,19 +484,113 @@ export class AgentToolKit {
   /**
    * Save a memory for the owning Employee
    */
-  _saveMemory(content, type = 'long-term', category = 'experience') {
-    if (!content) return 'Error: content is required';
-    if (!this.employee || !this.employee.memory) {
-      return 'Error: memory system not available';
+  /**
+   * Get file stats without reading content
+   */
+  async _fileStats(filePath) {
+    const fullPath = this._safePath(filePath);
+    try {
+      const stat = await fs.stat(fullPath);
+      const content = await fs.readFile(fullPath, 'utf-8');
+      const lineCount = content.split('\n').length;
+      const sizeKB = (stat.size / 1024).toFixed(1);
+      return `File: ${filePath}\nSize: ${stat.size} bytes (${sizeKB} KB)\nLines: ${lineCount}\nLast modified: ${stat.mtime.toISOString()}\n${lineCount > 800 ? `⚠️ Large file — use file_read with offset/limit to read in sections.` : `✓ File is small enough to read in full.`}`;
+    } catch (error) {
+      if (error.code === 'ENOENT') {
+        return `Error: file not found "${filePath}". Use workspace_files or file_search to find available files.`;
+      }
+      throw error;
     }
-    if (type === 'short-term') {
-      this.employee.memory.addShortTerm(content, category || 'task');
-      console.log(`  🧠 [${this.agentName}] Saved short-term memory: "${content.slice(0, 80)}"`);
-      return `Short-term memory saved (expires in 24h): "${content.slice(0, 100)}"`;
-    } else {
-      this.employee.memory.addLongTerm(content, category || 'experience');
-      console.log(`  🧠 [${this.agentName}] Saved long-term memory [${category}]: "${content.slice(0, 80)}"`);
-      return `Long-term memory saved [${category}]: "${content.slice(0, 100)}"`;
+  }
+
+  /**
+   * Append content to a file (creates if not exists)
+   */
+  async _fileAppend(filePath, content) {
+    const fullPath = this._safePath(filePath);
+    const dir = path.dirname(fullPath);
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
     }
+    await fs.appendFile(fullPath, content, { encoding: 'utf-8' });
+    return `Content appended to ${filePath} (${content.length} chars added)`;
+  }
+
+  /**
+   * Patch a file by replacing a specific text segment
+   */
+  async _filePatch(filePath, oldText, newText) {
+    const fullPath = this._safePath(filePath);
+    try {
+      const content = await fs.readFile(fullPath, 'utf-8');
+      const occurrences = content.split(oldText).length - 1;
+      if (occurrences === 0) {
+        return `Error: old_text not found in "${filePath}". Make sure the text matches exactly (including whitespace and newlines). Use file_read to check the current content.`;
+      }
+      if (occurrences > 1) {
+        return `Error: old_text found ${occurrences} times in "${filePath}". It must be unique. Provide more surrounding context to make it unique.`;
+      }
+      const patched = content.replace(oldText, newText);
+      await fs.writeFile(fullPath, patched, { encoding: 'utf-8', mode: 0o644 });
+      return `File patched: ${filePath} (replaced ${oldText.length} chars with ${newText.length} chars)`;
+    } catch (error) {
+      if (error.code === 'ENOENT') {
+        return `Error: file not found "${filePath}"`;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * List all files in workspace recursively
+   */
+  async _workspaceFiles() {
+    const files = [];
+    const walk = async (dir, prefix = '') => {
+      try {
+        const entries = await fs.readdir(dir, { withFileTypes: true });
+        for (const entry of entries) {
+          // Skip hidden dirs and common noise
+          if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === '__pycache__') continue;
+          const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+          if (entry.isDirectory()) {
+            await walk(path.join(dir, entry.name), rel);
+          } else {
+            files.push(rel);
+          }
+        }
+      } catch { /* ignore unreadable dirs */ }
+    };
+    await walk(this.workspaceDir);
+    if (files.length === 0) return 'Workspace is empty — no files found.';
+    return `Files in workspace (${files.length} total):\n${files.map(f => `  ${f}`).join('\n')}`;
+  }
+
+  /**
+   * Search for files by name pattern (case-insensitive partial match)
+   */
+  async _fileSearch(query) {
+    if (!query) return 'Error: query parameter is required';
+    const queryLower = query.toLowerCase();
+    const matches = [];
+    const walk = async (dir, prefix = '') => {
+      try {
+        const entries = await fs.readdir(dir, { withFileTypes: true });
+        for (const entry of entries) {
+          if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === '__pycache__') continue;
+          const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+          if (entry.isDirectory()) {
+            await walk(path.join(dir, entry.name), rel);
+          } else {
+            if (entry.name.toLowerCase().includes(queryLower)) {
+              matches.push(rel);
+            }
+          }
+        }
+      } catch { /* ignore unreadable dirs */ }
+    };
+    await walk(this.workspaceDir);
+    if (matches.length === 0) return `No files found matching "${query}". Use workspace_files to see all available files.`;
+    return `Files matching "${query}" (${matches.length} found):\n${matches.map(f => `  ${f}`).join('\n')}`;
   }
 }

@@ -19,6 +19,8 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
+import path from 'path';
+import { existsSync } from 'fs';
 import {
   PROMPT,
   getTraitStyle,
@@ -26,6 +28,50 @@ import {
   getFewShotExamples,
   getFallbackReplies,
 } from '../prompts.js';
+
+// ─── File reference expansion ──────────────────────────────────────────
+// Agent writes [[file:path/to/file]], we expand to [[file:deptId:path|displayName]]
+const SIMPLE_FILE_REF = /\[\[file:([^\]|:]+)\]\]/g;
+const INCOMPLETE_FILE_REF = /\[\[file:([^:]+):([^\]|]+)\]\]/g;
+
+/**
+ * Expand short-form file references into full format for the frontend.
+ * [[file:src/index.js]] → [[file:dept123:src/index.js|index.js]]
+ * [[file:dept123:src/index.js]] → [[file:dept123:src/index.js|index.js]]
+ * Only creates clickable references for files that actually exist on disk.
+ * Returns { content, invalidRefs } so caller can provide feedback for bad references.
+ */
+function expandFileReferences(content, departmentId, workspacePath) {
+  if (!content || !departmentId) return { content, invalidRefs: [] };
+  const invalidRefs = [];
+  // First: fix incomplete refs [[file:deptId:path]] → [[file:deptId:path|name]]
+  let expanded = content.replace(INCOMPLETE_FILE_REF, (_match, deptId, filePath) => {
+    const trimmed = filePath.trim();
+    if (workspacePath) {
+      const fullPath = path.join(workspacePath, trimmed);
+      if (!existsSync(fullPath)) {
+        invalidRefs.push(trimmed);
+        return trimmed;
+      }
+    }
+    const displayName = path.basename(trimmed);
+    return `[[file:${deptId}:${trimmed}|${displayName}]]`;
+  });
+  // Then: expand simple refs [[file:path]] → [[file:deptId:path|name]]
+  expanded = expanded.replace(SIMPLE_FILE_REF, (_match, filePath) => {
+    const trimmed = filePath.trim();
+    if (workspacePath) {
+      const fullPath = path.join(workspacePath, trimmed);
+      if (!existsSync(fullPath)) {
+        invalidRefs.push(trimmed);
+        return trimmed;
+      }
+    }
+    const displayName = path.basename(trimmed);
+    return `[[file:${departmentId}:${trimmed}|${displayName}]]`;
+  });
+  return { content: expanded, invalidRefs };
+}
 
 // ─── Default Config ────────────────────────────────────────────────────
 const DEFAULT_CONFIG = {
@@ -432,12 +478,24 @@ export class EmployeeLifecycle {
       if (thinkingResult.shouldSpeak) {
         const messagesToSend = thinkingResult.messages || [];
         for (const msg of messagesToSend.slice(0, this.config.maxGroupMessagesPerTurn)) {
+          // Expand [[file:path]] → [[file:deptId:path|name]] for frontend rendering
+          const { content: expandedContent, invalidRefs } = expandFileReferences(msg.content, dept.id, dept.workspacePath);
           chatTarget.addGroupMessage(
             { id: agent.id, name: agent.name, avatar: agent.avatar, role: agent.role },
-            msg.content,
+            expandedContent,
             'message'
           );
-          monologue.addThought(`[Sent to group] ${msg.content}`);
+          monologue.addThought(`[Sent to group] ${expandedContent}`);
+
+          // Auto-feedback: notify agent about invalid file references
+          if (invalidRefs.length > 0) {
+            const invalidList = invalidRefs.map(f => `  - ${f}`).join('\n');
+            chatTarget.addGroupMessage(
+              { id: 'system', name: 'System', role: 'system' },
+              `⚠️ @[${agent.id}] File reference error: the following files do not exist in workspace:\n${invalidList}\nPlease use workspace_files or file_search tool to check available files before referencing them.`,
+              'message', null, { auto: true }
+            );
+          }
           this._lastGroupActivity.set(groupId, new Date());
           this._recordSpeak(groupId);
 
@@ -820,7 +878,7 @@ ${pt.antiAIWarning(agent.age)}`;
       group.requirement.addGroupMessage(
         { id: agent.id, name: agent.name, avatar: agent.avatar, role: agent.role },
         checkInContent,
-        'message'
+        'message', null, { auto: true }
       );
 
       this._recordSpeak(groupId);

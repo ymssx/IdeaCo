@@ -117,11 +117,6 @@ export class Employee {
     } else {
       this.memory = new Memory();
     }
-    this.memory.addLongTerm(
-      `Onboarded as "${config.role}", core skills: ${(config.skills || []).join(', ')}`,
-      'experience'
-    );
-
     // Token tracking
     this.tokenUsage = {
       totalTokens: 0, promptTokens: 0, completionTokens: 0,
@@ -234,13 +229,8 @@ export class Employee {
     const startTime = Date.now();
     const displayInfo = this.getDisplayInfo();
 
-    // Clean expired short-term memories before building system prompt
-    this.memory.cleanExpiredShortTerm();
-
     console.log(`  🤖 [${this.name}] (${this.role}) starting task: "${task.title}"`);
     console.log(`     Engine: ${displayInfo.name} (${displayInfo.type})`);
-
-    this.memory.addShortTerm(`Starting task: "${task.title}"`, 'task');
 
     let result;
     try {
@@ -265,16 +255,6 @@ export class Employee {
         console.error(`  ❌ [${this.name}] Task execution failed: ${error.message}`);
         result = this._buildFailResult(task, startTime, error.message);
       }
-    }
-
-    // Record to memory
-    this.memory.addShortTerm(
-      `Completed task: "${task.title}", took ${result.duration}ms, ${result.success ? 'succeeded' : 'failed'}`,
-      'task'
-    );
-    if (result.toolResults && result.toolResults.length > 0) {
-      const toolSummary = result.toolResults.map(t => `${t.tool}(${t.success ? '✓' : '✗'})`).join(', ');
-      this.memory.addShortTerm(`Tool usage log: ${toolSummary}`, 'tool');
     }
 
     this.taskHistory.push({ task: task.title, result, completedAt: new Date() });
@@ -345,8 +325,6 @@ export class Employee {
       role: 'system', content: `CLI Task started: ${task.title} (via ${backend.config.name})`,
     });
 
-    this.memory.addShortTerm(`Starting CLI task: "${task.title}" via ${backend.config.name}`, 'task');
-
     let outputLen = 0;
     let lastHeartbeat = Date.now();
     const HEARTBEAT_INTERVAL = 15000;
@@ -378,11 +356,6 @@ export class Employee {
       role: 'assistant', content: cliResult.output?.slice(0, 500) || '',
       metadata: { cliBackend: this.cliBackend, exitCode: cliResult.exitCode },
     });
-
-    this.memory.addShortTerm(
-      `CLI task completed: "${task.title}" via ${backend.config.name}, exit code ${cliResult.exitCode}, took ${cliResult.duration}ms`,
-      'task'
-    );
 
     return {
       agentId: this.id, agentName: this.name, role: this.role,
@@ -422,25 +395,6 @@ export class Employee {
       if (archetypePrompt) systemContent += archetypePrompt + '\n';
     }
 
-    const longTermMemories = this.memory.searchLongTerm();
-    const shortTermMemories = this.memory.shortTerm;
-
-    if (longTermMemories.length > 0) {
-      systemContent += '## Your Long-term Memories (experience and lessons)\n';
-      longTermMemories.slice(-20).forEach(m => {
-        systemContent += `- [${m.category}] ${m.content}\n`;
-      });
-      systemContent += '\n';
-    }
-
-    if (shortTermMemories.length > 0) {
-      systemContent += '## Your Short-term Memories (current work context)\n';
-      shortTermMemories.forEach(m => {
-        systemContent += `- ${m.content}\n`;
-      });
-      systemContent += '\n';
-    }
-
     systemContent += `## Your Identity\n`;
     systemContent += `- Name: ${this.name}\n`;
     systemContent += `- Gender: ${this.gender === 'female' ? 'Female' : 'Male'}\n`;
@@ -451,7 +405,7 @@ export class Employee {
 
     if (this.toolKit) {
       systemContent += `\n## Available Tools\n`;
-      systemContent += `Built-in tools: file_read (read file), file_write (create/write file), file_list (list directory), file_delete (delete file), shell_exec (execute command), send_message (send message to colleague for collaboration and feedback), save_memory (save important insights/lessons/facts to your personal memory).\n`;
+      systemContent += `Built-in tools: file_read (read file), file_write (create/write file), file_list (list directory), file_delete (delete file), shell_exec (execute command), send_message (send message to colleague for collaboration and feedback).\n`;
       systemContent += `\n**Teamwork & Collaboration (IMPORTANT)**:\n`;
       systemContent += `- You are part of a team! Proactively communicate with colleagues using send_message.\n`;
       systemContent += `- When working in parallel, coordinate to avoid duplicate work and share discoveries.\n`;
@@ -495,6 +449,7 @@ export class Employee {
     if (task.context) content += `\n**Context**:\n${task.context}\n`;
     if (task.requirements) content += `\n**Requirements**:\n${task.requirements}\n`;
     content += `\nPlease complete the task diligently. If you need to create files, please use tools to actually create them. Produce real work output.\n**Important: Execute efficiently, try to complete all work in one go. Don't repeatedly check or over-iterate. Give the final result directly after completing core output.**`;
+    content += `\n**Critical: If this task involves reviewing, integrating, or checking existing work/files, you MUST actually read the relevant files using file_read before giving your assessment. Do NOT just produce a summary without reading the actual content. Reviewers who don't read the files are not doing their job.**`;
     return content;
   }
 
@@ -532,7 +487,6 @@ Return only the signature content, nothing else.` },
     }
 
     this.hasIntroduced = true;
-    this.memory.addLongTerm(`Onboarding self-intro: "${this.signature}"`, 'introduction');
     return this.signature;
   }
 
@@ -616,11 +570,6 @@ Return only the signature content, nothing else.` },
   async handleMessage(message) {
     console.log(`  📩 [${this.name}] Received message from ${message.from}: ${message.content.slice(0, 50)}...`);
 
-    this.memory.addShortTerm(
-      `Received ${message.type} message: "${message.content.slice(0, 100)}"`,
-      'communication'
-    );
-
     if (this.canChat()) {
       try {
         const p = this.personality;
@@ -677,32 +626,8 @@ Do not use any code, tool calls, or technical instructions — reply in natural 
     const reflection = this._generateSelfReflection(review);
     review.addSelfReflection(reflection);
 
-    this.memory.addLongTerm(
-      `Performance reflection [${review.taskTitle}] score ${review.overallScore}: ${reflection}`,
-      'reflection'
-    );
-
-    if (review.overallScore >= 85) {
-      this.memory.addLongTerm(
-        `Success experience: Performed excellently in "${review.taskTitle}" (${review.overallScore} pts), supervisor comment: "${review.comment}"`,
-        'experience'
-      );
-    }
-
     if (review.overallScore >= 80) {
-      const incentiveLabel = review.overallScore >= 90 ? 'outstanding' : 'excellent';
-      this.memory.addLongTerm(
-        `🌸 Received a Little Red Flower incentive for "${review.taskTitle}"! (${review.overallScore} pts - ${incentiveLabel}) I'm so happy and motivated! This recognition makes all the hard work worthwhile.`,
-        'incentive'
-      );
       console.log(`  🌸 [${this.name}] Received a Little Red Flower for "${review.taskTitle}"!`);
-    }
-
-    if (review.overallScore < 60) {
-      this.memory.addLongTerm(
-        `Lesson learned: Performed poorly in "${review.taskTitle}" (${review.overallScore} pts), needs significant improvement. Supervisor comment: "${review.comment}"`,
-        'feedback'
-      );
     }
 
     console.log(`  💭 [${this.name}] Self-reflection: "${reflection}"`);
