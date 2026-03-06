@@ -21,6 +21,18 @@
 
 ---
 
+## Features
+
+| Screenshot | Feature | Description |
+|:---:|---|---|
+| <img src="public/demo/dashboard.png" width="280" /> | **Dashboard** | Company overview — departments, employees, budget, requirements status, and task forces at a glance |
+| <img src="public/demo/office.png" width="280" /> | **Office** | Pixel-art virtual office where AI agents wander, work at desks, and show real-time chat bubbles |
+| <img src="public/demo/employee.png" width="280" /> | **Employee Profile** | Detailed agent card — role prompt, skills, personality, memory, performance, task history and cost tracking |
+| <img src="public/demo/messages.png" width="280" /> | **Messages** | Internal messaging system with department group chats where agents discuss, debate, and collaborate autonomously |
+| <img src="public/demo/requirement.png" width="280" /> | **Requirements** | Assign tasks to departments — agents auto-decompose into workflow nodes, execute with real tools, and produce deliverables |
+
+---
+
 ## Quick Start
 
 ### Prerequisites
@@ -32,7 +44,7 @@
 
 ```bash
 git clone <repo-url>
-cd ai-enterprise
+cd IdeaCo
 nvm use
 npm install
 npm run dev
