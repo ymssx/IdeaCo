@@ -17,7 +17,7 @@ function RatingBadge({ rating }) {
 
 export default function ProvidersBoard() {
   const { t } = useI18n();
-  const { company, configureProvider, fetchCLIBackends, detectCLIBackends, manageCLIBackend } = useStore();
+  const { company, configureProvider, fetchCLIBackends, detectCLIBackends, manageCLIBackend, updateSecretarySettings } = useStore();
 
   // CLI management state
   const [cliDetecting, setCLIDetecting] = useState(false);
@@ -34,6 +34,9 @@ export default function ProvidersBoard() {
   const [configTarget, setConfigTarget] = useState(null);
   const [apiKey, setApiKey] = useState('');
   const [showTalentMarket, setShowTalentMarket] = useState(false);
+  const [showSecretaryPicker, setShowSecretaryPicker] = useState(false);
+  const [secretaryProviderId, setSecretaryProviderId] = useState(company?.secretary?.providerId || '');
+  const [savingSecretary, setSavingSecretary] = useState(false);
 
   if (!company) return null;
 
@@ -79,7 +82,89 @@ export default function ProvidersBoard() {
         </div>
       </div>
 
-      {Object.entries(dashboard).map(([category, info]) => (
+      {/* Secretary provider card */}
+      <div className="card bg-gradient-to-r from-purple-900/10 to-blue-900/10 border-purple-500/20">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">🤖</span>
+            <div>
+              <h3 className="font-semibold">{t('providers.secretaryProvider.title')}</h3>
+              <p className="text-xs text-[var(--muted)] mt-0.5 max-w-md">{t('providers.secretaryProvider.desc')}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            <div className="text-right">
+              <div className="text-sm font-medium">
+                {company?.secretary?.provider && company?.secretary?.providerId !== 'none'
+                  ? <span className="text-green-400">{t('providers.secretaryProvider.current', { name: company.secretary.provider })}</span>
+                  : <span className="text-yellow-400">{t('providers.secretaryProvider.noneConfigured')}</span>
+                }
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                const avail = company?.secretary?.availableProviders || [];
+                const currentId = company?.secretary?.providerId || '';
+                const inList = avail.some(p => p.id === currentId);
+                setSecretaryProviderId(inList ? currentId : (avail[0]?.id || ''));
+                setShowSecretaryPicker(true);
+              }}
+              className="px-3 py-2 rounded-lg text-xs bg-[var(--accent)]/10 text-[var(--accent)] hover:bg-[var(--accent)]/20 transition-all"
+            >
+              {t('providers.secretaryProvider.changeBtn')}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Secretary provider picker modal */}
+      {showSecretaryPicker && company?.secretary?.availableProviders && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 !m-0" onClick={() => setShowSecretaryPicker(false)}>
+          <div className="card max-w-sm w-full mx-4 space-y-4" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold">{t('secretarySettings.providerLabel')}</h3>
+            <p className="text-xs text-[var(--muted)]">{t('secretarySettings.providerDesc')}</p>
+            {company.secretary?.availableProviders?.length > 0 ? (
+              <select
+                className="input w-full"
+                value={secretaryProviderId}
+                onChange={e => setSecretaryProviderId(e.target.value)}
+              >
+                {company.secretary.availableProviders.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            ) : (
+              <div className="text-xs text-yellow-400 p-2 rounded bg-yellow-400/10 border border-yellow-400/20">
+                {t('secretarySettings.noProviders')}
+              </div>
+            )}
+            <div className="flex gap-2">
+              <button className="btn-secondary flex-1" onClick={() => setShowSecretaryPicker(false)}>{t('common.cancel')}</button>
+              <button
+                className="btn-primary flex-1"
+                disabled={!secretaryProviderId || savingSecretary}
+                onClick={async () => {
+                  setSavingSecretary(true);
+                  try {
+                    await updateSecretarySettings({ providerId: secretaryProviderId });
+                    setShowSecretaryPicker(false);
+                  } catch {}
+                  setSavingSecretary(false);
+                }}
+              >
+                {savingSecretary ? t('secretarySettings.saving') : t('common.save')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {Object.entries(dashboard)
+        .sort(([a], [b]) => {
+          const order = { cli: 0, general: 1, drawing: 2, music: 3, video: 4 };
+          return (order[a] ?? 99) - (order[b] ?? 99);
+        })
+        .map(([category, info]) => (
         <div key={category} className="card">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">

@@ -229,15 +229,15 @@ const { fetchRequirementDetail, requirementDetail, clearRequirementDetail, fetch
           <div className="flex items-center gap-2 shrink-0 ml-4">
             <button
               onClick={() => restartRequirement(req.id)}
-              className="text-xs px-3 py-1.5 rounded-lg bg-blue-600/15 hover:bg-blue-600/25 text-blue-400 border border-blue-500/20 transition-colors flex items-center gap-1"
+              className="text-sm px-4 py-2 rounded-lg bg-blue-600/15 hover:bg-blue-600/25 text-blue-400 border border-blue-500/20 transition-colors flex items-center gap-1.5 cursor-pointer min-h-[36px]"
             >
-              {t('reqDetail.live.restart')}
+              🔄 {t('reqDetail.live.restart')}
             </button>
             <button
               onClick={() => { if (confirm(t('reqDetail.live.confirmDelete'))) deleteRequirement(req.id); }}
-              className="text-xs px-3 py-1.5 rounded-lg bg-red-600/15 hover:bg-red-600/25 text-red-400 border border-red-500/20 transition-colors flex items-center gap-1"
+              className="text-sm px-4 py-2 rounded-lg bg-red-600/15 hover:bg-red-600/25 text-red-400 border border-red-500/20 transition-colors flex items-center gap-1.5 cursor-pointer min-h-[36px]"
             >
-              {t('reqDetail.live.deleteReq')}
+              🗑️ {t('reqDetail.live.deleteReq')}
             </button>
           </div>
         </div>

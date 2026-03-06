@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useStore } from '@/lib/client-store';
 import { getAvatarUrl } from '@/lib/avatar';
 import { useI18n } from '@/lib/i18n';
 import { MessageBubble, ChatInput, TaskStatusPanel } from './ChatShared';
+import ProvidersBoard from './ProvidersBoard';
 
 export default function ChatPanel() {
   const { company, chatWithSecretary, chatOpen, setChatOpen, chatMinimized, setChatMinimized } = useStore();
@@ -12,7 +13,15 @@ export default function ChatPanel() {
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [localHistory, setLocalHistory] = useState([]);
+  const [showProviders, setShowProviders] = useState(false);
   const messagesEndRef = useRef(null);
+
+  // Check if any provider is enabled across all categories
+  const hasAnyProvider = useMemo(() => {
+    const dashboard = company?.providerDashboard;
+    if (!dashboard) return false;
+    return Object.values(dashboard).some(cat => cat.enabled > 0);
+  }, [company?.providerDashboard]);
 
   useEffect(() => {
     if (company?.chatHistory) {
@@ -113,6 +122,32 @@ export default function ChatPanel() {
         </div>
       </div>
 
+      {/* No provider configured — block chat and show setup prompt */}
+      {!hasAnyProvider ? (
+        <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
+          <div className="text-5xl mb-4">🧠</div>
+          <h3 className="text-base font-semibold text-yellow-400 mb-2">{t('chat.noProviderTitle')}</h3>
+          <p className="text-xs text-[var(--muted)] mb-5 max-w-xs leading-relaxed">{t('chat.noProviderDesc')}</p>
+          <button
+            onClick={() => setShowProviders(true)}
+            className="px-5 py-2.5 rounded-lg bg-[var(--accent)] text-white text-sm font-medium hover:opacity-90 transition-all"
+          >
+            {t('chat.noProviderBtn')}
+          </button>
+
+          {/* Inline ProvidersBoard modal */}
+          {showProviders && (
+            <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[80] !m-0" onClick={() => setShowProviders(false)}>
+              <div className="bg-[var(--card)] border border-[var(--border)] rounded-2xl max-w-4xl w-full mx-4 max-h-[85vh] overflow-auto" onClick={e => e.stopPropagation()}>
+                <div className="flex justify-end p-3 pb-0">
+                  <button onClick={() => setShowProviders(false)} className="text-[var(--muted)] hover:text-white text-lg">✕</button>
+                </div>
+                <ProvidersBoard />
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (<>
       {/* Messages area - reuse MessageBubble from ChatShared */}
       <div className="flex-1 overflow-auto p-3 space-y-3">
         {localHistory.length === 0 && (
@@ -178,6 +213,7 @@ export default function ChatPanel() {
         sending={sending}
         placeholder={t('chat.inputPlaceholder', { name: secretary?.name || t('setup.defaultSecretary') })}
       />
+      </>)}
     </div>
   );
 }

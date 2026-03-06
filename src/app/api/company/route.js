@@ -24,6 +24,10 @@ export async function POST(request) {
       secretaryName: secretaryConfig?.secretaryName,
       secretaryAvatar: secretaryConfig?.secretaryAvatar,
     });
+    // Set boss avatar if provided during creation
+    if (secretaryConfig?.bossAvatar) {
+      company.bossAvatar = secretaryConfig.bossAvatar;
+    }
     setCompany(company);
     return NextResponse.json({ success: true, data: company.getFullState() });
   } catch (e) {

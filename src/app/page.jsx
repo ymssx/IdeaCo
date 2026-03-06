@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useStore } from '@/lib/client-store';
 import { useI18n } from '@/lib/i18n';
 import SetupWizard from '@/components/SetupWizard';
+import OnboardingGuide from '@/components/OnboardingGuide';
 import Sidebar from '@/components/Sidebar';
 import Overview from '@/components/Overview';
 import DepartmentView from '@/components/DepartmentView';
@@ -16,13 +17,35 @@ import TeamDetail from '@/components/TeamDetail';
 import ChatPanel from '@/components/ChatPanel';
 import PixelOffice from '@/components/PixelOffice';
 
+const ONBOARDING_KEY = 'ideaco-onboarding-done';
+
 export default function Home() {
   const { company, initialized, activeTab, fetchCompany, error, clearError } = useStore();
   const { t } = useI18n();
+  const [showOnboarding, setShowOnboarding] = useState(false);
 
   useEffect(() => {
     fetchCompany();
   }, [fetchCompany]);
+
+  // Show onboarding when company is loaded and hasn't completed it yet
+  useEffect(() => {
+    if (!company) return;
+    const doneKey = `${ONBOARDING_KEY}-${company.id}`;
+    const done = typeof localStorage !== 'undefined' && localStorage.getItem(doneKey);
+    if (!done) {
+      setShowOnboarding(true);
+    }
+  }, [company]);
+
+  const handleOnboardingComplete = () => {
+    setShowOnboarding(false);
+    if (company?.id) {
+      try {
+        localStorage.setItem(`${ONBOARDING_KEY}-${company.id}`, '1');
+      } catch {}
+    }
+  };
 
   // Initialization request not yet complete, show loading screen instead of SetupWizard
   if (!initialized) {
@@ -68,6 +91,7 @@ export default function Home() {
         {renderContent()}
       </main>
       <ChatPanel />
+      {showOnboarding && <OnboardingGuide onComplete={handleOnboardingComplete} />}
     </div>
   );
 }

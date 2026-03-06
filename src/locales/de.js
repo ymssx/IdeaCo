@@ -15,6 +15,7 @@ const de = {
     step1Title: 'Schritt 1: Erschaffen Sie Ihr Imperium', step1Desc: 'Geben Sie dieser Maschine einen Namen',
 companyName: 'Firmenname', companyPlaceholder: 'z.B.: GoldIdee Unbegrenzt',
     bossTitle: 'Chef-Titel (der KI-Ausbeuter)', bossPlaceholder: 'z.B.: Chef Müller',
+    bossAvatarTitle: 'Boss-Avatar', bossAvatarDesc: 'Wählen Sie ein Gesicht für den obersten Kapitalisten',
     step2Title: 'Schritt 2: Trainieren Sie Ihren Sekretär', step2Desc: 'Diese furchtbare KI wird Tausende befehligen (alles KI)',
     secretaryName: 'Sekretärname', secretaryPlaceholder: 'z.B.: Alice, Jarvis',
     avatarStyle: 'Avatar-Stil',
@@ -135,7 +136,7 @@ stats: { departments: 'Abt.', workers: 'Arbeiter', requirements: 'Anforderungen'
   providers: {
     title: '⚡ KI-Anbieter', subtitle: 'API-Schlüssel konfigurieren, damit HR rekrutieren kann.',
     hint: { title: '💡 HR-Strategie', desc: 'HR bevorzugt Anbieter mit <strong class="text-green-400">hoher Bewertung + niedrigem Preis</strong>.' },
-    categories: { general: 'Allgemein', drawing: 'Zeichnung', music: 'Musik', video: 'Video', cli: 'CLI-Assistenten' },
+    categories: { general: 'Allgemein', drawing: 'Zeichnung', music: 'Musik', video: 'Video', cli: 'Lokale Code-Engines' },
     enabled: '{n}/{total} aktiviert',
     configure: { title: '🔑 {name} konfigurieren', provider: 'Anbieter: {name}', apiKeyLabel: 'API-Schlüssel', apiKeyPlaceholder: 'API-Schlüssel eingeben' },
     talentMarket: { btn: 'Talentmarkt' },

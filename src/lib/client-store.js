@@ -182,6 +182,18 @@ chatMinimized: false,
     }
   },
 
+  // === Factory Reset (nuclear) ===
+  factoryReset: async () => {
+    set({ loading: true, error: null });
+    try {
+      await apiCall('/company/factory-reset', { method: 'POST' });
+      set({ company: null, loading: false, initialized: true });
+    } catch (e) {
+      set({ error: e.message, loading: false });
+      throw e;
+    }
+  },
+
   // === Provider Operations ===
   configureProvider: async (providerId, apiKey) => {
     try {

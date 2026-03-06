@@ -87,9 +87,9 @@ export class Company {
         secretaryProviderConfig = provider;
       }
     }
+    // Fallback: use a placeholder provider reference (NOT enabled — user must configure a real one via onboarding)
     if (!secretaryProviderConfig) {
-      this.providerRegistry.configure('openai-gpt4', 'sk-default');
-      secretaryProviderConfig = this.providerRegistry.getById('openai-gpt4');
+      secretaryProviderConfig = { id: 'none', name: '⚠️ Not Configured', enabled: false, category: 'general' };
     }
 
     // Initialize personal secretary

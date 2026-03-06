@@ -21,7 +21,7 @@ function RatingBadge({ rating }) {
  */
 export default function SystemMonitor({ embedded = false }) {
   const { t } = useI18n();
-  const { company, fetchCronJobs, createCronJob, manageCronJob, fetchPlugins, managePlugin, fetchSkills, manageSkill, fetchKnowledge, searchKnowledge, manageKnowledge, fetchSystemStatus, configureProvider, fetchCLIBackends, detectCLIBackends, manageCLIBackend } = useStore();
+  const { company, fetchCronJobs, createCronJob, manageCronJob, fetchPlugins, managePlugin, fetchSkills, manageSkill, fetchKnowledge, searchKnowledge, manageKnowledge, fetchSystemStatus, configureProvider, fetchCLIBackends, detectCLIBackends, manageCLIBackend, factoryReset, updateSecretarySettings } = useStore();
   const [activeSection, setActiveSection] = useState('providers');
   const [cronData, setCronData] = useState({ summary: {}, jobs: [] });
   const [plugins, setPlugins] = useState([]);
@@ -43,6 +43,16 @@ export default function SystemMonitor({ embedded = false }) {
   const [newEntry, setNewEntry] = useState({ title: '', content: '', entryType: 'note', tags: '' });
   const [kbSearchQuery, setKbSearchQuery] = useState('');
   const [kbSearchResults, setKbSearchResults] = useState(null);
+
+  // Danger zone state
+  const [showFactoryReset, setShowFactoryReset] = useState(false);
+  const [factoryResetInput, setFactoryResetInput] = useState('');
+  const [factoryResetting, setFactoryResetting] = useState(false);
+
+  // Secretary provider picker state
+  const [showSecretaryPicker, setShowSecretaryPicker] = useState(false);
+  const [secretaryProviderId, setSecretaryProviderId] = useState(company?.secretary?.providerId || '');
+  const [savingSecretary, setSavingSecretary] = useState(false);
 
   // Cron job creation form
   const [showCreateJob, setShowCreateJob] = useState(false);
@@ -214,6 +224,7 @@ export default function SystemMonitor({ embedded = false }) {
     { id: 'skills', icon: '📚', label: t('systemSettings.cards.skills') },
     { id: 'knowledge', icon: '🧠', label: t('systemSettings.cards.knowledge') },
     { id: 'health', icon: '💓', label: t('systemSettings.health.title') },
+    { id: 'danger', icon: '⚠️', label: t('systemSettings.dangerZone.title') },
   ];
 
   return (
@@ -271,7 +282,89 @@ export default function SystemMonitor({ embedded = false }) {
             </div>
           </div>
 
-          {Object.entries(company?.providerDashboard || {}).map(([category, info]) => (
+          {/* Secretary provider card */}
+          <div className="card bg-gradient-to-r from-purple-900/10 to-blue-900/10 border-purple-500/20">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">🤖</span>
+                <div>
+                  <h3 className="font-semibold">{t('providers.secretaryProvider.title')}</h3>
+                  <p className="text-xs text-[var(--muted)] mt-0.5 max-w-md">{t('providers.secretaryProvider.desc')}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 shrink-0">
+                <div className="text-right">
+                  <div className="text-sm font-medium">
+                    {company?.secretary?.provider && company?.secretary?.providerId !== 'none'
+                      ? <span className="text-green-400">{t('providers.secretaryProvider.current', { name: company.secretary.provider })}</span>
+                      : <span className="text-yellow-400">{t('providers.secretaryProvider.noneConfigured')}</span>
+                    }
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    const avail = company?.secretary?.availableProviders || [];
+                    const currentId = company?.secretary?.providerId || '';
+                    const inList = avail.some(p => p.id === currentId);
+                    setSecretaryProviderId(inList ? currentId : (avail[0]?.id || ''));
+                    setShowSecretaryPicker(true);
+                  }}
+                  className="px-3 py-2 rounded-lg text-xs bg-[var(--accent)]/10 text-[var(--accent)] hover:bg-[var(--accent)]/20 transition-all"
+                >
+                  {t('providers.secretaryProvider.changeBtn')}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Secretary provider picker modal */}
+          {showSecretaryPicker && company?.secretary?.availableProviders && (
+            <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 !m-0" onClick={() => setShowSecretaryPicker(false)}>
+              <div className="card max-w-sm w-full mx-4 space-y-4" onClick={e => e.stopPropagation()}>
+                <h3 className="text-lg font-semibold">{t('secretarySettings.providerLabel')}</h3>
+                <p className="text-xs text-[var(--muted)]">{t('secretarySettings.providerDesc')}</p>
+                {company.secretary.availableProviders.length > 0 ? (
+                  <select
+                    className="input w-full"
+                    value={secretaryProviderId}
+                    onChange={e => setSecretaryProviderId(e.target.value)}
+                  >
+                    {company.secretary.availableProviders.map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <div className="text-xs text-yellow-400 p-2 rounded bg-yellow-400/10 border border-yellow-400/20">
+                    {t('secretarySettings.noProviders')}
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <button className="btn-secondary flex-1" onClick={() => setShowSecretaryPicker(false)}>{t('common.cancel')}</button>
+                  <button
+                    className="btn-primary flex-1"
+                    disabled={!secretaryProviderId || savingSecretary}
+                    onClick={async () => {
+                      setSavingSecretary(true);
+                      try {
+                        await updateSecretarySettings({ providerId: secretaryProviderId });
+                        setShowSecretaryPicker(false);
+                      } catch {}
+                      setSavingSecretary(false);
+                    }}
+                  >
+                    {savingSecretary ? t('secretarySettings.saving') : t('common.save')}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {Object.entries(company?.providerDashboard || {})
+            .sort(([a], [b]) => {
+              const order = { cli: 0, general: 1, drawing: 2, music: 3, video: 4 };
+              return (order[a] ?? 99) - (order[b] ?? 99);
+            })
+            .map(([category, info]) => (
             <div key={category} className="card">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
@@ -937,6 +1030,105 @@ export default function SystemMonitor({ embedded = false }) {
                     {evt.blocked && <span className="text-red-400 shrink-0">🚫</span>}
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* === DANGER ZONE SECTION === */}
+      {activeSection === 'danger' && (
+        <div className="space-y-4">
+          {/* Warning banner */}
+          <div className="card bg-gradient-to-r from-red-900/20 to-orange-900/20 border-red-500/30">
+            <div className="flex items-start gap-3">
+              <span className="text-3xl">☢️</span>
+              <div>
+                <h3 className="font-semibold text-red-400">{t('systemSettings.dangerZone.title')}</h3>
+                <p className="text-sm text-[var(--muted)] mt-1">{t('systemSettings.dangerZone.subtitle')}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Factory Reset card */}
+          <div className="card border-red-500/20">
+            <div className="flex items-center justify-between">
+              <div className="flex-1">
+                <h4 className="font-semibold text-red-400">{t('systemSettings.dangerZone.factoryReset')}</h4>
+                <p className="text-sm text-[var(--muted)] mt-1 max-w-xl">
+                  {t('systemSettings.dangerZone.factoryResetDesc')}
+                </p>
+              </div>
+              <button
+                onClick={() => { setShowFactoryReset(true); setFactoryResetInput(''); }}
+                className="shrink-0 ml-4 px-4 py-2.5 rounded-lg bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-500/30 hover:border-red-500/50 transition-all text-sm font-medium cursor-pointer"
+              >
+                {t('systemSettings.dangerZone.factoryResetBtn')}
+              </button>
+            </div>
+          </div>
+
+          {/* Factory Reset confirmation modal */}
+          {showFactoryReset && (
+            <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 !m-0" onClick={() => !factoryResetting && setShowFactoryReset(false)}>
+              <div className="card max-w-md w-full mx-4 space-y-4 border-red-500/30" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center gap-3">
+                  <span className="text-3xl">💀</span>
+                  <h3 className="text-lg font-bold text-red-400">{t('systemSettings.dangerZone.factoryResetConfirm')}</h3>
+                </div>
+
+                <p className="text-sm text-[var(--muted)]">
+                  {t('systemSettings.dangerZone.factoryResetConfirmDesc')}
+                </p>
+
+                <ul className="space-y-1.5">
+                  {t('systemSettings.dangerZone.factoryResetItems').map((item, i) => (
+                    <li key={i} className="text-sm text-red-300/80 flex items-center gap-2">
+                      <span className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0" />
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+
+                <div>
+                  <label className="block text-sm mb-1.5 text-[var(--muted)]">
+                    {t('systemSettings.dangerZone.factoryResetInput', { companyName: company?.name || 'Company' })}
+                  </label>
+                  <input
+                    className="input w-full"
+                    placeholder={t('systemSettings.dangerZone.factoryResetInputPlaceholder')}
+                    value={factoryResetInput}
+                    onChange={e => setFactoryResetInput(e.target.value)}
+                    disabled={factoryResetting}
+                  />
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    className="btn-secondary flex-1"
+                    onClick={() => setShowFactoryReset(false)}
+                    disabled={factoryResetting}
+                  >
+                    {t('common.cancel')}
+                  </button>
+                  <button
+                    className="flex-1 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                    disabled={factoryResetInput !== (company?.name || 'Company') || factoryResetting}
+                    onClick={async () => {
+                      setFactoryResetting(true);
+                      try {
+                        await factoryReset();
+                        setShowFactoryReset(false);
+                        // Reload the page to go back to setup wizard
+                        setTimeout(() => window.location.reload(), 800);
+                      } catch (e) {
+                        setFactoryResetting(false);
+                      }
+                    }}
+                  >
+                    {factoryResetting ? t('systemSettings.dangerZone.factoryResetting') : t('systemSettings.dangerZone.factoryResetExecute')}
+                  </button>
+                </div>
               </div>
             </div>
           )}

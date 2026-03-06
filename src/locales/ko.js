@@ -16,6 +16,7 @@ const ko = {
     step1Title: '1단계: 제국을 만들자', step1Desc: '이 착취 기계에 이름을 붙여주세요',
     companyName: '회사명', companyPlaceholder: '예: 골드스파크 무한회사',
     bossTitle: '보스 호칭 (AI를 착취할 사람)', bossPlaceholder: '예: 김사장',
+    bossAvatarTitle: '보스 아바타', bossAvatarDesc: '최고 자본가의 얼굴을 골라보세요',
     step2Title: '2단계: 비서를 키우자', step2Desc: '이 무시무시한 AI가 대신 천군만마를 지휘합니다 (전부 AI)',
     secretaryName: '비서 이름', secretaryPlaceholder: '예: 앨리스, 자비스',
     avatarStyle: '아바타 스타일',
@@ -164,7 +165,7 @@ stats: { departments: '부서', workers: '직원', requirements: '요구사항' 
   providers: {
     title: '⚡ AI 공급자', subtitle: 'API Key를 설정하면 HR이 해당 유형의 직원을 채용할 수 있습니다.',
     hint: { title: '💡 HR 채용 전략', desc: 'HR은 <strong class="text-green-400">높은 평점 + 낮은 가격</strong>의 공급자를 우선 선택합니다.' },
-    categories: { general: '일반 직무', drawing: '드로잉 직무', music: '음악 직무', video: '영상 직무', cli: 'CLI 어시스턴트' },
+    categories: { general: '일반 직무', drawing: '드로잉 직무', music: '음악 직무', video: '영상 직무', cli: '로컬 코딩 엔진' },
     enabled: '{n}/{total} 활성화',
     configure: { title: '🔑 {name} 설정', provider: '공급자: {name}', apiKeyLabel: 'API Key', apiKeyPlaceholder: 'API Key 입력' },
     talentMarket: { btn: '인재 시장' },

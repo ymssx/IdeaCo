@@ -115,9 +115,18 @@ export class Department {
     return [...this.agents.values()];
   }
 
-  /** Get the department leader */
+  /** Get the department leader (fallback: promote first member if leader is missing) */
   getLeader() {
-    return this.agents.get(this.leader);
+    const leader = this.agents.get(this.leader);
+    if (leader) return leader;
+    // Fallback: if leader is null or removed, promote the first member
+    if (this.agents.size > 0) {
+      const first = this.agents.values().next().value;
+      this.leader = first.id;
+      console.log(`  ⚠️ Department "${this.name}" had no leader, auto-promoted [${first.name}] as leader`);
+      return first;
+    }
+    return null;
   }
 
   /** Get subordinates of a member */
