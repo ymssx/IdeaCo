@@ -38,6 +38,8 @@ export async function GET(request) {
     if (!sprint) return NextResponse.json({ error: t('api.sprintNotFound') }, { status: 404 });
 
     const data = sprint.serialize();
+    // serialize() omits groupChat (stored in chatStore files), attach it here
+    data.groupChat = sprint.groupChat || [];
 
     // Attach member list
     const dept = company.findDepartment(team.departmentId);
