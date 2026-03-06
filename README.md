@@ -45,7 +45,7 @@
 ```bash
 git clone <repo-url>
 cd IdeaCo
-nvm use
+nvm use 20
 npm install
 npm run dev
 ```
