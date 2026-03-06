@@ -456,45 +456,23 @@ export class ChatStore {
 
   /**
    * Extract search keywords
-   * Tokenization (supports mixed Chinese/English)
+   * Language-agnostic: splits on whitespace, keeps the full query as an
+   * additional token so substring matches across word boundaries still work.
+   * Single-char tokens are dropped to reduce noise.
    */
   _extractKeywords(query) {
     if (!query || !query.trim()) return [];
-    
+
     const text = query.toLowerCase().trim();
-    
-    // English word tokenization
-    const englishWords = text.match(/[a-zA-Z0-9]+/g) || [];
-    
-    // Chinese character extraction (groups of 2-3 chars, also keep single chars)
-    const chineseChars = text.match(/[\u4e00-\u9fff]+/g) || [];
-    const chineseTokens = [];
-    for (const segment of chineseChars) {
-      // Keep the full Chinese segment as a keyword
-      chineseTokens.push(segment);
-      // If the segment is long, also split into 2-char tokens
-      if (segment.length > 2) {
-        for (let i = 0; i < segment.length - 1; i++) {
-          chineseTokens.push(segment.slice(i, i + 2));
-        }
-      }
+    const tokens = text.split(/\s+/).filter(t => t.length > 1);
+
+    // Also keep the full query itself when it differs from a single token,
+    // so multi-word phrases can match as a whole.
+    if (tokens.length > 1) {
+      tokens.push(text);
     }
 
-    // Filter stop words
-    const stopWords = new Set(['the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been',
-      'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
-      'should', 'may', 'might', 'can', 'shall', 'to', 'of', 'in', 'for', 'on', 'with',
-      'at', 'by', 'from', 'as', 'into', 'through', 'and', 'or', 'but', 'not', 'so',
-      'if', 'that', 'this', 'it', 'he', 'she', 'we', 'they', 'i', 'you', 'me',
-      '的', '了', '是', '在', '我', '有', '和', '就', '不', '人', '都', '一',
-      '上', '也', '很', '到', '说', '要', '去', '你', '会', '着', '没有', '看',
-      '好', '自己', '这', '他', '吗', '吧', '啊', '呢', '嗯', '哦']);
-
-    const allTokens = [...englishWords, ...chineseTokens]
-      .filter(w => w.length > 0 && !stopWords.has(w));
-    
-    // Deduplicate
-    return [...new Set(allTokens)];
+    return [...new Set(tokens)];
   }
 
   /**
