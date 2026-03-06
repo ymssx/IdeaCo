@@ -2341,6 +2341,16 @@ const dept = this.findDepartment(departmentId);
       reapplyCLIConfigs();
     }).catch(() => {});
 
+    // Re-start group chat loop for all restored agents
+    // (_initSubsystems ran during constructor when departments were still empty,
+    //  so we need to register all agents that were restored afterwards)
+    groupChatLoop.start(company);
+    for (const dept of company.departments.values()) {
+      for (const agent of dept.getMembers()) {
+        groupChatLoop.startAgentLoop(agent);
+      }
+    }
+
     console.log(`✅ Company "${company.name}" state restored: ${company.departments.size} departments`);
     return company;
   }
