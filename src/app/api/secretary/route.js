@@ -23,7 +23,7 @@ export async function GET(request) {
       age: agent.age,
       prompt: agent.prompt,
       signature: agent.signature,
-      provider: agent.provider.name,
+      provider: agent.getProviderDisplayInfo()?.name || 'Unknown',
       tokenUsage: agent.tokenUsage,
     },
   });

@@ -67,7 +67,7 @@ export async function GET(request) {
         return {
           id: a.id, name: a.name, role: a.role, avatar: a.avatar, status: a.status,
           skills: a.skills, signature: a.signature, gender: a.gender, age: a.age,
-          provider: { id: a.provider.id, name: a.provider.name },
+          provider: a.getProviderDisplayInfo(),
         };
       }).filter(Boolean);
     }
