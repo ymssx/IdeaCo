@@ -26,13 +26,9 @@ export async function GET(request, { params }) {
             prompt: agent.prompt,
             skills: agent.skills,
             status: agent.status,
-            // CLI agent shows cliProvider info (actual CLI tool), not fallback general provider
-            provider: agent.cliProvider
-              ? { id: agent.cliProvider.id, name: agent.cliProvider.name, provider: agent.cliProvider.provider || 'Local CLI' }
-              : { id: agent.provider.id, name: agent.provider.name, provider: agent.provider.provider },
+            provider: agent.getProviderDisplayInfo(),
             cliBackend: agent.cliBackend || null,
-            // CLI agent chat engine (fallback LLM provider name)
-            fallbackProvider: agent.cliProvider ? agent.provider.name : null,
+            fallbackProvider: agent.getFallbackProviderName(),
             department: dept.name,
             departmentId: dept.id,
             memory: agent.memory.getSummary(),
@@ -85,9 +81,9 @@ export async function PUT(request, { params }) {
     for (const dept of company.departments.values()) {
       const agent = dept.agents.get(agentId);
       if (agent) {
-        // Set CLI backend
-        if ('cliBackend' in body) {
-          agent.setCLIBackend(body.cliBackend || null);
+        // Set CLI backend (only supported for CLI agents)
+        if ('cliBackend' in body && agent.agentType === 'cli') {
+          agent.cliBackend = body.cliBackend || null;
         }
 
         // Persist

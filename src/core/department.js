@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { Agent } from './agent.js';
+// Agent instances are passed in from outside; no direct import needed
 
 /**
  * Department - A collaborative unit composed of multiple Agents
@@ -250,7 +250,7 @@ export class Department {
     const buildTree = (agent) => ({
       name: agent.name,
       role: agent.role,
-      provider: agent.provider.name,
+      provider: agent.getProviderDisplayInfo().name,
       subordinates: this.getSubordinates(agent.id).map(sub => buildTree(sub)),
     });
 

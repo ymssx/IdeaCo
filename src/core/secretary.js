@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { Agent } from './agent.js';
+import { createAgent, LLMAgent } from './agent/index.js';
 import { JobCategory } from './providers.js';
 import { JobTemplates } from './hr.js';
 import { pluginRegistry } from './plugin.js';
@@ -14,7 +14,7 @@ import { cliBackendRegistry } from './cli-backends/index.js';
  */
 export class HRAssistant {
   constructor({ secretary, providerConfig }) {
-    this.agent = new Agent({
+    this.agent = new LLMAgent({
       name: 'HR-Bot',
       role: 'HR Recruiter',
       prompt: `You are the secretary's dedicated HR assistant, responsible for executing recruitment operations.
@@ -123,7 +123,7 @@ executing the recruitment process, and coordinating new employee onboarding. You
  */
 export class Secretary {
   constructor({ company, providerConfig, secretaryName, secretaryAvatar, secretaryGender, secretaryAge }) {
-    this.agent = new Agent({
+    this.agent = new LLMAgent({
       name: secretaryName || 'Secretary',
       role: 'Personal Secretary',
       prompt: `You are the boss's personal secretary, responsible for understanding business requirements, analyzing required team composition,
@@ -159,15 +159,15 @@ When communicating with the boss, you need to:
     console.log(`\n🗂️ [Secretary] AI-analyzing requirements and designing team architecture...`);
     console.log(`   Requirement: "${requirement}"\n`);
 
-    // Check if we have a valid brain for analysis
-    const isCLIBrain = this.agent.brain?.type === 'cli';
+    // Check if we have a valid agent for analysis
+    const isCLIAgent = this.agent.agentType === 'cli';
     const canChat = this.agent.canChat();
-    if (!canChat && !isCLIBrain) {
+    if (!canChat && !isCLIAgent) {
       throw new Error('Secretary AI is not configured. Please configure a valid API Key or CLI backend for the secretary provider first.');
     }
 
-    // Use CLI backend if brain is CLI type and can't chat, otherwise use LLM
-    const plan = isCLIBrain && !canChat
+    // Use CLI backend if agent is CLI type and can't chat, otherwise use LLM
+    const plan = isCLIAgent && !canChat
       ? await this._cliAnalyzeRequirement(requirement)
       : await this._aiAnalyzeRequirement(requirement);
 
@@ -463,15 +463,15 @@ Boss's requirement: ${requirement}`;
       id: t.id, title: t.title, category: t.category, skills: t.skills,
     }));
 
-    // Check if we have a valid brain for analysis
-    const isCLIBrain2 = this.agent.brain?.type === 'cli';
+    // Check if we have a valid agent for analysis
+    const isCLIAgent2 = this.agent.agentType === 'cli';
     const canChat2 = this.agent.canChat();
-    if (!canChat2 && !isCLIBrain2) {
+    if (!canChat2 && !isCLIAgent2) {
       throw new Error('Secretary AI is not configured. Please configure a valid API Key or CLI backend for the secretary provider first.');
     }
 
-    // Use CLI backend if brain is CLI type and can't chat, otherwise use LLM
-    const plan = isCLIBrain2 && !canChat2
+    // Use CLI backend if agent is CLI type and can't chat, otherwise use LLM
+    const plan = isCLIAgent2 && !canChat2
       ? await this._cliAnalyzeAdjustment(department, currentMembers, availableRoles, adjustGoal)
       : await this._aiAnalyzeAdjustment(department, currentMembers, availableRoles, adjustGoal);
 
@@ -706,11 +706,10 @@ Boss's adjustment goal: ${adjustGoal}`;
           },
           hr
         );
-        const agent = new Agent(recruitConfig);
+        const agent = createAgent(recruitConfig);
 
-        // If this is a CLI-backed agent, set the CLI backend
+        // Log CLI backend if assigned
         if (recruitConfig.cliBackend) {
-          agent.setCLIBackend(recruitConfig.cliBackend);
           console.log(`  🖥️ [${agent.name}] assigned CLI backend: ${recruitConfig.cliBackend}`);
         }
 
@@ -833,7 +832,7 @@ Boss's adjustment goal: ${adjustGoal}`;
   async handleBossMessage(message, company) {
     // Check if the agent can do LLM-style chat
     if (!this.agent.canChat()) {
-      if (this.agent.brain?.type === 'cli') {
+      if (this.agent.agentType === 'cli') {
         // In CLI mode, handleBossMessage should not be called directly (chatWithSecretary handles the CLI path)
         throw new Error('Secretary is in CLI mode. Please use chatWithSecretary() which handles CLI path correctly.');
       }
@@ -1288,8 +1287,8 @@ ${memoryContext}
 6. Sign off naturally as a secretary would`;
 
     try {
-      // If secretary has a CLI brain, prefer CLI for task execution
-      if (this.agent.brain?.type === 'cli' && this.agent.brain.isAvailable()) {
+      // If secretary is a CLI agent, prefer CLI for task execution
+      if (this.agent.agentType === 'cli' && this.agent.isAvailable()) {
         try {
           console.log(`  🖥️ [Secretary] Executing task via CLI backend: ${this.agent.cliBackend}`);
           const cliResult = await cliBackendRegistry.executeTask(
@@ -1333,8 +1332,8 @@ ${memoryContext}
       const toolExecutor = this.agent.toolKit;
       let response;
 
-      if (toolExecutor) {
-        response = await this.agent.brain.chatWithTools(
+      if (toolExecutor && this.agent.chatWithTools) {
+        response = await this.agent.chatWithTools(
           [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: taskDescription },

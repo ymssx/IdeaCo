@@ -4,7 +4,7 @@
  */
 
 export { Company } from './company.js';
-export { Agent } from './agent.js';
+export { Agent, createAgent, BaseAgent, LLMAgent, CLIAgent } from './agent/index.js';
 export { Department } from './department.js';
 export { Secretary, HRAssistant } from './secretary.js';
 export { HRSystem, JobTemplates } from './hr.js';
