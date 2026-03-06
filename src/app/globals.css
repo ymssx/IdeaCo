@@ -22,6 +22,22 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
+/* Electron: macOS hiddenInset 标题栏拖拽区域 */
+.electron-drag {
+  -webkit-app-region: drag;
+}
+.electron-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Electron macOS: 标题栏偏移量 */
+:root {
+  --titlebar-height: 0px;
+}
+.electron-mac {
+  --titlebar-height: 36px;
+}
+
 /* Global scrollbar hiding */
 ::-webkit-scrollbar {
   width: 0;

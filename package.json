@@ -9,7 +9,7 @@
     "dev": "next dev -p 9999",
     "build": "next build",
     "start": "next start -p 9999",
-    "electron:dev": "npm run build && electron .",
+    "electron:dev": "electron .",
     "electron:build": "npm run build && node scripts/prepare-electron.js && electron-builder",
     "electron:build:mac": "npm run build && node scripts/prepare-electron.js && electron-builder --mac",
     "electron:build:win": "npm run build && node scripts/prepare-electron.js && electron-builder --win",

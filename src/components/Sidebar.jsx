@@ -33,7 +33,7 @@ export default function Sidebar() {
   return (
     <aside className="w-64 bg-[#0d0d0d] border-r border-[var(--border)] flex flex-col h-screen">
       {/* Company name - top left */}
-      <div className="p-4 border-b border-[var(--border)]">
+      <div className="p-4 border-b border-[var(--border)]" style={{ paddingTop: 'calc(1rem + var(--titlebar-height))' }}>
         <div className="flex items-center gap-3">
           <button
             onClick={() => setShowBossProfile(true)}

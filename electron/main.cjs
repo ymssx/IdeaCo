@@ -116,20 +116,38 @@ async function startNextServer(port, dataPath) {
 }
 
 function createWindow(port) {
-  mainWindow = new BrowserWindow({
+  const windowOptions = {
     width: 1440,
     height: 900,
     minWidth: 1024,
     minHeight: 700,
     title: 'IdeaCo',
     icon: path.join(getResourcePath(), 'public', 'logo.jpeg'),
+    backgroundColor: '#0a0a0a',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
     },
     show: false,
-  });
+  };
+
+  // macOS: 使用隐藏标题栏 + 内嵌红绿灯按钮，背景色与页面一致
+  if (process.platform === 'darwin') {
+    windowOptions.titleBarStyle = 'hiddenInset';
+    windowOptions.trafficLightPosition = { x: 12, y: 12 };
+  }
+
+  // Windows: 自定义标题栏颜色
+  if (process.platform === 'win32') {
+    windowOptions.titleBarOverlay = {
+      color: '#0a0a0a',
+      symbolColor: '#ededed',
+      height: 36,
+    };
+  }
+
+  mainWindow = new BrowserWindow(windowOptions);
 
   mainWindow.loadURL(`http://127.0.0.1:${port}`);
 
@@ -162,9 +180,38 @@ function stopServer() {
 app.whenReady().then(async () => {
   try {
     const dataPath = ensureDataDirs();
-    const port = await findAvailablePort(PORT);
-    await startNextServer(port, dataPath);
-    createWindow(port);
+
+    if (isDev) {
+      // Dev 模式：直接连接已运行的 Next.js dev server 或用 next dev 启动
+      const port = PORT;
+      const isRunning = await new Promise((resolve) => {
+        const client = net.createConnection({ port, host: '127.0.0.1' }, () => {
+          client.end();
+          resolve(true);
+        });
+        client.on('error', () => resolve(false));
+      });
+
+      if (!isRunning) {
+        // 自动启动 next dev
+        const npxPath = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+        serverProcess = spawn(npxPath, ['next', 'dev', '-p', String(port)], {
+          cwd: path.join(__dirname, '..'),
+          env: { ...process.env },
+          stdio: ['ignore', 'pipe', 'pipe'],
+        });
+        serverProcess.stdout.on('data', (d) => console.log(`[next-dev] ${d.toString().trim()}`));
+        serverProcess.stderr.on('data', (d) => console.error(`[next-dev] ${d.toString().trim()}`));
+        await waitForServer(port);
+      }
+
+      createWindow(port);
+    } else {
+      // Production 模式：启动 standalone server.js
+      const port = await findAvailablePort(PORT);
+      await startNextServer(port, dataPath);
+      createWindow(port);
+    }
   } catch (err) {
     dialog.showErrorBox('Startup Error', err.message);
     app.quit();
