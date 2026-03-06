@@ -1265,12 +1265,12 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
    * @returns {Promise<string|null>} Reply content
    */
   async _agentCollabReply(responder, sender, taskTitle, output, requirement) {
-    if (!responder.provider?.enabled || !responder.provider?.apiKey) return null;
+    if (!responder.canChat()) return null;
 
     try {
       const p = responder.personality || {};
       const outputPreview = output.length > 500 ? output.slice(0, 500) + '...' : output;
-      const response = await llmClient.chat(responder.provider, [
+      const response = await responder.chat([
         {
           role: 'system',
           content: `You are "${responder.name}", working as "${responder.role}".
@@ -1286,7 +1286,6 @@ You can comment on the quality, ask a question, or just acknowledge. Keep it nat
         },
       ], { temperature: 0.9, maxTokens: 128 });
 
-      responder._trackUsage(response.usage);
       return response.content?.trim() || null;
     } catch (e) {
       return null;
@@ -1298,13 +1297,13 @@ You can comment on the quality, ask a question, or just acknowledge. Keep it nat
    * More casual and constructive than upstream→downstream handoff
    */
   async _agentPeerReview(reviewer, reviewee, taskTitle, output, requirement) {
-    if (!reviewer.provider?.enabled || !reviewer.provider?.apiKey) return null;
+    if (!reviewer.canChat()) return null;
     if (!output) return null;
 
     try {
       const p = reviewer.personality || {};
       const outputPreview = output.length > 400 ? output.slice(0, 400) + '...' : output;
-      const response = await llmClient.chat(reviewer.provider, [
+      const response = await reviewer.chat([
         {
           role: 'system',
           content: `You are "${reviewer.name}", working as "${reviewer.role}".
@@ -1319,7 +1318,6 @@ Be natural, in character, and collegial. You can praise, suggest improvements, o
         },
       ], { temperature: 0.9, maxTokens: 128 });
 
-      reviewer._trackUsage(response.usage);
       return response.content?.trim() || null;
     } catch (e) {
       return null;
@@ -1332,7 +1330,7 @@ Be natural, in character, and collegial. You can praise, suggest improvements, o
    * The reviewer is instructed to be STRICT and not easily approve.
    */
   async _strictReview(reviewer, assignee, node, output, requirement, round) {
-    if (!reviewer.provider?.enabled || !reviewer.provider?.apiKey) {
+    if (!reviewer.canChat()) {
       return { approved: true, feedback: '', comment: 'Reviewer unavailable, auto-approved.' };
     }
 
@@ -1341,7 +1339,7 @@ Be natural, in character, and collegial. You can praise, suggest improvements, o
       const outputContent = output?.length > 2000 ? output.slice(0, 2000) + '\n...(truncated)' : output;
       const reviewCriteria = node.reviewCriteria || 'Check for correctness, completeness, and quality.';
 
-      const response = await llmClient.chat(reviewer.provider, [
+      const response = await reviewer.chat([
         {
           role: 'system',
           content: `You are "${reviewer.name}", working as "${reviewer.role}".
@@ -1380,8 +1378,6 @@ ${outputContent || '(empty output)'}
 Please provide your strict review verdict as JSON.`
         },
       ], { temperature: 0.3, maxTokens: 1024 });
-
-      reviewer._trackUsage(response.usage);
 
       // Parse review result
       const tick = String.fromCharCode(96);
@@ -1450,7 +1446,7 @@ ${reviewFeedback}
    * - accept=false: assignee disagrees and provides counter-arguments
    */
   async _assigneeRebuttal(agent, reviewer, node, currentOutput, reviewFeedback, requirement, round) {
-    if (!agent.provider?.enabled || !agent.provider?.apiKey) {
+    if (!agent.canChat()) {
       return { accept: true, message: 'Got it, I\'ll revise.' };
     }
 
@@ -1458,7 +1454,7 @@ ${reviewFeedback}
       const p = agent.personality || {};
       const outputPreview = currentOutput?.length > 1500 ? currentOutput.slice(0, 1500) + '\n...(truncated)' : currentOutput;
 
-      const response = await llmClient.chat(agent.provider, [
+      const response = await agent.chat([
         {
           role: 'system',
           content: `You are "${agent.name}", working as "${agent.role}".
@@ -1497,8 +1493,6 @@ This is review round ${round}. Do you accept the feedback and revise, or do you 
         },
       ], { temperature: 0.7, maxTokens: 512 });
 
-      agent._trackUsage(response.usage);
-
       const tick = String.fromCharCode(96);
       const fence = tick + tick + tick;
       let content = response.content?.trim() || '';
@@ -1533,7 +1527,7 @@ This is review round ${round}. Do you accept the feedback and revise, or do you 
    * - convinced=false: reviewer insists, assignee must revise
    */
   async _reviewerReEvaluate(reviewer, assignee, node, output, originalFeedback, rebuttalMessage, requirement, round) {
-    if (!reviewer.provider?.enabled || !reviewer.provider?.apiKey) {
+    if (!reviewer.canChat()) {
       return { convinced: false, message: 'Please address my feedback.' };
     }
 
@@ -1541,7 +1535,7 @@ This is review round ${round}. Do you accept the feedback and revise, or do you 
       const p = reviewer.personality || {};
       const outputPreview = output?.length > 1000 ? output.slice(0, 1000) + '\n...(truncated)' : output;
 
-      const response = await llmClient.chat(reviewer.provider, [
+      const response = await reviewer.chat([
         {
           role: 'system',
           content: `You are "${reviewer.name}", working as "${reviewer.role}".
@@ -1579,8 +1573,6 @@ ${outputPreview}
 Are you convinced by their argument, or do you insist they need to revise?`
         },
       ], { temperature: 0.6, maxTokens: 512 });
-
-      reviewer._trackUsage(response.usage);
 
       const tick = String.fromCharCode(96);
       const fence = tick + tick + tick;

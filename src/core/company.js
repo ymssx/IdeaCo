@@ -417,20 +417,20 @@ Rules:
 
     // If this is a CLI agent, execute chat via CLI backend
     let replyContent;
-    const chatEngine = targetAgent.cliProvider
-      ? { engine: 'cli', cliName: targetAgent.cliProvider.name }
-      : { engine: 'llm', llmName: targetAgent.provider.name };
+    const displayInfo = targetAgent.brain?.getDisplayInfo() || {};
+    const chatEngine = displayInfo.type === 'cli'
+      ? { engine: 'cli', cliName: displayInfo.name }
+      : { engine: 'llm', llmName: displayInfo.name };
 
-    if (targetAgent.cliBackend) {
-      // CLI agent chat also goes through CLI backend
+    if (targetAgent.brain?.type === 'cli' && targetAgent.brain.isAvailable()) {
+      // CLI agent chat goes through CLI backend via brain.executeTask
       try {
-        // Build a more natural chat prompt (not using _buildTaskPrompt task format)
         const chatContext = recentMessages.slice(-6).map(m =>
           `${m.role === 'boss' ? 'Boss' : targetAgent.name}: ${m.content}`
         ).join('\n');
 
         const cliResult = await cliBackendRegistry.executeTask(
-          targetAgent.cliBackend,
+          targetAgent.brain.backendId,
           targetAgent,
           {
             title: `Chat reply`,
@@ -438,21 +438,16 @@ Rules:
           },
           targetAgent.toolKit?.workspaceDir || process.cwd(),
           {},
-          { timeout: 60000 }  // Chat scenario 60 second timeout (vs default 5 minutes)
+          { timeout: 60000 }
         );
         replyContent = cliResult.output || cliResult.errorOutput || '...';
       } catch (cliErr) {
-        // On CLI failure, attempt fallback to LLM (only when LLM provider available)
-        const hasLLM = targetAgent.provider && targetAgent.provider.enabled && targetAgent.provider.apiKey && !targetAgent.provider.apiKey.startsWith('cli');
-        if (hasLLM) {
+        // On CLI failure, attempt fallback to LLM via brain
+        if (targetAgent.brain.canChat()) {
           console.warn(`  ⚠️ [${targetAgent.name}] CLI chat failed, falling back to LLM: ${cliErr.message || cliErr.error}`);
           try {
-            const response = await llmClient.chat(targetAgent.provider, messages, {
-              temperature: 0.8,
-              maxTokens: 2048,
-            });
+            const response = await targetAgent.chat(messages, { temperature: 0.8, maxTokens: 2048 });
             replyContent = response.content;
-            targetAgent._trackUsage(response.usage);
           } catch (err) {
             replyContent = `(Sorry boss, my brain froze: ${err.message})`;
           }
@@ -461,15 +456,11 @@ Rules:
           replyContent = `⚠️ CLI execution error: ${cliErr.message || 'Unknown error'}. Please check if CLI is running properly.`;
         }
       }
-    } else {
-      // Regular LLM agent
+    } else if (targetAgent.canChat()) {
+      // Regular LLM agent or CLI with fallback
       try {
-        const response = await llmClient.chat(targetAgent.provider, messages, {
-          temperature: 0.8,
-          maxTokens: 2048,
-        });
+        const response = await targetAgent.chat(messages, { temperature: 0.8, maxTokens: 2048 });
         replyContent = response.content;
-        targetAgent._trackUsage(response.usage);
       } catch (err) {
         replyContent = `(Sorry boss, my brain froze: ${err.message})`;
       }
@@ -1787,7 +1778,7 @@ const dept = this.findDepartment(departmentId);
    * @private
    */
   async _leaderHandleBossMessage(leader, requirement, department, bossMessage) {
-    if (!leader.provider?.enabled || !leader.provider?.apiKey) {
+    if (!leader.canChat()) {
       return {
         reply: `Received Boss instructions! I will execute them diligently.`,
         action: 'continue',
@@ -1809,7 +1800,7 @@ const dept = this.findDepartment(departmentId);
       }).join('\n') || 'No workflow yet';
 
       const p = leader.personality || {};
-      const response = await llmClient.chat(leader.provider, [
+      const response = await leader.chat([
         {
           role: 'system',
           content: `You are "${leader.name}", the project leader of department "${department.name}".
@@ -1848,8 +1839,6 @@ Reply in the same language the Boss used. Be concise but warm.`
           content: `Boss says: "${bossMessage}"`
         },
       ], { temperature: 0.7, maxTokens: 512 });
-
-      leader._trackUsage(response.usage);
 
       // Parse JSON
       const tick = String.fromCharCode(96);

@@ -10,6 +10,7 @@ import { pluginRegistry } from './plugin.js';
 import { buildArchetypePrompt } from './role-archetypes.js';
 import { chatStore } from './chat-store.js';
 import { cliBackendRegistry } from './cli-backends/index.js';
+import { AgentBrain, LLMBrain, CLIBrain } from './brain.js';
 
 // Placeholder signature (after onboarding, the Agent generates its own via LLM)
 const DEFAULT_SIGNATURE = 'Just arrived, still thinking of what to say...';
@@ -41,14 +42,14 @@ const PERSONALITY_POOL = [
  * 5. Has avatar and personal signature
  */
 export class Agent {
-  constructor({ name, role, prompt, skills, provider, department, reportsTo, memory, avatar, signature, gender, age, avatarParams, cliBackend, cliProvider, personality, templateId }) {
+  constructor({ name, role, prompt, skills, provider, department, reportsTo, memory, avatar, signature, gender, age, avatarParams, cliBackend, cliProvider, personality, templateId, brain }) {
     this.id = uuidv4();
     this.name = name;
     this.role = role;
     this.prompt = prompt;           // Role system prompt
     this.templateId = templateId || null;  // JobTemplate ID for role archetype knowledge injection
     this.skills = skills || [];
-    this.provider = provider;       // Model provider config
+    this.provider = provider;       // Model provider config (kept for backward compat)
     this.department = department;
     this.reportsTo = reportsTo || null;
     this.subordinates = [];
@@ -57,10 +58,24 @@ export class Agent {
     this.performanceHistory = [];
     this.createdAt = new Date();
 
-    // CLI Backend config: when cliBackend is set, Agent uses local CLI to execute tasks
-    this.cliBackend = cliBackend || null;  // CLI backend id, e.g. 'claude-code', 'codebuddy'
-    // CLI Provider info: keep the original CLI provider for frontend display (because this.provider is replaced with a general fallback)
+    // CLI Backend config (kept for backward compat, new code should use brain)
+    this.cliBackend = cliBackend || null;
     this.cliProvider = cliProvider || null;
+
+    // === Brain: unified execution backend ===
+    // If brain is explicitly provided, use it; otherwise auto-create from legacy config
+    if (brain) {
+      this.brain = brain;
+    } else if (cliBackend) {
+      // CLI agent: create CLIBrain with fallback LLM provider
+      const fallbackProvider = (provider && provider.enabled && provider.apiKey && !provider.isCLI) ? provider : null;
+      this.brain = new CLIBrain(cliBackend, cliProvider, fallbackProvider);
+    } else if (provider) {
+      // Standard LLM agent
+      this.brain = new LLMBrain(provider);
+    } else {
+      this.brain = null;
+    }
 
     // Gender and age: randomly generated at recruitment time or manually specified, no longer inferred from name
     this.gender = gender || (Math.random() > 0.5 ? 'male' : 'female');
@@ -303,125 +318,55 @@ export class Agent {
   async executeTask(task, callbacks = {}) {
     this.status = 'working';
     const startTime = Date.now();
+    const displayInfo = this.brain?.getDisplayInfo() || { name: this.provider?.name || 'unknown', type: 'unknown' };
 
-    // If CLI backend is configured, prefer CLI execution
-    if (this.cliBackend) {
-      try {
-        const cliResult = await this._executeTaskViaCLI(task, callbacks);
-        if (cliResult) return cliResult;
-        // If CLI execution fails (returns null), fall back to LLM API, mark as fallback
-        console.log(`  ⚠️ [${this.name}] CLI execution failed, falling back to LLM API`);
-        this._lastExecutionEngine = 'fallback-llm';
-      } catch (e) {
-        console.error(`  ⚠️ [${this.name}] CLI backend error: ${e.message}, falling back to LLM API`);
-        this._lastExecutionEngine = 'fallback-llm';
-      }
-    }
-
-    const isFallback = this._lastExecutionEngine === 'fallback-llm';
-    console.log(`  🤖 [${this.name}] (${this.role}) starting task: "${task.title}"${isFallback ? ' [CLI FALLBACK]' : ''}`);
-    console.log(`     Model: ${this.provider.name} (${this.provider.provider})`);
-
-    // Track this task in session system
-    const session = sessionManager.getOrCreate({
-      agentId: this.id, channel: 'task', peerId: task.title, peerKind: 'task',
-    });
-    sessionManager.addMessage(session.sessionKey, {
-      role: 'system', content: `Task started: ${task.title}`,
-    });
+    console.log(`  🤖 [${this.name}] (${this.role}) starting task: "${task.title}"`);
+    console.log(`     Engine: ${displayInfo.name} (${displayInfo.type})`);
 
     // Add task to short-term memory
     this.memory.addShortTerm(`Starting task: "${task.title}"`, 'task');
 
-    // Build messages
-    const systemMessage = this._buildSystemMessage();
-    const userMessage = this._buildTaskMessage(task);
-
-    const messages = [
-      { role: 'system', content: systemMessage },
-      { role: 'user', content: userMessage },
-    ];
-
     let result;
     try {
-      // If toolkit exists, use chat with tool calls
-      if (this.toolKit && this.provider.category === 'general') {
-        const response = await llmClient.chatWithTools(
-          this.provider,
-          messages,
-          this.toolKit,
-          {
-            maxIterations: 5,
-            temperature: 0.7,
-            onToolCall: callbacks.onToolCall || null,
-            onLLMCall: callbacks.onLLMCall || null,
-          }
-        );
-      result = {
-          agentId: this.id,
-          agentName: this.name,
-          role: this.role,
-          provider: this.provider.name,
-          executionEngine: this.cliBackend ? `fallback:${this.provider.name}` : this.provider.name,
-          taskTitle: task.title,
-          output: response.content,
-          toolResults: response.toolResults,
-          duration: Date.now() - startTime,
-          success: true,
-        };
-        // Track token consumption
-        this._trackUsage(response.usage);
-        // Track in session
-        sessionManager.addMessage(session.sessionKey, {
-          role: 'assistant', content: response.content?.slice(0, 200) || '',
-          metadata: { toolCount: response.toolResults?.length || 0 },
-        });
-        if (response.usage) {
-          sessionManager.recordTokenUsage(session.sessionKey, response.usage.prompt_tokens || 0, response.usage.completion_tokens || 0);
+      if (!this.brain || !this.brain.isAvailable()) {
+        throw new Error(`Brain not available for agent "${this.name}"`);
+      }
+
+      const taskResult = await this.brain.executeTask(this, task, callbacks);
+
+      // Track token consumption
+      if (taskResult.usage) {
+        this._trackUsage(taskResult.usage);
+      }
+
+      result = taskResult;
+    } catch (error) {
+      // If CLI brain failed, try LLM fallback (brain.type === 'cli' and has fallback)
+      if (this.brain?.type === 'cli' && this.brain.canChat()) {
+        console.log(`  ⚠️ [${this.name}] CLI execution failed, falling back to LLM API`);
+        try {
+          // Build messages for LLM fallback
+          const messages = [
+            { role: 'system', content: this._buildSystemMessage() },
+            { role: 'user', content: this._buildTaskMessage(task) },
+          ];
+          const response = await this.brain.chat(messages, { temperature: 0.7, maxTokens: 4096 });
+          this._trackUsage(response.usage);
+          result = {
+            agentId: this.id, agentName: this.name, role: this.role,
+            provider: this.brain.fallbackProvider?.name || 'fallback',
+            executionEngine: `fallback:${this.brain.fallbackProvider?.name || 'llm'}`,
+            taskTitle: task.title, output: response.content,
+            toolResults: [], duration: Date.now() - startTime, success: true,
+          };
+        } catch (fallbackError) {
+          console.error(`  ❌ [${this.name}] LLM fallback also failed: ${fallbackError.message}`);
+          result = this._buildFailResult(task, startTime, fallbackError.message);
         }
       } else {
-        // Tasks that don't need tools (or non-general model), direct chat
-        const response = await llmClient.chat(this.provider, messages, {
-          temperature: 0.7,
-          maxTokens: 4096,
-        });
-        result = {
-          agentId: this.id,
-          agentName: this.name,
-          role: this.role,
-          provider: this.provider.name,
-          executionEngine: this.cliBackend ? `fallback:${this.provider.name}` : this.provider.name,
-          taskTitle: task.title,
-          output: response.content,
-          toolResults: [],
-          duration: Date.now() - startTime,
-          success: true,
-        };
-        // Track token consumption
-        this._trackUsage(response.usage);
-        // Track in session
-        sessionManager.addMessage(session.sessionKey, {
-          role: 'assistant', content: response.content?.slice(0, 200) || '',
-        });
-        if (response.usage) {
-          sessionManager.recordTokenUsage(session.sessionKey, response.usage.prompt_tokens || 0, response.usage.completion_tokens || 0);
-        }
+        console.error(`  ❌ [${this.name}] Task execution failed: ${error.message}`);
+        result = this._buildFailResult(task, startTime, error.message);
       }
-    } catch (error) {
-      console.error(`  ❌ [${this.name}] Task execution failed: ${error.message}`);
-      result = {
-        agentId: this.id,
-        agentName: this.name,
-        role: this.role,
-        provider: this.provider.name,
-        executionEngine: this.cliBackend ? `fallback:${this.provider.name}` : this.provider.name,
-        taskTitle: task.title,
-        output: `Task execution failed: ${error.message}`,
-        toolResults: [],
-        duration: Date.now() - startTime,
-        success: false,
-        error: error.message,
-      };
     }
 
     // Record to short-term memory
@@ -447,6 +392,44 @@ export class Agent {
     return result;
   }
 
+  _buildFailResult(task, startTime, errorMessage) {
+    const displayInfo = this.brain?.getDisplayInfo() || {};
+    return {
+      agentId: this.id, agentName: this.name, role: this.role,
+      provider: displayInfo.name || this.provider?.name || 'unknown',
+      executionEngine: displayInfo.name || 'unknown',
+      taskTitle: task.title,
+      output: `Task execution failed: ${errorMessage}`,
+      toolResults: [], duration: Date.now() - startTime,
+      success: false, error: errorMessage,
+    };
+  }
+
+  /**
+   * Lightweight chat — for reviews, discussions, collaboration replies, etc.
+   * Delegates to brain.chat(). Business layer calls this instead of llmClient.chat().
+   * 
+   * @param {Array<{role: string, content: string}>} messages
+   * @param {object} [options] - { temperature, maxTokens }
+   * @returns {Promise<{content: string, usage: object|null}>}
+   */
+  async chat(messages, options = {}) {
+    if (!this.brain || !this.brain.canChat()) {
+      throw new Error(`Agent "${this.name}" brain cannot chat`);
+    }
+    const response = await this.brain.chat(messages, options);
+    this._trackUsage(response.usage);
+    return response;
+  }
+
+  /**
+   * Whether this agent can do lightweight LLM chat (review, discuss, etc.)
+   * @returns {boolean}
+   */
+  canChat() {
+    return !!(this.brain && this.brain.canChat());
+  }
+
   /**
    * Onboarding self-introduction: generate personal signature via LLM and send onboarding letter to the whole company
    * If model is unavailable, use fallbackIntro passed by caller
@@ -457,10 +440,10 @@ export class Agent {
 
     const p = this.personality;
 
-    // Try generating with LLM
-    if (this.provider && this.provider.enabled && this.provider.apiKey) {
+    // Try generating with brain
+    if (this.brain && this.brain.canChat()) {
       try {
-        const response = await llmClient.chat(this.provider, [
+        const response = await this.brain.chat([
           { role: 'system', content: `You are a newly onboarded AI employee.
 Your name is ${this.name}, position is ${this.role}.
 Your gender: ${this.gender === 'female' ? 'Female' : 'Male'}, age: ${this.age}.
@@ -479,11 +462,11 @@ Return only the signature content, nothing else.` },
         this.signature = response.content.trim().replace(/["""]/g, '');
         this._trackUsage(response.usage);
       } catch (e) {
-        // LLM failed, use personality-based fallback
+        // Brain failed, use personality-based fallback
         this.signature = this._generateFallbackSignature();
       }
     } else {
-      // Model unavailable, use personality-based fallback
+      // Brain unavailable for chat, use personality-based fallback
       this.signature = this._generateFallbackSignature();
     }
 
@@ -619,8 +602,8 @@ Return only the signature content, nothing else.` },
       'communication'
     );
 
-    // If LLM capable, use LLM to understand and reply
-    if (this.provider && this.provider.enabled && this.provider.apiKey) {
+    // If brain can chat, use it to understand and reply
+    if (this.brain && this.brain.canChat()) {
       try {
         const p = this.personality;
         // Build simplified system message (no tool descriptions to prevent Agent from trying to call tools in mail replies)
@@ -633,7 +616,7 @@ Your personal signature: "${this.signature}"
 Please reply to the message in your personality and speaking style. Keep replies short and natural (2-4 sentences), like a normal person talking.
 Do not use any code, tool calls, or technical instructions — reply in natural language only.`;
 
-        const response = await llmClient.chat(this.provider, [
+        const response = await this.brain.chat([
           { role: 'system', content: simpleSystemMsg },
           { role: 'user', content: `You received a ${message.type} message from ${message.from === 'boss' ? 'the boss' : 'a colleague'}:\n\n${message.content}\n\nPlease reply briefly in your personality style.` },
         ], { temperature: 0.8, maxTokens: 256 });
@@ -766,121 +749,6 @@ Do not use any code, tool calls, or technical instructions — reply in natural 
     return entries[1]?.[0] || 'overall capability';
   }
 
-  /**
-   * Execute task via CLI backend
-   * @private
-   */
-  async _executeTaskViaCLI(task, callbacks = {}) {
-    const backendId = this.cliBackend;
-    const backend = cliBackendRegistry.backends.get(backendId);
-    if (!backend || (backend.state !== 'detected' && backend.state !== 'configured')) {
-      console.warn(`  ⚠️ [${this.name}] CLI backend "${backendId}" not available`);
-      return null;
-    }
-
-    console.log(`  🖥️ [${this.name}] (${this.role}) executing via CLI: ${backend.config.name}`);
-    console.log(`     Task: "${task.title}"`);
-
-    const startTime = Date.now();
-    const wsDir = this.toolKit?.workspaceDir || process.cwd();
-
-    // Track in session system
-    const session = sessionManager.getOrCreate({
-      agentId: this.id, channel: 'cli-task', peerId: task.title, peerKind: 'task',
-    });
-    sessionManager.addMessage(session.sessionKey, {
-      role: 'system', content: `CLI Task started: ${task.title} (via ${backend.config.name})`,
-    });
-
-    this.memory.addShortTerm(`Starting CLI task: "${task.title}" via ${backend.config.name}`, 'task');
-
-    try {
-      // Track output length for progress heartbeats
-      let outputLen = 0;
-      let lastHeartbeat = Date.now();
-      const HEARTBEAT_INTERVAL = 15000; // 15s heartbeat
-
-      const cliResult = await cliBackendRegistry.executeTask(
-        backendId,
-        this,
-        task,
-        wsDir,
-        {
-          onOutput: (chunk) => {
-            outputLen += chunk.length;
-            const now = Date.now();
-            // Send periodic heartbeat callbacks so callers know CLI is still alive
-            if (now - lastHeartbeat >= HEARTBEAT_INTERVAL) {
-              lastHeartbeat = now;
-              const elapsed = Math.round((now - startTime) / 1000);
-              if (callbacks.onToolCall) {
-                try { callbacks.onToolCall({ tool: 'cli_progress', args: { elapsed, outputLen, backend: backend.config.name }, status: 'start' }); } catch {}
-              }
-            }
-          },
-          onError: (chunk) => {
-            console.warn(`  [CLI stderr] ${chunk.slice(0, 200)}`);
-          },
-          onComplete: (result) => {
-            if (callbacks.onToolCall) {
-              try { callbacks.onToolCall({ tool: 'cli_complete', args: { backend: backend.config.name, exitCode: result.exitCode }, status: 'done', success: result.exitCode === 0 }); } catch {}
-            }
-          },
-        }
-      );
-
-      const result = {
-        agentId: this.id,
-        agentName: this.name,
-        role: this.role,
-        provider: `CLI:${backend.config.name}`,
-        executionEngine: `cli:${backend.config.name}`,
-        taskTitle: task.title,
-        output: cliResult.output || cliResult.errorOutput || 'CLI completed with no output',
-        toolResults: [{
-          tool: `cli:${backendId}`,
-          args: { task: task.title },
-          result: `Executed via ${backend.config.name}, exit code: ${cliResult.exitCode}`,
-          success: cliResult.exitCode === 0,
-        }],
-        duration: cliResult.duration,
-        success: cliResult.exitCode === 0,
-        cliBackend: backendId,
-      };
-
-      // Track in session
-      sessionManager.addMessage(session.sessionKey, {
-        role: 'assistant', content: cliResult.output?.slice(0, 500) || '',
-        metadata: { cliBackend: backendId, exitCode: cliResult.exitCode },
-      });
-
-      this.memory.addShortTerm(
-        `CLI task completed: "${task.title}" via ${backend.config.name}, ` +
-        `exit code ${cliResult.exitCode}, took ${cliResult.duration}ms`,
-        'task'
-      );
-
-      this.taskHistory.push({
-        task: task.title,
-        result,
-        completedAt: new Date(),
-      });
-
-      this.status = 'idle';
-      console.log(`  ✅ [${this.name}] CLI task complete, exit code ${cliResult.exitCode}, ${cliResult.duration}ms`);
-      return result;
-    } catch (error) {
-      const duration = Date.now() - startTime;
-      this.memory.addShortTerm(
-        `CLI task failed: "${task.title}" via ${backend.config.name} - ${error.message || error.error || 'unknown error'}`,
-        'task'
-      );
-      this.status = 'idle';
-      // Return null to let the caller fall back to LLM API
-      return null;
-    }
-  }
-
   learnSkill(skill) {
     if (!this.skills.includes(skill)) {
       this.skills.push(skill);
@@ -937,7 +805,7 @@ Do not use any code, tool calls, or technical instructions — reply in natural 
       prompt: this.prompt,
       templateId: this.templateId || null,
       skills: [...this.skills],
-      provider: {
+      provider: this.provider ? {
         id: this.provider.id,
         name: this.provider.name,
         provider: this.provider.provider,
@@ -945,7 +813,7 @@ Do not use any code, tool calls, or technical instructions — reply in natural 
         category: this.provider.category,
         costPerToken: this.provider.costPerToken,
         enabled: this.provider.enabled,
-      },
+      } : null,
       cliBackend: this.cliBackend,
       cliProvider: this.cliProvider ? {
         id: this.cliProvider.id,
@@ -953,6 +821,7 @@ Do not use any code, tool calls, or technical instructions — reply in natural 
         provider: this.cliProvider.provider,
         model: this.cliProvider.model,
       } : null,
+      brain: this.brain ? this.brain.serialize() : null,
       department: this.department,
       reportsTo: this.reportsTo,
       subordinates: [...this.subordinates],
@@ -992,6 +861,20 @@ Do not use any code, tool calls, or technical instructions — reply in natural 
       cliProvider = providerRegistry.getById(cliProvider.id) || cliProvider;
     }
 
+    // Restore brain from serialized data (if available)
+    let brain = null;
+    if (data.brain) {
+      brain = AgentBrain.deserialize(data.brain, providerRegistry);
+    }
+    // If brain was deserialized and is LLMBrain, sync its provider with the live registry provider
+    if (brain && brain.type === 'llm' && provider) {
+      brain.provider = provider;
+    }
+    // If brain was deserialized and is CLIBrain, sync its fallback provider with the live registry
+    if (brain && brain.type === 'cli' && brain.fallbackProvider?.id && providerRegistry) {
+      brain.fallbackProvider = providerRegistry.getById(brain.fallbackProvider.id) || brain.fallbackProvider;
+    }
+
     const agent = new Agent({
       name: data.name,
       role: data.role,
@@ -1008,8 +891,9 @@ Do not use any code, tool calls, or technical instructions — reply in natural 
       avatarParams: data.avatarParams,
       cliBackend: data.cliBackend || null,
       cliProvider,
-      personality: data.personality || undefined,  // Restore personality from persisted data; if absent, constructor will randomly generate one
+      personality: data.personality || undefined,
       templateId: data.templateId || null,
+      brain,  // Pass deserialized brain; constructor will use it directly
     });
 
     // Restore internal state

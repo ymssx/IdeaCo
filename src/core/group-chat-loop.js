@@ -721,21 +721,19 @@ export class GroupChatLoop extends EventEmitter {
       : loc.prompt.userPrompt.workChat(chatContext, thinkingInfo, agent.name, agent.age, agent.personality.trait);
 
     try {
-      // Check if Agent has an available LLM (CLI providers can't do chat)
-      if (!agent.provider || !agent.provider.enabled || !agent.provider.apiKey || agent.provider.isCLI) {
-        // No LLM available or CLI-only provider, use simple fallback rules
+      // Check if Agent can do lightweight chat
+      if (!agent.canChat()) {
+        // No chat capability, use simple fallback rules
         return this._fallbackThink(agent, groupId, isMentioned, recentMessages);
       }
 
-      const response = await llmClient.chat(agent.provider, [
+      const response = await agent.chat([
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ], {
         temperature: 0.95,
         maxTokens: 1024,
       });
-
-      agent._trackUsage(response.usage);
 
       // Parse JSON response
       const rawContent = response.content || '';

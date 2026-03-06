@@ -1,7 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { Agent } from './agent.js';
 import { JobCategory } from './providers.js';
-import { llmClient } from './llm-client.js';
 import { JobTemplates } from './hr.js';
 import { pluginRegistry } from './plugin.js';
 import { skillRegistry } from './skills.js';
@@ -160,15 +159,15 @@ When communicating with the boss, you need to:
     console.log(`\n🗂️ [Secretary] AI-analyzing requirements and designing team architecture...`);
     console.log(`   Requirement: "${requirement}"\n`);
 
-    // Check if we have a valid LLM provider or CLI backend
-    const hasValidLLM = this.agent.provider && this.agent.provider.enabled && this.agent.provider.apiKey && !this.agent.provider.isCLI;
-    const hasCLIBackend = this.agent.cliBackend;
-    if (!hasValidLLM && !hasCLIBackend) {
+    // Check if we have a valid brain for analysis
+    const isCLIBrain = this.agent.brain?.type === 'cli';
+    const canChat = this.agent.canChat();
+    if (!canChat && !isCLIBrain) {
       throw new Error('Secretary AI is not configured. Please configure a valid API Key or CLI backend for the secretary provider first.');
     }
 
-    // Use CLI backend if no direct LLM, otherwise use LLM
-    const plan = hasCLIBackend && !hasValidLLM
+    // Use CLI backend if brain is CLI type and can't chat, otherwise use LLM
+    const plan = isCLIBrain && !canChat
       ? await this._cliAnalyzeRequirement(requirement)
       : await this._aiAnalyzeRequirement(requirement);
 
@@ -243,13 +242,10 @@ Requirements:
 4. Employee names should be distinctive and fun
 5. Return JSON only, no other content`;
 
-    const response = await llmClient.chat(this.agent.provider, [
+    const response = await this.agent.chat([
       { role: 'system', content: systemPrompt },
       { role: 'user', content: `Boss's requirement: ${requirement}` },
     ], { temperature: 0.7, maxTokens: 2048 });
-
-    // Track secretary's token consumption
-    this.agent._trackUsage(response.usage);
 
     // Parse JSON
     let aiPlan;
@@ -467,15 +463,15 @@ Boss's requirement: ${requirement}`;
       id: t.id, title: t.title, category: t.category, skills: t.skills,
     }));
 
-    // Check if we have a valid LLM provider or CLI backend
-    const hasValidLLM2 = this.agent.provider && this.agent.provider.enabled && this.agent.provider.apiKey && !this.agent.provider.isCLI;
-    const hasCLIBackend2 = this.agent.cliBackend;
-    if (!hasValidLLM2 && !hasCLIBackend2) {
+    // Check if we have a valid brain for analysis
+    const isCLIBrain2 = this.agent.brain?.type === 'cli';
+    const canChat2 = this.agent.canChat();
+    if (!canChat2 && !isCLIBrain2) {
       throw new Error('Secretary AI is not configured. Please configure a valid API Key or CLI backend for the secretary provider first.');
     }
 
-    // Use CLI backend if no direct LLM, otherwise use LLM
-    const plan = hasCLIBackend2 && !hasValidLLM2
+    // Use CLI backend if brain is CLI type and can't chat, otherwise use LLM
+    const plan = isCLIBrain2 && !canChat2
       ? await this._cliAnalyzeAdjustment(department, currentMembers, availableRoles, adjustGoal)
       : await this._aiAnalyzeAdjustment(department, currentMembers, availableRoles, adjustGoal);
 
@@ -542,12 +538,10 @@ Requirements:
 5. If no firing needed, fires is an empty array; if no hiring needed, hires is an empty array
 6. Return JSON only, no other content`;
 
-    const response = await llmClient.chat(this.agent.provider, [
+    const response = await this.agent.chat([
       { role: 'system', content: systemPrompt },
       { role: 'user', content: `Boss's adjustment goal: ${adjustGoal}` },
     ], { temperature: 0.7, maxTokens: 2048 });
-
-    this.agent._trackUsage(response.usage);
 
     let aiPlan;
     try {
@@ -837,10 +831,9 @@ Boss's adjustment goal: ${adjustGoal}`;
    * Analyze whether it's task assignment, progress inquiry, or casual conversation
    */
   async handleBossMessage(message, company) {
-    // Check if a valid LLM provider is available (CLI providers cannot be used for LLM calls)
-    const hasValidLLM = this.agent.provider && this.agent.provider.enabled && this.agent.provider.apiKey && !this.agent.provider.isCLI;
-    if (!hasValidLLM) {
-      if (this.agent.cliBackend) {
+    // Check if the agent can do LLM-style chat
+    if (!this.agent.canChat()) {
+      if (this.agent.brain?.type === 'cli') {
         // In CLI mode, handleBossMessage should not be called directly (chatWithSecretary handles the CLI path)
         throw new Error('Secretary is in CLI mode. Please use chatWithSecretary() which handles CLI path correctly.');
       }
@@ -1068,12 +1061,10 @@ When the boss asks about progress/status/reports, return progress_report
       { role: 'user', content: message },
     ];
 
-    const response = await llmClient.chat(this.agent.provider, messages, {
+    const response = await this.agent.chat(messages, {
       temperature: 0.8,
       maxTokens: 1024,
     });
-
-    this.agent._trackUsage(response.usage);
 
     // Parse JSON reply
     try {
@@ -1297,8 +1288,8 @@ ${memoryContext}
 6. Sign off naturally as a secretary would`;
 
     try {
-      // If secretary has a CLI backend configured, prefer CLI for task execution
-      if (this.agent.cliBackend) {
+      // If secretary has a CLI brain, prefer CLI for task execution
+      if (this.agent.brain?.type === 'cli' && this.agent.brain.isAvailable()) {
         try {
           console.log(`  🖥️ [Secretary] Executing task via CLI backend: ${this.agent.cliBackend}`);
           const cliResult = await cliBackendRegistry.executeTask(
@@ -1325,9 +1316,8 @@ ${memoryContext}
             success: true,
           };
         } catch (cliErr) {
-          // When CLI fails, check if there is an LLM provider to fall back to
-          const hasLLM = this.agent.provider && this.agent.provider.enabled && this.agent.provider.apiKey && !this.agent.provider.isCLI;
-          if (!hasLLM) {
+          // When CLI fails, check if brain can do chat as fallback
+          if (!this.agent.canChat()) {
             console.error(`  ❌ [Secretary] CLI task failed, no LLM fallback: ${cliErr.message || cliErr.error}`);
             return {
               content: `⚠️ CLI task execution error: ${cliErr.message || 'Unknown error'}. Please check that the CLI is running correctly.`,
@@ -1344,8 +1334,7 @@ ${memoryContext}
       let response;
 
       if (toolExecutor) {
-        response = await llmClient.chatWithTools(
-          this.agent.provider,
+        response = await this.agent.brain.chatWithTools(
           [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: taskDescription },
@@ -1359,7 +1348,7 @@ ${memoryContext}
         );
       } else {
         // Fallback: if toolKit is not initialized, use regular chat
-        response = await llmClient.chat(this.agent.provider, [
+        response = await this.agent.chat([
           { role: 'system', content: systemPrompt },
           { role: 'user', content: taskDescription },
         ], {
@@ -1367,8 +1356,6 @@ ${memoryContext}
           maxTokens: 2048,
         });
       }
-
-      this.agent._trackUsage(response.usage);
 
       console.log(`✅ [Secretary] Task completed, output ${response.content.length} chars`);
 
