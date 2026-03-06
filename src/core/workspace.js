@@ -184,6 +184,53 @@ export class WorkspaceManager {
   }
 
   /**
+   * Take a snapshot of all files in a workspace (path → mtime mapping)
+   * Used for detecting file changes after CLI execution
+   * @param {string} wsPath - Workspace root path
+   * @returns {Map<string, number>} Map of relative path → mtime timestamp
+   */
+  async takeSnapshot(wsPath) {
+    const snapshot = new Map();
+    async function walk(dir) {
+      try {
+        const items = await fs.readdir(dir, { withFileTypes: true });
+        for (const item of items) {
+          const fullPath = path.join(dir, item.name);
+          if (item.isDirectory()) {
+            // Skip common non-project directories
+            if (item.name === 'node_modules' || item.name === '.git' || item.name === '__pycache__') continue;
+            await walk(fullPath);
+          } else {
+            const stat = await fs.stat(fullPath);
+            snapshot.set(path.relative(wsPath, fullPath), stat.mtimeMs);
+          }
+        }
+      } catch { /* ignore unreadable dirs */ }
+    }
+    await walk(wsPath);
+    return snapshot;
+  }
+
+  /**
+   * Diff two snapshots to find created/modified files
+   * @param {Map<string, number>} before - Snapshot before execution
+   * @param {Map<string, number>} after - Snapshot after execution
+   * @returns {{ created: string[], modified: string[] }}
+   */
+  diffSnapshots(before, after) {
+    const created = [];
+    const modified = [];
+    for (const [filePath, mtime] of after) {
+      if (!before.has(filePath)) {
+        created.push(filePath);
+      } else if (before.get(filePath) !== mtime) {
+        modified.push(filePath);
+      }
+    }
+    return { created, modified };
+  }
+
+  /**
    * Get root workspace path
    */
   getRootDir() {

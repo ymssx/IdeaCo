@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { llmClient } from './llm-client.js';
 import { chatStore } from './chat-store.js';
 import { cliBackendRegistry } from './cli-backends/index.js';
+import { WorkspaceManager } from './workspace.js';
 
 /**
  * Requirement status enum
@@ -716,6 +717,17 @@ currentAction: `${agent.name} is typing..."${node.title}"`,
             'tool_call'
           );
 
+          // Take workspace snapshot before CLI execution for file change detection
+          const wsPath = department.workspacePath;
+          const isCLIAgent = !!agent.cliBackend;
+          let snapshotBefore = null;
+          if (isCLIAgent && wsPath) {
+            try {
+              const wsm = new WorkspaceManager();
+              snapshotBefore = await wsm.takeSnapshot(wsPath);
+            } catch { /* ignore snapshot errors */ }
+          }
+
           const result = await agent.executeTask(task, {
             onToolCall: ({ tool, args, status, success, error: toolErr }) => {
               // Update requirement's liveStatus in real-time
@@ -782,6 +794,26 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
               }
             },
           });
+
+          // After CLI execution: detect file changes by comparing snapshots
+          if (snapshotBefore && wsPath) {
+            try {
+              const wsm = new WorkspaceManager();
+              const snapshotAfter = await wsm.takeSnapshot(wsPath);
+              const { created, modified } = wsm.diffSnapshots(snapshotBefore, snapshotAfter);
+              for (const fp of created) {
+                requirement.addFileChange(agent.name, fp, 'create');
+              }
+              for (const fp of modified) {
+                requirement.addFileChange(agent.name, fp, 'write');
+              }
+              if (created.length + modified.length > 0) {
+                console.log(`  📁 [CLI file detection] ${agent.name}: ${created.length} created, ${modified.length} modified`);
+              }
+            } catch (err) {
+              console.warn(`  ⚠️ CLI file change detection failed:`, err.message);
+            }
+          }
 
           node.status = TaskNodeStatus.COMPLETED;
           node.completedAt = new Date();

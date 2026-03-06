@@ -97,13 +97,19 @@ export default function FilesView({ fileChanges, departmentId, previewFile, onPr
   const [dirChildren, setDirChildren] = useState({});
   const [dirLoading, setDirLoading] = useState(new Set());
   const resizeRef = useRef(null);
+  const expandedDirsRef = useRef(expandedDirs);
+  expandedDirsRef.current = expandedDirs;
   const [rootEntries, setRootEntries] = useState([]);
   const [wsLoading, setWsLoading] = useState(false);
 
+  // Reload workspace file tree when fileChanges updates (e.g. after CLI agent creates files)
+  const fileChangesLen = (fileChanges || []).length;
   useEffect(() => {
     if (!departmentId) return;
     let cancelled = false;
     setWsLoading(true);
+    // Clear cached sub-directory data so expanded dirs also refresh
+    setDirChildren({});
     (async () => {
       try {
         const files = await fetchWorkspaceFiles(departmentId);
@@ -114,9 +120,20 @@ export default function FilesView({ fileChanges, departmentId, previewFile, onPr
         // silently fail
       }
       if (!cancelled) setWsLoading(false);
+      // Re-load children for currently expanded directories
+      if (!cancelled) {
+        for (const dirPath of expandedDirsRef.current) {
+          try {
+            const children = await fetchWorkspaceFiles(departmentId, dirPath);
+            if (!cancelled && Array.isArray(children)) {
+              setDirChildren(prev => ({ ...prev, [dirPath]: children }));
+            }
+          } catch { /* ignore */ }
+        }
+      }
     })();
     return () => { cancelled = true; };
-  }, [departmentId, fetchWorkspaceFiles]);
+  }, [departmentId, fetchWorkspaceFiles, fileChangesLen]);
 
   const loadDirChildren = useCallback(async (dirPath) => {
     if (dirChildren[dirPath] || dirLoading.has(dirPath)) return;

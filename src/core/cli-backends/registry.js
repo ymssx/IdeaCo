@@ -402,7 +402,9 @@ export class CLIBackendRegistry {
       XDG_STATE_HOME: agentStateDir,
       XDG_CACHE_HOME: agentCacheDir,
     };
-    const cwd = config.workingDirSupport ? agentDir : workspaceDir;
+    // Always use workspaceDir as cwd so CLI-generated files appear in the workspace root
+    // (agentDir is only used for memory/config isolation, not as working directory)
+    const cwd = workspaceDir;
 
     // 5. Ensure working directory exists
     if (!existsSync(cwd)) {
