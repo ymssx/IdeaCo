@@ -2,7 +2,7 @@
  * CLI Backends API - Manage CLI backends (detect, register, configure)
  */
 import { NextResponse } from 'next/server';
-import { cliBackendRegistry } from '@/core/cli-backends/index.js';
+import { cliBackendRegistry } from '@/core/agent/cli-agent/backends/index.js';
 import { getCompany } from '@/lib/store';
 import { getApiT } from '@/lib/api-i18n';
 

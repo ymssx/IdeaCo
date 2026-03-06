@@ -4,20 +4,20 @@
  */
 
 export { Company } from './company.js';
-export { Agent, createAgent, BaseAgent, LLMAgent, CLIAgent } from './agent/index.js';
+export { createAgent, deserializeAgent, BaseAgent, LLMAgent, CLIAgent } from './agent/index.js';
+export { Employee, createEmployee, deserializeEmployee, Secretary, HRAssistant } from './employee/index.js';
 export { Department } from './department.js';
-export { Secretary, HRAssistant } from './secretary.js';
 export { HRSystem, JobTemplates } from './hr.js';
 export { ProviderRegistry, ModelProviders, JobCategory, JobCategoryLabel } from './providers.js';
-export { Memory } from './memory.js';
+export { Memory } from './employee/memory/index.js';
 export { PerformanceSystem, PerformanceReview, PerformanceDimensions, PerformanceLevel } from './performance.js';
 export { TalentMarket } from './talent-market.js';
-export { LLMClient, llmClient } from './llm-client.js';
+export { LLMClient, llmClient } from './agent/llm-agent/client.js';
 export { AgentToolKit } from './tools.js';
 export { MessageBus, Message, MessageType } from './message-bus.js';
 export { WorkspaceManager } from './workspace.js';
 export { saveState, loadState, clearState, debouncedSave } from './persistence.js';
-export { saveAgentMemory, loadAgentMemory, saveAllAgentMemories, deleteAgentMemory, listMemoryFiles, clearAllMemories } from './memory-store.js';
+export { saveAgentMemory, loadAgentMemory, saveAllAgentMemories, deleteAgentMemory, listMemoryFiles, clearAllMemories } from './employee/memory/store.js';
 
 // Distilled modules (inspired by OpenClaw - see THIRD-PARTY-NOTICES.md)
 export { ProviderRouter, providerRouter, RoutingStrategy } from './provider-router.js';
@@ -30,7 +30,7 @@ export { ConfigValidator, configValidator, ConfigType, enterpriseConfigSchema } 
 export { SkillRegistry, skillRegistry, SkillDefinition, SkillCategory, SkillState } from './skills.js';
 export { KnowledgeManager, knowledgeManager, KnowledgeType, EntryType } from './knowledge.js';
 export { ChatStore, chatStore } from './chat-store.js';
-export { CLIBackendRegistry, cliBackendRegistry, CLIBackendState } from './cli-backends/index.js';
+export { CLIBackendRegistry, cliBackendRegistry, CLIBackendState } from './agent/cli-agent/backends/index.js';
 export { GroupChatLoop, groupChatLoop } from './group-chat-loop.js';
 export { TeamManager, Team, Sprint, SprintStatus } from './team.js';
 export { setPromptLocale, getPromptLocaleCode, getPromptLocale } from './prompt-locale.js';

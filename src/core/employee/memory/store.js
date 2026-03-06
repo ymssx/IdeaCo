@@ -1,17 +1,17 @@
 /**
  * Independent Memory File Management Module
  * 
- * Each Agent's memory is stored in a separate JSON file (data/memories/{agentId}.json),
+ * Each Employee's memory is stored in a separate JSON file (data/memories/{employeeId}.json),
  * preventing all memories from being stuffed into company-state.json causing file bloat.
  * 
  * Workflow:
  * 1. When saving company state, memory only serializes a summary (counts); full memory goes to separate files
- * 2. When restoring company state, load each Agent's full memory from separate files
- * 3. When memory changes, save only that Agent's memory file (no need to rewrite entire company state)
+ * 2. When restoring company state, load each Employee's full memory from separate files
+ * 3. When memory changes, save only that Employee's memory file (no need to rewrite entire company state)
  */
 import fs from 'fs';
 import path from 'path';
-import { MEMORY_DIR } from './paths.js';
+import { MEMORY_DIR } from '../../paths.js';
 
 // Ensure directory exists
 if (!fs.existsSync(MEMORY_DIR)) {
@@ -19,8 +19,8 @@ if (!fs.existsSync(MEMORY_DIR)) {
 }
 
 /**
- * Save a single Agent's memory to a separate file
- * @param {string} agentId - Agent ID
+ * Save a single Employee's memory to a separate file
+ * @param {string} agentId - Employee ID
  * @param {object} memoryData - Serialized memory data { shortTerm, longTerm }
  * @param {object} meta - Metadata { name, role, department }
  */
@@ -44,8 +44,8 @@ export function saveAgentMemory(agentId, memoryData, meta = {}) {
 }
 
 /**
- * Load a single Agent's memory
- * @param {string} agentId - Agent ID
+ * Load a single Employee's memory
+ * @param {string} agentId - Employee ID
  * @returns {object|null} { shortTerm, longTerm } or null
  */
 export function loadAgentMemory(agentId) {
@@ -66,8 +66,8 @@ export function loadAgentMemory(agentId) {
 }
 
 /**
- * Batch save multiple Agents' memories
- * @param {Array<{agentId, memoryData, meta}>} agents - Agent memory array
+ * Batch save multiple Employees' memories
+ * @param {Array<{agentId, memoryData, meta}>} agents - Employee memory array
  */
 export function saveAllAgentMemories(agents) {
   let saved = 0;
@@ -76,20 +76,20 @@ export function saveAllAgentMemories(agents) {
     saved++;
   }
   if (saved > 0) {
-    console.log(`🧠 Saved ${saved} Agent memory files`);
+    console.log(`🧠 Saved ${saved} Employee memory files`);
   }
 }
 
 /**
- * Delete an Agent's memory file (not deleted when entering talent market, historical memory preserved)
- * @param {string} agentId - Agent ID
+ * Delete an Employee's memory file
+ * @param {string} agentId - Employee ID
  */
 export function deleteAgentMemory(agentId) {
   try {
     const filePath = path.join(MEMORY_DIR, `${agentId}.json`);
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
-      console.log(`🗑️ Deleted Agent [${agentId}] memory file`);
+      console.log(`🗑️ Deleted Employee [${agentId}] memory file`);
     }
   } catch (e) {
     console.error(`❌ Failed to delete memory file [${agentId}]:`, e.message);

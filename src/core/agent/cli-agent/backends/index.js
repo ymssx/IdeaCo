@@ -1,10 +1,10 @@
 /**
  * CLI Backends module entry point
  * 
- * Each CLI model has its own folder containing configuration (config.js) and documentation (README.md).
+ * Each CLI backend has its own folder containing configuration (config.js) and documentation (README.md).
  * 
  * Directory structure:
- * cli-backends/
+ * backends/
  * ├── index.js           - This file, module entry point
  * ├── registry.js        - CLIBackendRegistry core class + utility functions
  * ├── codebuddy/

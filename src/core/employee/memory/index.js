@@ -1,12 +1,12 @@
 import { v4 as uuidv4 } from 'uuid';
 
 /**
- * Memory System - Each Agent has independent long-term and short-term memory
+ * Memory System - Each Employee has independent long-term and short-term memory
  * 
  * Short-term memory: temporary info related to current task, may be forgotten or consolidated after task ends
  *   - Has expiration time (default 24 hours), expired entries are auto-cleaned
  *   - Unnecessary short-term memories are cleaned during consolidation
- * Long-term memory: lessons learned, skill growth, self-reflection and other persistent info, stays with Agent permanently
+ * Long-term memory: lessons learned, skill growth, self-reflection and other persistent info, stays with Employee permanently
  */
 export class Memory {
   constructor() {
@@ -103,7 +103,7 @@ export class Memory {
 
   /**
    * Consolidate memories: clean expired short-term, deduplicate, and limit total long-term count
-   * Should be called before waking up an Agent
+   * Should be called before waking up an Employee
    * @returns {object} { expiredCleaned, duplicatesRemoved }
    */
   consolidateMemories() {

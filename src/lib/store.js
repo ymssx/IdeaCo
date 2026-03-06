@@ -13,7 +13,7 @@ import { initPluginRuntime } from '@/core/plugin.js';
 import { sessionManager } from '@/core/session.js';
 import { cronScheduler } from '@/core/cron.js';
 import { knowledgeManager } from '@/core/knowledge.js';
-import { llmClient } from '@/core/llm-client.js';
+import { llmClient } from '@/core/agent/llm-agent/client.js';
 
 const globalStore = globalThis;
 

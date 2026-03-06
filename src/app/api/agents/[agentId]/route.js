@@ -83,7 +83,7 @@ export async function PUT(request, { params }) {
       if (agent) {
         // Set CLI backend (only supported for CLI agents)
         if ('cliBackend' in body && agent.agentType === 'cli') {
-          agent.cliBackend = body.cliBackend || null;
+          agent.agent.cliBackend = body.cliBackend || null;
         }
 
         // Persist

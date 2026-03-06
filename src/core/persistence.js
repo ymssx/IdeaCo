@@ -5,7 +5,7 @@
  * Storage location: under project root data/ directory.
  */
 import fs from 'fs';
-import { saveAllAgentMemories, loadAgentMemory, clearAllMemories } from './memory-store.js';
+import { saveAllAgentMemories, loadAgentMemory, clearAllMemories } from './employee/memory/store.js';
 import { DATA_DIR, STATE_FILE, BACKUP_FILE } from './paths.js';
 
 // Ensure data directory exists

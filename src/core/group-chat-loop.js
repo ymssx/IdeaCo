@@ -14,7 +14,7 @@
  */
 import { v4 as uuidv4 } from 'uuid';
 import EventEmitter from 'eventemitter3';
-import { llmClient } from './llm-client.js';
+import { llmClient } from './agent/llm-agent/client.js';
 import { getPromptLocale, getTraitStyle, getAgeStyle, getFewShotExamples, getFallbackReplies } from './prompt-locale.js';
 
 // Default configuration

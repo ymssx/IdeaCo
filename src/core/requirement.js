@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
-import { llmClient } from './llm-client.js';
+import { llmClient } from './agent/llm-agent/client.js';
 import { chatStore } from './chat-store.js';
-import { cliBackendRegistry } from './cli-backends/index.js';
+import { cliBackendRegistry } from './agent/cli-agent/backends/index.js';
 import { WorkspaceManager } from './workspace.js';
 
 /**

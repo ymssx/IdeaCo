@@ -1,12 +1,14 @@
 import { v4 as uuidv4 } from 'uuid';
-import { createAgent, LLMAgent } from './agent/index.js';
-import { JobCategory } from './providers.js';
-import { JobTemplates } from './hr.js';
-import { pluginRegistry } from './plugin.js';
-import { skillRegistry } from './skills.js';
-import { knowledgeManager } from './knowledge.js';
-import { chatStore } from './chat-store.js';
-import { cliBackendRegistry } from './cli-backends/index.js';
+import { Employee } from './base-employee.js';
+
+import { JobTemplates } from '../hr.js';
+import { pluginRegistry } from '../plugin.js';
+import { skillRegistry } from '../skills.js';
+import { knowledgeManager } from '../knowledge.js';
+import { chatStore } from '../chat-store.js';
+import { cliBackendRegistry } from '../agent/cli-agent/backends/index.js';
+import { createEmployee } from './index.js';
+
 
 /**
  * Secretary's Dedicated HR Assistant
@@ -14,7 +16,8 @@ import { cliBackendRegistry } from './cli-backends/index.js';
  */
 export class HRAssistant {
   constructor({ secretary, providerConfig }) {
-    this.agent = new LLMAgent({
+    // HR assistant is always an Employee (LLM-based)
+    this.employee = new Employee({
       name: 'HR-Bot',
       role: 'HR Recruiter',
       prompt: `You are the secretary's dedicated HR assistant, responsible for executing recruitment operations.
@@ -26,27 +29,17 @@ executing the recruitment process, and coordinating new employee onboarding. You
     this.secretary = secretary;
   }
 
-  /**
-   * Smart recruitment decision: check talent market first, then decide recall vs new hire
-   * @param {object} requirement - Job requirement { templateId, name, role, skills }
-   * @param {HRSystem} hr - HR system
-   * @returns {object} Recruitment result config
-   */
   smartRecruit(requirement, hr) {
     const { templateId, name, preferRecall = true } = requirement;
 
-    // If recall is preferred, check talent market first
     if (preferRecall && hr.talentMarket) {
       const template = hr.getTemplate(templateId);
       if (template) {
-        // Search for matching talent in the talent market
         const candidates = hr.searchTalentMarket({
-          role: template.title,
-          skills: template.skills,
+          role: template.title, skills: template.skills,
         });
 
         if (candidates.length > 0) {
-          // Found matching talent, evaluate whether to recall
           const best = this._pickBestCandidate(candidates, template);
           if (best) {
             console.log(`  🔍 [HR-Bot] Found matching candidate in talent market: ${best.name} (${best.role})`);
@@ -64,66 +57,42 @@ executing the recruitment process, and coordinating new employee onboarding. You
       }
     }
 
-    // Normal new hire
     return hr.recruit(templateId, name);
   }
 
-  /**
-   * Pick best candidate from the list
-   */
   _pickBestCandidate(candidates, template) {
-    // Sort by skill match score
     const scored = candidates.map(c => {
       const allSkills = [...c.skills, ...c.acquiredSkills];
       const matchCount = template.skills.filter(s =>
         allSkills.some(cs => cs.includes(s) || s.includes(cs))
       ).length;
       const skillScore = matchCount / template.skills.length;
-
-      // Performance bonus
-      const perfScore = c.performanceData?.averageScore
-        ? c.performanceData.averageScore / 100
-        : 0.5;
-
-      return {
-        ...c,
-        totalScore: skillScore * 0.6 + perfScore * 0.4,
-      };
+      const perfScore = c.performanceData?.averageScore ? c.performanceData.averageScore / 100 : 0.5;
+      return { ...c, totalScore: skillScore * 0.6 + perfScore * 0.4 };
     });
-
     scored.sort((a, b) => b.totalScore - a.totalScore);
     return scored[0] || null;
   }
 
-  /**
-   * Decision: recall or hire new
-   * If former employee's composite score > 0.5, recall; otherwise hire new
-   */
   _decideRecallOrNew(candidate, template) {
-    // If performance data exists and avg score below 50, don't recall
-    if (candidate.performanceData?.averageScore < 50) {
-      return 'new';
-    }
-    // If skill match is high, recall
+    if (candidate.performanceData?.averageScore < 50) return 'new';
     const allSkills = [...candidate.skills, ...candidate.acquiredSkills];
     const matchCount = template.skills.filter(s =>
       allSkills.some(cs => cs.includes(s) || s.includes(cs))
     ).length;
-    if (matchCount >= template.skills.length * 0.5) {
-      return 'recall';
-    }
+    if (matchCount >= template.skills.length * 0.5) return 'recall';
     return 'new';
   }
 }
 
 /**
- * Secretary Agent - The boss's personal secretary
- * Responsible for analyzing requirements, designing team architecture, coordinating recruitment
- * Now has a dedicated HR assistant to handle recruitment operations
+ * Secretary — A specialized Employee.
+ * Extends Employee with team design, recruitment coordination,
+ * boss message handling, and direct task execution abilities.
  */
-export class Secretary {
+export class Secretary extends Employee {
   constructor({ company, providerConfig, secretaryName, secretaryAvatar, secretaryGender, secretaryAge }) {
-    this.agent = new LLMAgent({
+    super({
       name: secretaryName || 'Secretary',
       role: 'Personal Secretary',
       prompt: `You are the boss's personal secretary, responsible for understanding business requirements, analyzing required team composition,
@@ -141,6 +110,7 @@ When communicating with the boss, you need to:
       gender: secretaryGender || 'female',
       age: secretaryAge || 18,
     });
+
     this.company = company;
 
     // Initialize dedicated HR assistant
@@ -149,25 +119,22 @@ When communicating with the boss, you need to:
       providerConfig,
     });
 
-    console.log(`  🧑‍💼 Secretary's dedicated HR assistant is ready: ${this.hrAssistant.agent.name}`);
+    console.log(`  🧑‍💼 Secretary's dedicated HR assistant is ready: ${this.hrAssistant.employee.name}`);
   }
 
-  /**
-   * Analyze requirements and design team architecture — using AI analysis
-   */
+  // ======================== Team Design ========================
+
   async designTeam(requirement) {
     console.log(`\n🗂️ [Secretary] AI-analyzing requirements and designing team architecture...`);
     console.log(`   Requirement: "${requirement}"\n`);
 
-    // Check if we have a valid agent for analysis
-    const isCLIAgent = this.agent.agentType === 'cli';
-    const canChat = this.agent.canChat();
-    if (!canChat && !isCLIAgent) {
+    const isCLI = this.agentType === 'cli';
+    const canChat = this.canChat();
+    if (!canChat && !isCLI) {
       throw new Error('Secretary AI is not configured. Please configure a valid API Key or CLI backend for the secretary provider first.');
     }
 
-    // Use CLI backend if agent is CLI type and can't chat, otherwise use LLM
-    const plan = isCLIAgent && !canChat
+    const plan = isCLI && !canChat
       ? await this._cliAnalyzeRequirement(requirement)
       : await this._aiAnalyzeRequirement(requirement);
 
@@ -184,22 +151,14 @@ When communicating with the boss, you need to:
     return plan;
   }
 
-  /**
-   * AI-analyze requirements, generate team plan
-   */
   async _aiAnalyzeRequirement(requirement) {
-    // Build available role list
     const availableRoles = Object.values(JobTemplates).map(t => ({
       id: t.id, title: t.title, category: t.category, skills: t.skills,
     }));
-
-    // Build enabled providers info so LLM knows what's available
     const enabledProviders = this.company.providerRegistry.listEnabled().map(p => ({
       id: p.id, name: p.name, category: p.category, rating: p.rating,
       isCLI: p.isCLI || false, cliBackendId: p.cliBackendId || null,
     }));
-
-    // Identify which categories have enabled providers
     const availableCategories = [...new Set(enabledProviders.map(p => p.category))];
 
     const systemPrompt = `You are an experienced corporate secretary skilled at team planning and talent matching.
@@ -242,12 +201,11 @@ Requirements:
 4. Employee names should be distinctive and fun
 5. Return JSON only, no other content`;
 
-    const response = await this.agent.chat([
+    const response = await this.chat([
       { role: 'system', content: systemPrompt },
       { role: 'user', content: `Boss's requirement: ${requirement}` },
     ], { temperature: 0.7, maxTokens: 2048 });
 
-    // Parse JSON
     let aiPlan;
     try {
       const jsonStr = response.content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
@@ -256,22 +214,16 @@ Requirements:
       throw new Error('Failed to parse AI response format');
     }
 
-    // Validate and organize
     if (!aiPlan.members || aiPlan.members.length === 0) {
       throw new Error('AI did not plan any members');
     }
 
-    // Ensure template IDs are valid
     const validTemplateIds = new Set(Object.values(JobTemplates).map(t => t.id));
     aiPlan.members = aiPlan.members.filter(m => validTemplateIds.has(m.templateId));
-
-    if (aiPlan.members.length === 0) {
-      throw new Error('AI planned invalid job templates');
-    }
+    if (aiPlan.members.length === 0) throw new Error('AI planned invalid job templates');
 
     console.log(`  🧠 AI analysis rationale: ${aiPlan.reasoning || 'N/A'}`);
 
-    // Convert to standard format
     return {
       departmentName: aiPlan.departmentName || 'New Project Dept',
       mission: aiPlan.mission || requirement,
@@ -291,14 +243,9 @@ Requirements:
     };
   }
 
-  /**
-   * CLI-driven requirement analysis (used when secretary is in CLI mode)
-   * Sends the same prompt to CLI backend and parses JSON output
-   */
   async _cliAnalyzeRequirement(requirement) {
-    console.log(`  🖥️ [Secretary] Using CLI backend for team design: ${this.agent.cliBackend}`);
+    console.log(`  🖥️ [Secretary] Using CLI backend for team design: ${this.cliBackend}`);
 
-    // Build the same context as _aiAnalyzeRequirement
     const availableRoles = Object.values(JobTemplates).map(t => ({
       id: t.id, title: t.title, category: t.category, skills: t.skills,
     }));
@@ -350,38 +297,20 @@ Requirements:
 Boss's requirement: ${requirement}`;
 
     const cliResult = await cliBackendRegistry.executeTask(
-      this.agent.cliBackend,
-      this.agent,
-      {
-        title: 'Team design analysis',
-        description: prompt,
-      },
-      this.agent.toolKit?.workspaceDir || process.cwd(),
-      {},
-      { timeout: 120000 }
+      this.cliBackend, this, { title: 'Team design analysis', description: prompt },
+      this.toolKit?.workspaceDir || process.cwd(), {}, { timeout: 120000 }
     );
 
     const rawOutput = cliResult.output || cliResult.errorOutput || '';
-
-    // Parse JSON from CLI output
     let aiPlan;
-    try {
-      aiPlan = this._extractJSON(rawOutput);
-    } catch (e) {
-      throw new Error(`Failed to parse CLI response for team design: ${e.message}`);
-    }
+    try { aiPlan = this._extractJSON(rawOutput); }
+    catch (e) { throw new Error(`Failed to parse CLI response for team design: ${e.message}`); }
 
-    // Validate and organize (same logic as _aiAnalyzeRequirement)
-    if (!aiPlan.members || aiPlan.members.length === 0) {
-      throw new Error('CLI did not plan any members');
-    }
+    if (!aiPlan.members || aiPlan.members.length === 0) throw new Error('CLI did not plan any members');
 
     const validTemplateIds = new Set(Object.values(JobTemplates).map(t => t.id));
     aiPlan.members = aiPlan.members.filter(m => validTemplateIds.has(m.templateId));
-
-    if (aiPlan.members.length === 0) {
-      throw new Error('CLI planned invalid job templates');
-    }
+    if (aiPlan.members.length === 0) throw new Error('CLI planned invalid job templates');
 
     console.log(`  🧠 CLI analysis rationale: ${aiPlan.reasoning || 'N/A'}`);
 
@@ -404,74 +333,46 @@ Boss's requirement: ${requirement}`;
     };
   }
 
-  /**
-   * Extract JSON from raw CLI/LLM output (handles markdown fences, extra text, etc.)
-   */
   _extractJSON(rawOutput) {
-    // Try direct parse
-    try {
-      return JSON.parse(rawOutput.trim());
-    } catch {}
-
-    // Try extracting from markdown code block
+    try { return JSON.parse(rawOutput.trim()); } catch {}
     const jsonMatch = rawOutput.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (jsonMatch) {
-      return JSON.parse(jsonMatch[1].trim());
-    }
-
-    // Try finding the first { and last }
+    if (jsonMatch) return JSON.parse(jsonMatch[1].trim());
     const start = rawOutput.indexOf('{');
     const end = rawOutput.lastIndexOf('}');
-    if (start !== -1 && end > start) {
-      return JSON.parse(rawOutput.slice(start, end + 1));
-    }
-
+    if (start !== -1 && end > start) return JSON.parse(rawOutput.slice(start, end + 1));
     throw new Error('Cannot extract JSON from output');
   }
 
   _designCollaboration(members) {
-    const rules = [];
-    rules.push('1. Project leader coordinates overall operations, assigns tasks and tracks progress');
-    rules.push('2. Members report to their direct supervisor upon task completion');
-    rules.push('3. Peers at the same level can collaborate horizontally');
-    rules.push('4. Project progresses in phases, each with clear deliverables');
-    return rules;
+    return [
+      '1. Project leader coordinates overall operations, assigns tasks and tracks progress',
+      '2. Members report to their direct supervisor upon task completion',
+      '3. Peers at the same level can collaborate horizontally',
+      '4. Project progresses in phases, each with clear deliverables',
+    ];
   }
 
-  /**
-   * AI-analyze department adjustment plan: based on boss's goal and current staff, decide hiring/firing
-   * @param {object} department - Department data { name, mission, members }
-   * @param {string} adjustGoal - Boss's adjustment goal
-   * @returns {object} Adjustment plan { reasoning, hires, fires }
-   */
+  // ======================== Team Adjustment ========================
+
   async adjustTeam(department, adjustGoal) {
     console.log(`\n🔧 [Secretary] Analyzing adjustment plan for "${department.name}" department...`);
     console.log(`   Adjustment goal: "${adjustGoal}"\n`);
 
-    // Build current member info
     const currentMembers = department.members.map(m => ({
-      id: m.id,
-      name: m.name,
-      role: m.role,
-      skills: m.skills,
-      avgScore: m.avgScore || null,
-      taskCount: m.taskCount || 0,
+      id: m.id, name: m.name, role: m.role, skills: m.skills,
+      avgScore: m.avgScore || null, taskCount: m.taskCount || 0,
     }));
-
-    // Available job templates
     const availableRoles = Object.values(JobTemplates).map(t => ({
       id: t.id, title: t.title, category: t.category, skills: t.skills,
     }));
 
-    // Check if we have a valid agent for analysis
-    const isCLIAgent2 = this.agent.agentType === 'cli';
-    const canChat2 = this.agent.canChat();
-    if (!canChat2 && !isCLIAgent2) {
+    const isCLI = this.agentType === 'cli';
+    const canChat = this.canChat();
+    if (!canChat && !isCLI) {
       throw new Error('Secretary AI is not configured. Please configure a valid API Key or CLI backend for the secretary provider first.');
     }
 
-    // Use CLI backend if agent is CLI type and can't chat, otherwise use LLM
-    const plan = isCLIAgent2 && !canChat2
+    const plan = isCLI && !canChat
       ? await this._cliAnalyzeAdjustment(department, currentMembers, availableRoles, adjustGoal)
       : await this._aiAnalyzeAdjustment(department, currentMembers, availableRoles, adjustGoal);
 
@@ -481,11 +382,7 @@ Boss's requirement: ${requirement}`;
     return plan;
   }
 
-  /**
-   * AI-analyze department adjustment
-   */
   async _aiAnalyzeAdjustment(department, currentMembers, availableRoles, adjustGoal) {
-    // Build enabled providers info so LLM knows what's available
     const enabledProviders = this.company.providerRegistry.listEnabled().map(p => ({
       id: p.id, name: p.name, category: p.category, rating: p.rating,
       isCLI: p.isCLI || false, cliBackendId: p.cliBackendId || null,
@@ -538,7 +435,7 @@ Requirements:
 5. If no firing needed, fires is an empty array; if no hiring needed, hires is an empty array
 6. Return JSON only, no other content`;
 
-    const response = await this.agent.chat([
+    const response = await this.chat([
       { role: 'system', content: systemPrompt },
       { role: 'user', content: `Boss's adjustment goal: ${adjustGoal}` },
     ], { temperature: 0.7, maxTokens: 2048 });
@@ -547,40 +444,23 @@ Requirements:
     try {
       const jsonStr = response.content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
       aiPlan = JSON.parse(jsonStr);
-    } catch (e) {
-      throw new Error('Failed to parse AI response format');
-    }
+    } catch (e) { throw new Error('Failed to parse AI response format'); }
 
-    // Validate fires agentId existence
     const memberIds = new Set(currentMembers.map(m => m.id));
     aiPlan.fires = (aiPlan.fires || []).filter(f => memberIds.has(f.agentId));
 
-    // Validate hires template IDs
     const validTemplateIds = new Set(Object.values(JobTemplates).map(t => t.id));
     aiPlan.hires = (aiPlan.hires || []).filter(h => validTemplateIds.has(h.templateId));
-
-    // Append template titles
     aiPlan.hires = aiPlan.hires.map((h, i) => {
       const template = Object.values(JobTemplates).find(t => t.id === h.templateId);
-      return {
-        ...h,
-        templateTitle: template?.title || h.templateId,
-        name: h.name || `NewHire${i + 1}`,
-      };
+      return { ...h, templateTitle: template?.title || h.templateId, name: h.name || `NewHire${i + 1}` };
     });
 
-    return {
-      reasoning: aiPlan.reasoning || 'Adjusting based on goal',
-      fires: aiPlan.fires || [],
-      hires: aiPlan.hires || [],
-    };
+    return { reasoning: aiPlan.reasoning || 'Adjusting based on goal', fires: aiPlan.fires || [], hires: aiPlan.hires || [] };
   }
 
-  /**
-   * CLI-driven department adjustment analysis (used when secretary is in CLI mode)
-   */
   async _cliAnalyzeAdjustment(department, currentMembers, availableRoles, adjustGoal) {
-    console.log(`  🖥️ [Secretary] Using CLI backend for adjustment analysis: ${this.agent.cliBackend}`);
+    console.log(`  🖥️ [Secretary] Using CLI backend for adjustment analysis: ${this.cliBackend}`);
 
     const enabledProviders = this.company.providerRegistry.listEnabled().map(p => ({
       id: p.id, name: p.name, category: p.category, rating: p.rating,
@@ -636,95 +516,61 @@ Requirements:
 Boss's adjustment goal: ${adjustGoal}`;
 
     const cliResult = await cliBackendRegistry.executeTask(
-      this.agent.cliBackend,
-      this.agent,
-      {
-        title: 'Department adjustment analysis',
-        description: prompt,
-      },
-      this.agent.toolKit?.workspaceDir || process.cwd(),
-      {},
-      { timeout: 120000 }
+      this.cliBackend, this,
+      { title: 'Department adjustment analysis', description: prompt },
+      this.toolKit?.workspaceDir || process.cwd(), {}, { timeout: 120000 }
     );
 
     const rawOutput = cliResult.output || cliResult.errorOutput || '';
-
     let aiPlan;
-    try {
-      aiPlan = this._extractJSON(rawOutput);
-    } catch (e) {
-      throw new Error(`Failed to parse CLI response for adjustment: ${e.message}`);
-    }
+    try { aiPlan = this._extractJSON(rawOutput); }
+    catch (e) { throw new Error(`Failed to parse CLI response for adjustment: ${e.message}`); }
 
-    // Validate fires agentId existence
     const memberIds = new Set(currentMembers.map(m => m.id));
     aiPlan.fires = (aiPlan.fires || []).filter(f => memberIds.has(f.agentId));
 
-    // Validate hires template IDs
     const validTemplateIds = new Set(Object.values(JobTemplates).map(t => t.id));
     aiPlan.hires = (aiPlan.hires || []).filter(h => validTemplateIds.has(h.templateId));
-
-    // Append template titles
     aiPlan.hires = aiPlan.hires.map((h, i) => {
       const template = Object.values(JobTemplates).find(t => t.id === h.templateId);
-      return {
-        ...h,
-        templateTitle: template?.title || h.templateId,
-        name: h.name || `NewHire${i + 1}`,
-      };
+      return { ...h, templateTitle: template?.title || h.templateId, name: h.name || `NewHire${i + 1}` };
     });
 
-    return {
-      reasoning: aiPlan.reasoning || 'Adjusting based on goal',
-      fires: aiPlan.fires || [],
-      hires: aiPlan.hires || [],
-    };
+    return { reasoning: aiPlan.reasoning || 'Adjusting based on goal', fires: aiPlan.fires || [], hires: aiPlan.hires || [] };
   }
 
-  /**
-   * Execute recruitment - Smart decision via HR assistant: prefer talent market recall, otherwise new hire
-   * @param {object} plan - Output from designTeam
-   * @param {HRSystem} hr - HR system
-   * @returns {Array<Agent>} List of recruited Agents
-   */
-  executeRecruitment(plan, hr) {
-    console.log(`\n🔔 [Secretary] Starting recruitment, HR assistant [${this.hrAssistant.agent.name}] handling operations...`);
+  // ======================== Recruitment ========================
 
-    const agents = [];
-    const skipped = []; // Skipped positions
+  executeRecruitment(plan, hr) {
+    console.log(`\n🔔 [Secretary] Starting recruitment, HR assistant [${this.hrAssistant.employee.name}] handling operations...`);
+
+    const employees = [];
+    const skipped = [];
 
     for (const memberPlan of plan.members) {
       console.log(`\n  📌 Position: ${memberPlan.templateTitle} (${memberPlan.name})`);
 
       try {
-        // Smart recruitment via HR assistant
         const recruitConfig = this.hrAssistant.smartRecruit(
-          {
-            templateId: memberPlan.templateId,
-            name: memberPlan.name,
-            preferRecall: true, // Prefer recalling from talent market
-          },
+          { templateId: memberPlan.templateId, name: memberPlan.name, preferRecall: true },
           hr
         );
-        const agent = createAgent(recruitConfig);
+        const employee = createEmployee(recruitConfig);
 
-        // Log CLI backend if assigned
         if (recruitConfig.cliBackend) {
-          console.log(`  🖥️ [${agent.name}] assigned CLI backend: ${recruitConfig.cliBackend}`);
+          console.log(`  🖥️ [${employee.name}] assigned CLI backend: ${recruitConfig.cliBackend}`);
         }
 
-        // If recalled, add comeback memory
         if (recruitConfig.isRecalled) {
-          agent.memory.addLongTerm(
+          employee.memory.addLongTerm(
             `Recalled to a new position, carrying past experience and memories back to work`,
             'experience'
           );
-          console.log(`  🔄 [${agent.name}] is a former employee recalled from talent market, carrying original memories`);
+          console.log(`  🔄 [${employee.name}] is a former employee recalled from talent market, carrying original memories`);
         }
 
-        agents.push(agent);
+        employees.push(employee);
       } catch (e) {
-        // If caused by provider unavailability, skip this position
         if (e.message.startsWith('PROVIDER_DISABLED:')) {
           const parts = e.message.split(':');
           const category = parts[1];
@@ -732,23 +578,20 @@ Boss's adjustment goal: ${adjustGoal}`;
           console.log(`  ⚠️ [HR-Bot] Cannot hire "${memberPlan.templateTitle}": ${reason}`);
           console.log(`     Hint: Please configure API Key for ${category} type providers first`);
           skipped.push({ ...memberPlan, reason });
-          // Push null placeholder to maintain index consistency
-          agents.push(null);
+          employees.push(null);
         } else {
           throw e;
         }
       }
     }
 
-    // Filter out skipped nulls
-    const validAgents = agents.filter(Boolean);
+    const validEmployees = employees.filter(Boolean);
 
-    // Establish reporting relationships (handle nulls)
     for (let i = 0; i < plan.members.length; i++) {
-      if (!agents[i]) continue;
+      if (!employees[i]) continue;
       const memberPlan = plan.members[i];
-      if (memberPlan.reportsTo !== null && agents[memberPlan.reportsTo]) {
-        agents[i].setManager(agents[memberPlan.reportsTo]);
+      if (memberPlan.reportsTo !== null && employees[memberPlan.reportsTo]) {
+        employees[i].setManager(employees[memberPlan.reportsTo]);
       }
     }
 
@@ -757,64 +600,50 @@ Boss's adjustment goal: ${adjustGoal}`;
       skipped.forEach(s => console.log(`   - ${s.templateTitle}: ${s.reason}`));
     }
 
-    console.log(`\n✅ [Secretary] Recruitment complete! Successfully hired ${validAgents.length}, skipped ${skipped.length}`);
-    return validAgents;
+    console.log(`\n✅ [Secretary] Recruitment complete! Successfully hired ${validEmployees.length}, skipped ${skipped.length}`);
+    return validEmployees;
   }
 
-  /**
-   * Design project execution plan
-   */
-  designProjectPlan(projectName, description, agents) {
+  // ======================== Project Planning ========================
+
+  designProjectPlan(projectName, description, employees) {
     console.log(`\n📝 [Secretary] Designing project execution plan...`);
 
     const phases = [];
 
-    const planners = agents.filter(a =>
+    const planners = employees.filter(a =>
       ['Product Manager', 'Project Leader'].includes(a.role)
     );
     if (planners.length > 0) {
       phases.push({
         name: 'Requirements Analysis & Planning',
         description: 'Define project goals, scope, and key milestones',
-        tasks: planners.map(a => ({
-          title: `${a.role}: Analyze requirements and create plan`,
-          assigneeId: a.id,
-        })),
+        tasks: planners.map(a => ({ title: `${a.role}: Analyze requirements and create plan`, assigneeId: a.id })),
       });
     }
 
-    const creators = agents.filter(a =>
+    const creators = employees.filter(a =>
       !['Product Manager', 'Project Leader'].includes(a.role)
     );
     if (creators.length > 0) {
       phases.push({
         name: 'Core Creation & Development',
         description: 'All roles execute core work in parallel',
-        tasks: creators.map(a => ({
-          title: `${a.role}: Execute core work`,
-          assigneeId: a.id,
-        })),
+        tasks: creators.map(a => ({ title: `${a.role}: Execute core work`, assigneeId: a.id })),
       });
     }
 
-    const leader = agents.find(a => a.role === 'Project Leader');
+    const leader = employees.find(a => a.role === 'Project Leader');
     if (leader) {
       phases.push({
         name: 'Integration & Delivery',
         description: 'Consolidate all member outputs and deliver final result',
-        tasks: [{
-          title: 'Project Leader: Integrate results and deliver final output',
-          assigneeId: leader.id,
-        }],
+        tasks: [{ title: 'Project Leader: Integrate results and deliver final output', assigneeId: leader.id }],
       });
     }
 
     const project = {
-      id: uuidv4(),
-      name: projectName,
-      description,
-      phases,
-      createdAt: new Date(),
+      id: uuidv4(), name: projectName, description, phases, createdAt: new Date(),
     };
 
     console.log(`   Project plan: ${phases.length} phases`);
@@ -825,37 +654,24 @@ Boss's adjustment goal: ${adjustGoal}`;
     return project;
   }
 
-  /**
-   * Handle boss's message
-   * Analyze whether it's task assignment, progress inquiry, or casual conversation
-   */
+  // ======================== Boss Message Handling ========================
+
   async handleBossMessage(message, company) {
-    // Check if the agent can do LLM-style chat
-    if (!this.agent.canChat()) {
-      if (this.agent.agentType === 'cli') {
-        // In CLI mode, handleBossMessage should not be called directly (chatWithSecretary handles the CLI path)
+    if (!this.canChat()) {
+      if (this.agentType === 'cli') {
         throw new Error('Secretary is in CLI mode. Please use chatWithSecretary() which handles CLI path correctly.');
       }
       throw new Error('Secretary AI is not configured. Please configure a valid API Key for the secretary provider first.');
     }
-
     return await this._llmHandleBossMessage(message, company);
   }
 
-  /**
-   * LLM-driven boss message handling
-   */
   async _llmHandleBossMessage(message, company) {
-    // === Pre-wake: consolidate memories, clean expired short-term, deduplicate ===
-    this.agent.memory.consolidateMemories();
+    this.memory.consolidateMemories();
 
-    // Build company context
     const deptCount = company.departments.size;
     const departments = [...company.departments.values()].map(d => ({
-      name: d.name,
-      id: d.id,
-      mission: d.mission,
-      status: d.status,
+      name: d.name, id: d.id, mission: d.mission, status: d.status,
       memberCount: d.agents.size,
       leader: d.getLeader()?.name || 'Unassigned',
       members: [...d.agents.values()].map(a => ({
@@ -865,7 +681,6 @@ Boss's adjustment goal: ${adjustGoal}`;
     const agentCount = departments.reduce((s, d) => s + d.memberCount, 0);
     const talentCount = company.talentMarket.listAvailable().length;
 
-    // === Read recent 10 messages from chatStore as multi-turn context ===
     let recentHistory = [];
     try {
       const recentMessages = chatStore.getRecentMessages(company.chatSessionId, 10);
@@ -874,33 +689,28 @@ Boss's adjustment goal: ${adjustGoal}`;
         content: h.content,
       }));
     } catch (e) {
-      // Fallback to in-memory chatHistory
       recentHistory = (company.chatHistory || []).slice(-10).map(h => ({
         role: h.role === 'boss' ? 'user' : 'assistant',
         content: h.content,
       }));
     }
 
-    // === Search historical messages for related context by keywords ===
     let searchContextSection = '';
     try {
       const searchResults = chatStore.searchWithContext(company.chatSessionId, message, 3, 1);
       if (searchResults.length > 0) {
         searchContextSection = '\n## Related Historical Context (from past conversations)\n';
         for (const result of searchResults) {
-          const contextStr = result.context.map(m => 
+          const contextStr = result.context.map(m =>
             `  [${m.role}] ${m.content.slice(0, 150)}${m.content.length > 150 ? '...' : ''}`
           ).join('\n');
           searchContextSection += `- Relevance: ${result.score.toFixed(2)}\n${contextStr}\n\n`;
         }
       }
-    } catch (e) {
-      // Search failure does not affect main flow
-    }
+    } catch (e) {}
 
-    const secretaryPrompt = this.agent.prompt || '';
+    const secretaryPrompt = this.prompt || '';
 
-    // Dynamically fetch plugin, skill, knowledge base info
     let capabilitiesSection = '';
     try {
       const enabledPlugins = pluginRegistry.list().filter(p => p.state === 'enabled');
@@ -909,7 +719,6 @@ Boss's adjustment goal: ${adjustGoal}`;
         enabledPlugins.forEach(p => {
           capabilitiesSection += `- 🧩 ${p.name} v${p.version}: ${p.description} (${p.toolCount} tools)\n`;
         });
-        // List tools provided by plugins
         const pluginTools = pluginRegistry.getPluginTools();
         if (pluginTools.length > 0) {
           capabilitiesSection += `\nAvailable plugin tools:\n`;
@@ -924,40 +733,30 @@ Boss's adjustment goal: ${adjustGoal}`;
       const skills = skillRegistry.list();
       if (skills.length > 0) {
         capabilitiesSection += `\n## Available Skills (${skills.length})\n`;
-        skills.forEach(s => {
-          capabilitiesSection += `- 🎯 ${s.name}: ${s.description}\n`;
-        });
+        skills.forEach(s => { capabilitiesSection += `- 🎯 ${s.name}: ${s.description}\n`; });
       }
     } catch {}
     try {
       const kbs = knowledgeManager.list();
       if (kbs.length > 0) {
         capabilitiesSection += `\n## Knowledge Bases (${kbs.length})\n`;
-        kbs.forEach(kb => {
-          capabilitiesSection += `- 📚 ${kb.name}: ${kb.description} (${kb.entryCount || 0} entries)\n`;
-        });
+        kbs.forEach(kb => { capabilitiesSection += `- 📚 ${kb.name}: ${kb.description} (${kb.entryCount || 0} entries)\n`; });
       }
     } catch {}
 
-    // Inject secretary's long-term memory into context
     let memorySection = '';
-    const longTermMemories = this.agent.memory.searchLongTerm();
-    const shortTermMemories = this.agent.memory.shortTerm;
+    const longTermMemories = this.memory.searchLongTerm();
+    const shortTermMemories = this.memory.shortTerm;
     if (longTermMemories.length > 0) {
       memorySection += `\n## Your Long-term Memories (important facts, preferences, and notes from the boss)\n`;
-      const recentLong = longTermMemories.slice(-30);
-      recentLong.forEach(m => {
-        memorySection += `- [${m.category}] ${m.content}\n`;
-      });
+      longTermMemories.slice(-30).forEach(m => { memorySection += `- [${m.category}] ${m.content}\n`; });
     }
     if (shortTermMemories.length > 0) {
       memorySection += `\n## Your Short-term Memories (recent context)\n`;
-      shortTermMemories.forEach(m => {
-        memorySection += `- ${m.content}\n`;
-      });
+      shortTermMemories.forEach(m => { memorySection += `- ${m.content}\n`; });
     }
 
-    const systemPrompt = `You are "${this.agent.name}", the personal secretary of ${company.bossName || 'the Boss'}.
+    const systemPrompt = `You are "${this.name}", the personal secretary of ${company.bossName || 'the Boss'}.
 ${secretaryPrompt ? `\nYour core persona: ${secretaryPrompt}\n` : ''}
 Your personality: smart, efficient, approachable. Communicate with the boss like a real, thoughtful secretary — natural, warm, not robotic.
 ${memorySection}
@@ -1060,59 +859,42 @@ When the boss asks about progress/status/reports, return progress_report
       { role: 'user', content: message },
     ];
 
-    const response = await this.agent.chat(messages, {
-      temperature: 0.8,
-      maxTokens: 1024,
-    });
+    const response = await this.chat(messages, { temperature: 0.8, maxTokens: 1024 });
 
-    // Parse JSON reply
     try {
       let jsonStr = response.content.trim();
-      // Remove markdown code block wrapping (supports multiple formats)
       const fenceMatch = jsonStr.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
-      if (fenceMatch) {
-        jsonStr = fenceMatch[1].trim();
-      }
-      // Try to extract the first JSON object
+      if (fenceMatch) jsonStr = fenceMatch[1].trim();
       const jsonObjMatch = jsonStr.match(/\{[\s\S]*\}/);
-      if (jsonObjMatch) {
-        jsonStr = jsonObjMatch[0];
-      }
+      if (jsonObjMatch) jsonStr = jsonObjMatch[0];
       const parsed = JSON.parse(jsonStr);
-      let result = {
-        content: parsed.content || response.content,
-        action: parsed.action || null,
-      };
+      let result = { content: parsed.content || response.content, action: parsed.action || null };
 
       console.log(`🤖 [Secretary-LLM] action type: ${result.action?.type || 'null'}, departmentId: ${result.action?.departmentId || 'N/A'}`);
 
-      // Process memory updates from LLM response
       if (parsed.memory && Array.isArray(parsed.memory)) {
         for (const mem of parsed.memory) {
           if (!mem.content) continue;
           if (mem.type === 'long') {
-            this.agent.memory.addLongTerm(mem.content, mem.category || 'experience');
+            this.memory.addLongTerm(mem.content, mem.category || 'experience');
             console.log(`🧠 [Secretary] Stored long-term memory: [${mem.category || 'experience'}] ${mem.content.slice(0, 80)}`);
           } else {
-            this.agent.memory.addShortTerm(mem.content, mem.category || 'task');
+            this.memory.addShortTerm(mem.content, mem.category || 'task');
             console.log(`🧠 [Secretary] Stored short-term memory: ${mem.content.slice(0, 80)}`);
           }
         }
       }
 
-      // Validate task_assigned departmentId (LLM may return dept name instead of UUID)
       if (result.action?.type === 'task_assigned' && result.action.departmentId) {
         const deptById = company.departments.get(result.action.departmentId);
         if (!deptById) {
-          // departmentId invalid, try matching by name
           const deptIdValue = result.action.departmentId;
           const deptNameValue = result.action.departmentName || deptIdValue;
           let foundDept = null;
           for (const dept of company.departments.values()) {
             if (dept.name === deptIdValue || dept.name === deptNameValue ||
                 dept.name.includes(deptIdValue) || deptIdValue.includes(dept.name)) {
-              foundDept = dept;
-              break;
+              foundDept = dept; break;
             }
           }
           if (foundDept) {
@@ -1120,22 +902,18 @@ When the boss asks about progress/status/reports, return progress_report
             result.action.departmentId = foundDept.id;
             result.action.departmentName = foundDept.name;
           } else {
-            // Cannot find at all, clear action for fallback logic
-            console.warn(`⚠️ LLM returned departmentId "${deptIdValue}" doesn't match any department, clearing action`);            result.action = null;
+            console.warn(`⚠️ LLM returned departmentId "${deptIdValue}" doesn't match any department, clearing action`);
+            result.action = null;
           }
         } else {
-          // departmentId valid, but need to verify content/action consistency
-          // Prevent LLM from saying "assigning to Dept A" but action points to Dept B
           const contentLower = (result.content || '').toLowerCase();
           const actionDeptName = deptById.name.toLowerCase();
           let contentMentionedDept = null;
           for (const dept of company.departments.values()) {
             if (dept.id !== deptById.id && contentLower.includes(dept.name.toLowerCase())) {
-              contentMentionedDept = dept;
-              break;
+              contentMentionedDept = dept; break;
             }
           }
-          // If content explicitly mentions another department while action's department isn't mentioned in content
           if (contentMentionedDept && !contentLower.includes(actionDeptName)) {
             console.log(`🔧 Consistency fix: content mentions "${contentMentionedDept.name}" but action points to "${deptById.name}", using content as source of truth`);
             result.action.departmentId = contentMentionedDept.id;
@@ -1147,22 +925,16 @@ When the boss asks about progress/status/reports, return progress_report
       return result;
     } catch (parseError) {
       console.warn('⚠️ Secretary JSON parse failed:', parseError.message, '\nRaw reply:', response.content.slice(0, 200));
-      
-      // Try to extract content field from raw reply (even if overall JSON parse failed)
+
       let displayContent = response.content;
       const contentFieldMatch = response.content.match(/"content"\s*:\s*"((?:[^"\\]|\\.)*)"/);
       if (contentFieldMatch) {
-        try {
-          displayContent = JSON.parse('"' + contentFieldMatch[1] + '"');
-        } catch {
-          displayContent = contentFieldMatch[1].replace(/\\n/g, '\n').replace(/\\"/g, '"');
-        }
+        try { displayContent = JSON.parse('"' + contentFieldMatch[1] + '"'); }
+        catch { displayContent = contentFieldMatch[1].replace(/\\n/g, '\n').replace(/\\"/g, '"'); }
       }
-      
-      // Try to extract action field from raw reply (overall JSON failed, but action field may be extractable)
+
       let action = null;
       const actionTypeMatch = response.content.match(/"type"\s*:\s*"(task_assigned|need_new_department|create_department|progress_report|secretary_handle)"/);
-      
       if (actionTypeMatch) {
         const actionType = actionTypeMatch[1];
         if (actionType === 'task_assigned') {
@@ -1174,13 +946,10 @@ When the boss asks about progress/status/reports, return progress_report
                 const titleMatch = response.content.match(/"taskTitle"\s*:\s*"([^"]+)"/);
                 const descMatch = response.content.match(/"taskDescription"\s*:\s*"((?:[^"\\]|\\.)*)"/);
                 action = {
-                  type: 'task_assigned',
-                  departmentId: dept.id,
-                  departmentName: dept.name,
+                  type: 'task_assigned', departmentId: dept.id, departmentName: dept.name,
                   taskTitle: titleMatch ? titleMatch[1] : message.slice(0, 50),
                   taskDescription: descMatch ? descMatch[1].replace(/\\n/g, '\n') : message,
-                };
-                break;
+                }; break;
               }
             }
           }
@@ -1194,29 +963,18 @@ When the boss asks about progress/status/reports, return progress_report
           };
         } else if (actionType === 'need_new_department') {
           const missionMatch = response.content.match(/"suggestedMission"\s*:\s*"((?:[^"\\]|\\.)*)"/);
-          action = {
-            type: 'need_new_department',
-            suggestedMission: missionMatch ? missionMatch[1].replace(/\\n/g, '\n') : message,
-          };
+          action = { type: 'need_new_department', suggestedMission: missionMatch ? missionMatch[1].replace(/\\n/g, '\n') : message };
         } else if (actionType === 'secretary_handle') {
           const descMatch = response.content.match(/"taskDescription"\s*:\s*"((?:[^"\\]|\\.)*)"/);
-          action = {
-            type: 'secretary_handle',
-            taskDescription: descMatch ? descMatch[1].replace(/\\n/g, '\n') : message,
-          };
+          action = { type: 'secretary_handle', taskDescription: descMatch ? descMatch[1].replace(/\\n/g, '\n') : message };
         } else if (actionType === 'progress_report') {
           action = { type: 'progress_report' };
         }
       }
 
-      let result = {
-        content: displayContent,
-        action,
-      };
-
+      let result = { content: displayContent, action };
       console.log(`🤖 [Secretary-LLM-FaultTolerant] action type: ${result.action?.type || 'null'}`);
 
-      // Try to extract memory from raw reply (fault-tolerant)
       try {
         const memoryMatch = response.content.match(/"memory"\s*:\s*(\[\s*\{[\s\S]*?\}\s*\])/);
         if (memoryMatch) {
@@ -1224,11 +982,8 @@ When the boss asks about progress/status/reports, return progress_report
           if (Array.isArray(memories)) {
             for (const mem of memories) {
               if (!mem.content) continue;
-              if (mem.type === 'long') {
-                this.agent.memory.addLongTerm(mem.content, mem.category || 'experience');
-              } else {
-                this.agent.memory.addShortTerm(mem.content, mem.category || 'task');
-              }
+              if (mem.type === 'long') this.memory.addLongTerm(mem.content, mem.category || 'experience');
+              else this.memory.addShortTerm(mem.content, mem.category || 'task');
             }
           }
         }
@@ -1238,20 +993,15 @@ When the boss asks about progress/status/reports, return progress_report
     }
   }
 
-  /**
-   * Secretary handles simple tasks directly (no department needed)
-   * @param {string} taskDescription - Task description
-   * @param {object} company - Company instance (for context)
-   * @returns {object} { content, success }
-   */
+  // ======================== Direct Task Execution ========================
+
   async executeTaskDirectly(taskDescription, company) {
     console.log(`\n📝 [Secretary] Handling task directly: "${taskDescription.slice(0, 50)}..."`);
 
-    const secretaryPrompt = this.agent.prompt || '';
+    const secretaryPrompt = this.prompt || '';
 
-    // Inject memory context
     let memoryContext = '';
-    const longTermMemories = this.agent.memory.searchLongTerm();
+    const longTermMemories = this.memory.searchLongTerm();
     if (longTermMemories.length > 0) {
       memoryContext += '\n## Your memories (for reference):\n';
       longTermMemories.slice(-15).forEach(m => {
@@ -1259,7 +1009,7 @@ When the boss asks about progress/status/reports, return progress_report
       });
     }
 
-    const systemPrompt = `You are "${this.agent.name}", the personal secretary of ${company.bossName || 'the Boss'}.
+    const systemPrompt = `You are "${this.name}", the personal secretary of ${company.bossName || 'the Boss'}.
 ${secretaryPrompt ? `\nYour persona: ${secretaryPrompt}\n` : ''}
 You are now personally handling a task from the boss. Complete it thoroughly and deliver a high-quality result.
 ${memoryContext}
@@ -1287,95 +1037,48 @@ ${memoryContext}
 6. Sign off naturally as a secretary would`;
 
     try {
-      // If secretary is a CLI agent, prefer CLI for task execution
-      if (this.agent.agentType === 'cli' && this.agent.isAvailable()) {
+      if (this.agentType === 'cli' && this.isAvailable()) {
         try {
-          console.log(`  🖥️ [Secretary] Executing task via CLI backend: ${this.agent.cliBackend}`);
+          console.log(`  🖥️ [Secretary] Executing task via CLI backend: ${this.cliBackend}`);
           const cliResult = await cliBackendRegistry.executeTask(
-            this.agent.cliBackend,
-            this.agent,
-            {
-              title: `Secretary task`,
-              description: `${systemPrompt}\n\nTask from the boss:\n${taskDescription}`,
-            },
-            this.agent.toolKit?.workspaceDir || process.cwd(),
-            {},
-            { timeout: 120000 }  // Secretary task 2-minute timeout
+            this.cliBackend, this,
+            { title: `Secretary task`, description: `${systemPrompt}\n\nTask from the boss:\n${taskDescription}` },
+            this.toolKit?.workspaceDir || process.cwd(), {}, { timeout: 120000 }
           );
           const content = cliResult.output || cliResult.errorOutput || '...';
           console.log(`✅ [Secretary] CLI task completed, output ${content.length} chars`);
-
-          this.agent.memory.addShortTerm(
-            `Completed task directly (via CLI): ${taskDescription.slice(0, 80)}`,
-            'task'
-          );
-
-          return {
-            content,
-            success: true,
-          };
+          this.memory.addShortTerm(`Completed task directly (via CLI): ${taskDescription.slice(0, 80)}`, 'task');
+          return { content, success: true };
         } catch (cliErr) {
-          // When CLI fails, check if brain can do chat as fallback
-          if (!this.agent.canChat()) {
+          if (!this.canChat()) {
             console.error(`  ❌ [Secretary] CLI task failed, no LLM fallback: ${cliErr.message || cliErr.error}`);
-            return {
-              content: `⚠️ CLI task execution error: ${cliErr.message || 'Unknown error'}. Please check that the CLI is running correctly.`,
-              success: false,
-            };
+            return { content: `⚠️ CLI task execution error: ${cliErr.message || 'Unknown error'}. Please check that the CLI is running correctly.`, success: false };
           }
           console.warn(`  ⚠️ [Secretary] CLI task failed, falling back to LLM: ${cliErr.message || cliErr.error}`);
-          // Fall back to LLM when CLI fails
         }
       }
 
-      // Use LLM + tools to execute task
-      const toolExecutor = this.agent.toolKit;
+      const toolExecutor = this.toolKit;
       let response;
 
-      if (toolExecutor && this.agent.chatWithTools) {
-        response = await this.agent.chatWithTools(
-          [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: taskDescription },
-          ],
-          toolExecutor,
-          {
-            temperature: 0.7,
-            maxTokens: 2048,
-            maxIterations: 5,
-          }
+      if (toolExecutor) {
+        response = await this.chatWithTools(
+          [{ role: 'system', content: systemPrompt }, { role: 'user', content: taskDescription }],
+          toolExecutor, { temperature: 0.7, maxTokens: 2048, maxIterations: 5 }
         );
       } else {
-        // Fallback: if toolKit is not initialized, use regular chat
-        response = await this.agent.chat([
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: taskDescription },
-        ], {
-          temperature: 0.7,
-          maxTokens: 2048,
-        });
+        response = await this.chat(
+          [{ role: 'system', content: systemPrompt }, { role: 'user', content: taskDescription }],
+          { temperature: 0.7, maxTokens: 2048 }
+        );
       }
 
       console.log(`✅ [Secretary] Task completed, output ${response.content.length} chars`);
-
-      // Record to short-term memory
-      this.agent.memory.addShortTerm(
-        `Completed task directly: ${taskDescription.slice(0, 80)}`,
-        'task'
-      );
-
-      return {
-        content: response.content,
-        success: true,
-      };
+      this.memory.addShortTerm(`Completed task directly: ${taskDescription.slice(0, 80)}`, 'task');
+      return { content: response.content, success: true };
     } catch (err) {
       console.error(`❌ [Secretary] Task execution failed:`, err.message);
-      return {
-        content: `Sorry, encountered an issue while executing the task: ${err.message}`,
-        success: false,
-      };
+      return { content: `Sorry, encountered an issue while executing the task: ${err.message}`, success: false };
     }
   }
-
 }
-

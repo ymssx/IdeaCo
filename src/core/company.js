@@ -1,18 +1,18 @@
 import { v4 as uuidv4 } from 'uuid';
 import { ProviderRegistry, ModelProviders, JobCategory, JobCategoryLabel } from './providers.js';
 import { HRSystem } from './hr.js';
-import { Secretary } from './secretary.js';
 import { Department } from './department.js';
-import { Agent, createAgent, LLMAgent, CLIAgent } from './agent/index.js';
+import { Employee, createEmployee, deserializeEmployee, Secretary } from './employee/index.js';
+import { LLMAgent, CLIAgent } from './agent/index.js';
 import { PerformanceSystem } from './performance.js';
 import { TalentMarket } from './talent-market.js';
 import { MessageBus } from './message-bus.js';
 import { existsSync, mkdirSync } from 'fs';
 import { WorkspaceManager } from './workspace.js';
 import { debouncedSave } from './persistence.js';
-import { llmClient } from './llm-client.js';
-import { loadAgentMemory, saveAgentMemory } from './memory-store.js';
-import { Memory } from './memory.js';
+import { llmClient } from './agent/llm-agent/client.js';
+import { loadAgentMemory, saveAgentMemory } from './employee/memory/store.js';
+import { Memory } from './employee/memory/index.js';
 import { RequirementManager, RequirementStatus } from './requirement.js';
 import { TeamManager, SprintStatus } from './team.js';
 import { hookRegistry, HookEvent } from './hooks.js';
@@ -21,7 +21,7 @@ import { cronScheduler } from './cron.js';
 import { pluginRegistry } from './plugin.js';
 import { auditLogger, AuditCategory, AuditLevel } from './audit.js';
 import { chatStore } from './chat-store.js';
-import { cliBackendRegistry } from './cli-backends/index.js';
+import { cliBackendRegistry } from './agent/cli-agent/backends/index.js';
 import { groupChatLoop } from './group-chat-loop.js';
 
 
@@ -106,26 +106,19 @@ export class Company {
     // If secretary uses a CLI provider, rebuild agent as CLIAgent
     if (secretaryProviderConfig.isCLI && secretaryProviderConfig.cliBackendId) {
       const fallback = this.providerRegistry.recommend('general');
-      const oldAgent = this.secretary.agent;
       this.secretary.agent = new CLIAgent({
-        name: oldAgent.name, role: oldAgent.role, prompt: oldAgent.prompt,
-        skills: oldAgent.skills, avatar: oldAgent.avatar, avatarParams: oldAgent.avatarParams,
-        gender: oldAgent.gender, age: oldAgent.age, signature: oldAgent.signature,
-        personality: oldAgent.personality, templateId: oldAgent.templateId,
-        memory: oldAgent.memory,
         cliBackend: secretaryProviderConfig.cliBackendId,
         cliProvider: secretaryProviderConfig,
         fallbackProvider: fallback, provider: fallback,
       });
-      this.secretary.agent.id = oldAgent.id;
     }
 
     // Initialize secretary's toolKit so she can use tools (shell, file ops, etc.)
     const secretaryWorkspace = this.workspaceManager.createDepartmentWorkspace('secretary', 'secretary');
-    this.secretary.agent.initToolKit(secretaryWorkspace, this.messageBus);
+    this.secretary.initToolKit(secretaryWorkspace, this.messageBus);
 
     this._log('Company founded', `"${this.name}" founded by ${this.bossName}`);
-    this._log('Secretary ready', `Secretary ${this.secretary.agent.name} using model ${secretaryProviderConfig.name}`);
+    this._log('Secretary ready', `Secretary ${this.secretary.name} using model ${secretaryProviderConfig.name}`);
 
     // Initialize distilled subsystems
     this._initSubsystems();
@@ -146,19 +139,17 @@ export class Company {
     // Persist to file storage
     chatStore.appendMessage(this.chatSessionId, bossMsg);
 
-    const secretaryAgent = this.secretary.agent;
+    const sec = this.secretary;
     let reply;
 
-    // If secretary has CLI backend configured, chat also goes through CLI (requires JSON format, consistent with LLM path)
-    if (secretaryAgent.cliBackend) {
+    // If secretary has CLI backend configured, chat also goes through CLI
+    if (sec.cliBackend) {
       try {
-        // Get recent chat context
         const recentMessages = chatStore.getRecentMessages(this.chatSessionId, 10);
         const chatContext = recentMessages.slice(-6).map(m =>
-          `${m.role === 'boss' ? 'Boss' : secretaryAgent.name}: ${m.content}`
+          `${m.role === 'boss' ? 'Boss' : sec.name}: ${m.content}`
         ).join('\n');
 
-        // Build company context (simplified version for CLI to correctly determine action)
         const departments = [...this.departments.values()].map(d => ({
           name: d.name, id: d.id, mission: d.mission, status: d.status,
           memberCount: d.agents.size,
@@ -168,9 +159,8 @@ export class Company {
           ? departments.map(d => `  🏢 ${d.name} [id:${d.id}] - Mission: ${d.mission} | ${d.memberCount} people | Leader: ${d.leader}`).join('\n')
           : 'No departments yet.';
 
-        // Build CLI prompt: require JSON format consistent with LLM path
-        const cliPrompt = `You are "${secretaryAgent.name}", the personal secretary of "${this.bossName}".
-${secretaryAgent.prompt ? `Your persona: ${secretaryAgent.prompt}\n` : ''}
+        const cliPrompt = `You are "${sec.name}", the personal secretary of "${this.bossName}".
+${sec.prompt ? `Your persona: ${sec.prompt}\n` : ''}
 Current company "${this.name}" status:
 - Departments: ${this.departments.size}
 ${deptContext}
@@ -201,23 +191,15 @@ Rules:
 - ALWAYS return valid JSON only, no markdown fences`;
 
         const cliResult = await cliBackendRegistry.executeTask(
-          secretaryAgent.cliBackend,
-          secretaryAgent,
-          {
-            title: `Secretary chat reply`,
-            description: cliPrompt,
-          },
-          secretaryAgent.toolKit?.workspaceDir || process.cwd(),
-          {},
-          { timeout: 60000 }
+          sec.cliBackend, sec,
+          { title: `Secretary chat reply`, description: cliPrompt },
+          sec.toolKit?.workspaceDir || process.cwd(), {}, { timeout: 60000 }
         );
         const rawOutput = cliResult.output || cliResult.errorOutput || '...';
 
-        // Try to parse JSON from CLI output (reuse same parsing logic as LLM)
         reply = this._parseSecretaryJSON(rawOutput, message);
       } catch (cliErr) {
-        // On CLI failure, attempt fallback to LLM (only when LLM provider available)
-        const hasLLM = secretaryAgent.provider && secretaryAgent.provider.enabled && secretaryAgent.provider.apiKey && !secretaryAgent.provider.apiKey.startsWith('cli');
+        const hasLLM = sec.agent.provider && sec.agent.provider.enabled && sec.agent.provider.apiKey && !sec.agent.provider.apiKey.startsWith('cli');
         if (hasLLM) {
           console.warn(`  ⚠️ [Secretary] CLI chat failed, falling back to LLM: ${cliErr.message || cliErr.error}`);
           reply = await this.secretary.handleBossMessage(message, this);
@@ -677,14 +659,14 @@ Rules:
    * Update secretary settings (name, avatar, prompt, etc.)
    */
   updateSecretarySettings(settings) {
-    const agent = this.secretary.agent;
-    if (settings.name) agent.name = settings.name;
-    if (settings.avatar) agent.avatar = settings.avatar;
-    if (settings.avatarParams) agent.avatarParams = settings.avatarParams;
-    if (settings.gender) agent.gender = settings.gender;
-    if (settings.age != null) agent.age = settings.age;
-    if (settings.prompt) agent.prompt = settings.prompt;
-    if (settings.signature) agent.signature = settings.signature;
+    const sec = this.secretary;
+    if (settings.name) sec.name = settings.name;
+    if (settings.avatar) sec.avatar = settings.avatar;
+    if (settings.avatarParams) sec.avatarParams = settings.avatarParams;
+    if (settings.gender) sec.gender = settings.gender;
+    if (settings.age != null) sec.age = settings.age;
+    if (settings.prompt) sec.prompt = settings.prompt;
+    if (settings.signature) sec.signature = settings.signature;
     // Switch provider
     if (settings.providerId) {
       const newProvider = this.providerRegistry.getById(settings.providerId);
@@ -692,58 +674,36 @@ Rules:
       if (!newProvider.enabled) throw new Error(`Provider ${newProvider.name} is not enabled, please configure API Key first`);
 
       const needsTypeSwitch =
-        (newProvider.isCLI && agent.agentType !== 'cli') ||
-        (!newProvider.isCLI && agent.agentType !== 'llm');
+        (newProvider.isCLI && sec.agentType !== 'cli') ||
+        (!newProvider.isCLI && sec.agentType !== 'llm');
 
       if (needsTypeSwitch) {
-        // Agent type mismatch — rebuild as the correct type, preserving identity
-        const preserved = {
-          name: agent.name, role: agent.role, prompt: agent.prompt,
-          skills: agent.skills, avatar: agent.avatar, avatarParams: agent.avatarParams,
-          gender: agent.gender, age: agent.age, signature: agent.signature,
-          personality: agent.personality, templateId: agent.templateId,
-          memory: agent.memory,
-        };
-        const oldId = agent.id;
-
+        // Agent type mismatch — rebuild the communication agent only
         if (newProvider.isCLI && newProvider.cliBackendId) {
           const fallback = this.providerRegistry.recommend('general');
-          this.secretary.agent = new CLIAgent({
-            ...preserved, cliBackend: newProvider.cliBackendId,
+          sec.agent = new CLIAgent({
+            cliBackend: newProvider.cliBackendId,
             cliProvider: newProvider, fallbackProvider: fallback, provider: fallback,
           });
-          this._log('Secretary settings', `Secretary rebuilt as CLIAgent: ${newProvider.name} (${newProvider.cliBackendId})`);
+          this._log('Secretary settings', `Secretary agent rebuilt as CLIAgent: ${newProvider.name} (${newProvider.cliBackendId})`);
         } else {
-          this.secretary.agent = new LLMAgent({ ...preserved, provider: newProvider });
-          this._log('Secretary settings', `Secretary rebuilt as LLMAgent: ${newProvider.name}`);
-        }
-        // Preserve id and state
-        this.secretary.agent.id = oldId;
-        this.secretary.agent.hasIntroduced = agent.hasIntroduced;
-        this.secretary.agent.tokenUsage = agent.tokenUsage;
-        this.secretary.agent.taskHistory = agent.taskHistory;
-        this.secretary.agent.performanceHistory = agent.performanceHistory;
-        this.secretary.agent.status = agent.status;
-        // Re-init toolKit
-        if (agent.toolKit) {
-          this.secretary.agent.initToolKit(agent.toolKit.workspaceDir, this.messageBus);
+          sec.agent = new LLMAgent({ provider: newProvider });
+          this._log('Secretary settings', `Secretary agent rebuilt as LLMAgent: ${newProvider.name}`);
         }
       } else {
-        // Same type — just switch provider in place
-        agent.switchProvider(newProvider);
+        sec.switchProvider(newProvider);
       }
       // Sync HR assistant's provider
-      this.secretary.hrAssistant.agent.switchProvider(newProvider);
+      sec.hrAssistant.employee.switchProvider(newProvider);
       this._log('Secretary settings', `Secretary provider switched to: ${newProvider.name}`);
     }
     this._log('Secretary settings', `Updated secretary settings: ${Object.keys(settings).join(', ')}`);
     this.save();
-    const currentAgent = this.secretary.agent;
-    const displayInfo = currentAgent.getProviderDisplayInfo();
+    const displayInfo = sec.getProviderDisplayInfo();
     return {
-      name: currentAgent.name,
-      avatar: currentAgent.avatar,
-      gender: currentAgent.gender,
+      name: sec.name,
+      avatar: sec.avatar,
+      gender: sec.gender,
       age: currentAgent.age,
       prompt: currentAgent.prompt,
       signature: currentAgent.signature,
@@ -1013,7 +973,7 @@ const dept = this.findDepartment(departmentId);
     if (!dept) throw new Error(`Department not found: ${departmentId}`);
 
     const recruitConfig = this.hr.recruit(templateId, name, providerId);
-    const agent = createAgent(recruitConfig);
+    const agent = createEmployee(recruitConfig);
     dept.addAgent(agent);
 
     // Initialize toolkit
@@ -1032,7 +992,7 @@ const dept = this.findDepartment(departmentId);
     if (!dept) throw new Error(`Department not found: ${departmentId}`);
 
     const recruitConfig = this.hr.recallFromMarket(profileId, newSkills);
-    const agent = createAgent(recruitConfig);
+    const agent = createEmployee(recruitConfig);
     agent.memory.addLongTerm(
       `Recalled to the "${dept.name}" department, carrying past experience and memories back to work`,
       'experience'
@@ -1976,8 +1936,8 @@ Reply in the same language the Boss used. Be concise but warm.`
     });
 
     // Add secretary and HR consumption
-    const secUsage = this.secretary.agent.tokenUsage || { totalTokens: 0, totalCost: 0 };
-    const hrUsage = this.secretary.hrAssistant.agent.tokenUsage || { totalTokens: 0, totalCost: 0 };
+    const secUsage = this.secretary.tokenUsage || { totalTokens: 0, totalCost: 0 };
+    const hrUsage = this.secretary.hrAssistant.employee.tokenUsage || { totalTokens: 0, totalCost: 0 };
     companyTotalTokens += secUsage.totalTokens + hrUsage.totalTokens;
     companyTotalCost += secUsage.totalCost + hrUsage.totalCost;
 
@@ -1987,14 +1947,14 @@ Reply in the same language the Boss used. Be concise but warm.`
       boss: this.bossName,
       bossAvatar: this.bossAvatar,
       secretary: {
-        name: this.secretary.agent.name,
-        avatar: this.secretary.agent.avatar,
-        gender: this.secretary.agent.gender,
-        age: this.secretary.agent.age,
-        signature: this.secretary.agent.signature,
-        prompt: this.secretary.agent.prompt,
-        provider: this.secretary.agent.getProviderDisplayInfo().name,
-        providerId: this.secretary.agent.getProviderDisplayInfo().id,
+        name: this.secretary.name,
+        avatar: this.secretary.avatar,
+        gender: this.secretary.gender,
+        age: this.secretary.age,
+        signature: this.secretary.signature,
+        prompt: this.secretary.prompt,
+        provider: this.secretary.getProviderDisplayInfo().name,
+        providerId: this.secretary.getProviderDisplayInfo().id,
         // Optional general-purpose + CLI provider list (enabled only)
         availableProviders: [
           ...this.providerRegistry.getByCategory('general').map(p => ({
@@ -2009,9 +1969,9 @@ Reply in the same language the Boss used. Be concise but warm.`
           })),
         ],
         hrAssistant: {
-          name: this.secretary.hrAssistant.agent.name,
-          avatar: this.secretary.hrAssistant.agent.avatar,
-          signature: this.secretary.hrAssistant.agent.signature,
+          name: this.secretary.hrAssistant.employee.name,
+          avatar: this.secretary.hrAssistant.employee.avatar,
+          signature: this.secretary.hrAssistant.employee.signature,
         },
       },
       departments,
@@ -2194,14 +2154,14 @@ const dept = this.findDepartment(departmentId);
       progressReports: this.progressReports.slice(-30),
       logs: this.logs.slice(-100),
       secretary: {
-        name: this.secretary.agent.name,
-        avatar: this.secretary.agent.avatar,
-        signature: this.secretary.agent.signature,
-        prompt: this.secretary.agent.prompt,
-        providerId: this.secretary.agent.getProviderDisplayInfo().id,
-        cliBackend: this.secretary.agent.cliBackend || null,
-        tokenUsage: { ...this.secretary.agent.tokenUsage },
-        hrTokenUsage: { ...this.secretary.hrAssistant.agent.tokenUsage },
+        name: this.secretary.name,
+        avatar: this.secretary.avatar,
+        signature: this.secretary.signature,
+        prompt: this.secretary.prompt,
+        providerId: this.secretary.getProviderDisplayInfo().id,
+        cliBackend: this.secretary.cliBackend || null,
+        tokenUsage: { ...this.secretary.tokenUsage },
+        hrTokenUsage: { ...this.secretary.hrAssistant.employee.tokenUsage },
       },
       messageBusMessages: this.messageBus.messages.slice(-500).map(m => m.toJSON()),
       requirements: this.requirementManager.serialize(),
@@ -2250,51 +2210,37 @@ const dept = this.findDepartment(departmentId);
 
     // Restore secretary token usage
     if (data.secretary?.tokenUsage) {
-      Object.assign(company.secretary.agent.tokenUsage, data.secretary.tokenUsage);
+      Object.assign(company.secretary.tokenUsage, data.secretary.tokenUsage);
     }
     if (data.secretary?.hrTokenUsage) {
-      Object.assign(company.secretary.hrAssistant.agent.tokenUsage, data.secretary.hrTokenUsage);
+      Object.assign(company.secretary.hrAssistant.employee.tokenUsage, data.secretary.hrTokenUsage);
     }
     // Restore secretary custom prompt
     if (data.secretary?.prompt) {
-      company.secretary.agent.prompt = data.secretary.prompt;
+      company.secretary.prompt = data.secretary.prompt;
     }
     // Restore secretary signature
     if (data.secretary?.signature) {
-      company.secretary.agent.signature = data.secretary.signature;
+      company.secretary.signature = data.secretary.signature;
     }
     // Restore secretary CLI backend configuration
-    // The Company constructor already handles initial CLI provider detection,
-    // but we need to ensure the saved cliBackend state is consistent.
-    if (data.secretary?.cliBackend && company.secretary.agent.agentType !== 'cli') {
-      // Secretary was a CLI agent but constructor created LLM — rebuild
+    if (data.secretary?.cliBackend && company.secretary.agentType !== 'cli') {
       const cliProvider = company.providerRegistry.getById(data.secretary.providerId);
       if (cliProvider && cliProvider.isCLI && cliProvider.cliBackendId) {
         const fallback = company.providerRegistry.recommend('general');
-        const oldAgent = company.secretary.agent;
         company.secretary.agent = new CLIAgent({
-          name: oldAgent.name, role: oldAgent.role, prompt: oldAgent.prompt,
-          skills: oldAgent.skills, avatar: oldAgent.avatar, avatarParams: oldAgent.avatarParams,
-          gender: oldAgent.gender, age: oldAgent.age, signature: oldAgent.signature,
-          personality: oldAgent.personality, templateId: oldAgent.templateId,
-          memory: oldAgent.memory,
           cliBackend: cliProvider.cliBackendId,
           cliProvider: cliProvider,
           fallbackProvider: fallback, provider: fallback,
         });
-        company.secretary.agent.id = oldAgent.id;
-        // Re-init toolKit
-        if (oldAgent.toolKit) {
-          company.secretary.agent.initToolKit(oldAgent.toolKit.workspaceDir, company.messageBus);
-        }
       }
     }
 
     // Restore secretary memory from separate memory file
-    if (company.secretary?.agent?.id) {
-      const secretaryMemory = loadAgentMemory(company.secretary.agent.id);
+    if (company.secretary?.id) {
+      const secretaryMemory = loadAgentMemory(company.secretary.id);
       if (secretaryMemory) {
-        company.secretary.agent.memory = Memory.deserialize(secretaryMemory);
+        company.secretary.memory = Memory.deserialize(secretaryMemory);
         console.log(`  🧠 Secretary memory restored: ${secretaryMemory.shortTerm?.length || 0} short-term, ${secretaryMemory.longTerm?.length || 0} long-term`);
       }
     }
@@ -2325,7 +2271,7 @@ const dept = this.findDepartment(departmentId);
         if (externalMemory) {
           agentData.memory = externalMemory;
         }
-        const agent = Agent.deserialize(agentData, company.providerRegistry);
+        const agent = deserializeEmployee(agentData, company.providerRegistry);
         dept.addAgent(agent);
         // Restore toolkit
         if (dept.workspacePath) {
