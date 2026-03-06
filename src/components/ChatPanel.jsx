@@ -4,10 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useStore } from '@/lib/client-store';
 import { getAvatarUrl } from '@/lib/avatar';
 import { useI18n } from '@/lib/i18n';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import { parseFileReferences, FileRefList } from './FileReference';
-import CachedAvatar from './CachedAvatar';
+import { MessageBubble, ChatInput, TaskStatusPanel } from './ChatShared';
 
 export default function ChatPanel() {
   const { company, chatWithSecretary, chatOpen, setChatOpen, chatMinimized, setChatMinimized } = useStore();
@@ -23,10 +20,8 @@ export default function ChatPanel() {
     }
   }, [company?.chatHistory]);
 
-  // Auto scroll to bottom: on message update or panel open
   useEffect(() => {
     if (chatOpen && !chatMinimized) {
-      // Use setTimeout to ensure DOM is rendered before scrolling
       setTimeout(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
       }, 50);
@@ -43,12 +38,10 @@ export default function ChatPanel() {
     setMessage('');
     setSending(true);
 
-    // Optimistic update
     setLocalHistory(prev => [...prev, { role: 'boss', content: msg, time: new Date().toISOString() }]);
 
     try {
       await chatWithSecretary(msg);
-      // Secretary replies auto-sync to localHistory via chatHistory -> useEffect
     } catch (e) {
       setLocalHistory(prev => [...prev, {
         role: 'secretary',
@@ -66,7 +59,6 @@ export default function ChatPanel() {
     }
   };
 
-  // 收起状态：只显示一个浮动气泡
   if (chatMinimized) {
     return (
       <button
@@ -121,9 +113,8 @@ export default function ChatPanel() {
         </div>
       </div>
 
-      {/* Messages area */}
+      {/* Messages area - reuse MessageBubble from ChatShared */}
       <div className="flex-1 overflow-auto p-3 space-y-3">
-        {/* Welcome message */}
         {localHistory.length === 0 && (
           <div className="text-center py-8">
             <div className="text-4xl mb-2">💬</div>
@@ -144,91 +135,20 @@ export default function ChatPanel() {
           </div>
         )}
 
-        {localHistory.map((msg, i) => {
-          const { cleanContent, fileRefs } = parseFileReferences(msg.content);
-          return (
-          <div key={i} className={`flex gap-2 ${msg.role === 'boss' ? 'flex-row-reverse' : ''}`}>
-            {msg.role === 'boss' ? (
-              company?.bossAvatar ? (
-                <CachedAvatar src={company.bossAvatar} alt="boss" className="w-7 h-7 rounded-full bg-[var(--border)] shrink-0 mt-0.5" />
-              ) : (
-                <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">
-                  👤
-                </div>
-              )
-            ) : (
-              <img
-                src={secretary?.avatar || getAvatarUrl('secretary')}
-                alt={t('chat.secretary')}
-                className="w-7 h-7 rounded-full bg-[var(--border)] shrink-0 mt-0.5"
-              />
-            )}
-            <div className={`max-w-[min(75%,480px)] rounded-xl px-3 py-2 text-sm ${
-              msg.role === 'boss'
-                ? 'bg-[var(--accent)] text-white rounded-br-sm'
-                : 'bg-[var(--background)] border border-[var(--border)] rounded-bl-sm'
-            }`}>
-              <div className="break-words chat-markdown">
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  components={{
-                    // Custom render components for chat bubble styling
-                    p: ({ children }) => <p className="mb-1 last:mb-0">{children}</p>,
-                    ul: ({ children }) => <ul className="list-disc list-inside mb-1 space-y-0.5">{children}</ul>,
-                    ol: ({ children }) => <ol className="list-decimal list-inside mb-1 space-y-0.5">{children}</ol>,
-                    li: ({ children }) => <li className="text-sm">{children}</li>,
-                    strong: ({ children }) => <strong className="font-bold">{children}</strong>,
-                    em: ({ children }) => <em className="italic">{children}</em>,
-                    code: ({ inline, className, children }) => {
-                      if (inline) {
-                        return <code className="bg-white/10 px-1 py-0.5 rounded text-xs font-mono">{children}</code>;
-                      }
-                      return (
-                        <pre className="bg-black/30 rounded-lg p-2 my-1 overflow-x-auto">
-                          <code className="text-xs font-mono">{children}</code>
-                        </pre>
-                      );
-                    },
-                    a: ({ href, children }) => (
-                      <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-400 underline hover:text-blue-300">
-                        {children}
-                      </a>
-                    ),
-                    h1: ({ children }) => <h1 className="text-base font-bold mb-1">{children}</h1>,
-                    h2: ({ children }) => <h2 className="text-sm font-bold mb-1">{children}</h2>,
-                    h3: ({ children }) => <h3 className="text-sm font-semibold mb-0.5">{children}</h3>,
-                    blockquote: ({ children }) => (
-                      <blockquote className="border-l-2 border-white/30 pl-2 my-1 text-[var(--muted)]">{children}</blockquote>
-                    ),
-                    hr: () => <hr className="my-2 border-white/10" />,
-                    table: ({ children }) => (
-                      <div className="overflow-x-auto my-1">
-                        <table className="text-xs border-collapse">{children}</table>
-                      </div>
-                    ),
-                    th: ({ children }) => <th className="border border-white/20 px-2 py-1 bg-white/5 font-semibold">{children}</th>,
-                    td: ({ children }) => <td className="border border-white/20 px-2 py-1">{children}</td>,
-                  }}
-                >
-                  {cleanContent}
-                </ReactMarkdown>
-              </div>
-              <FileRefList fileRefs={fileRefs} />
-              {msg.action?.type === 'task_assigned' && (
-                <div className="mt-2 pt-2 border-t border-white/10 text-[10px] text-blue-300">
-                  {t('chat.taskAssigned', { dept: msg.action.departmentName })}{msg.action.taskStatus === 'running' && <span className="ml-1 animate-pulse">{t('chat.running')}</span>}
-                </div>
-              )}
-              {msg.action?.type === 'need_new_department' && (
-                <div className="mt-2 pt-2 border-t border-white/10 text-[10px] text-blue-300">{t('chat.needNewDept')}</div>
-              )}
-              {msg.action?.type === 'progress_report' && (
-                <div className="mt-2 pt-2 border-t border-white/10 text-[10px] text-blue-300">{t('chat.progressReport')}</div>
-              )}
-            </div>
-          </div>
-          );
-        })}
+        {localHistory.map((msg, i) => (
+          <MessageBubble
+            key={i}
+            isMe={msg.role === 'boss'}
+            avatar={msg.role === 'secretary' ? (secretary?.avatar || getAvatarUrl('secretary')) : null}
+            name={msg.role === 'boss' ? company.boss : (secretary?.name || t('setup.defaultSecretary'))}
+            content={msg.content}
+            time={msg.time}
+            action={msg.action}
+            agentId={null}
+            onClickAvatar={null}
+            bossAvatar={company?.bossAvatar}
+          />
+        ))}
 
         {sending && (
           <div className="flex gap-2">
@@ -237,8 +157,8 @@ export default function ChatPanel() {
               alt={t('chat.secretary')}
               className="w-7 h-7 rounded-full bg-[var(--border)] shrink-0"
             />
-            <div className="bg-[var(--background)] border border-[var(--border)] rounded-xl rounded-bl-sm px-3 py-2 text-sm">
-<span className="animate-pulse text-[var(--muted)]">{t('chat.typing')}</span>
+            <div className="bg-[var(--card)] border border-[var(--border)] rounded-2xl rounded-bl-sm px-3 py-2 text-sm">
+              <span className="animate-pulse text-[var(--muted)]">{t('chat.typing')}</span>
             </div>
           </div>
         )}
@@ -246,26 +166,18 @@ export default function ChatPanel() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input area */}
-      <div className="p-3 border-t border-[var(--border)]">
-        <div className="flex gap-2">
-          <input
-            className="input flex-1 text-sm"
-            placeholder={t('chat.inputPlaceholder', { name: secretary?.name || t('setup.defaultSecretary') })}
-            value={message}
-            onChange={e => setMessage(e.target.value)}
-            onKeyDown={handleKeyDown}
-            disabled={sending}
-          />
-          <button
-            className="btn-primary px-3 py-2 text-sm"
-            disabled={!message.trim() || sending}
-            onClick={handleSend}
-          >
-            {sending ? '⏳' : '📤'}
-          </button>
-        </div>
-      </div>
+      {/* Task status panel - shared component */}
+      <TaskStatusPanel />
+
+      {/* Input area - reuse ChatInput from ChatShared */}
+      <ChatInput
+        value={message}
+        onChange={setMessage}
+        onSend={handleSend}
+        onKeyDown={handleKeyDown}
+        sending={sending}
+        placeholder={t('chat.inputPlaceholder', { name: secretary?.name || t('setup.defaultSecretary') })}
+      />
     </div>
   );
 }

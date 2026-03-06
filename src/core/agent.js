@@ -7,6 +7,7 @@ import { sessionManager } from './session.js';
 import { skillRegistry } from './skills.js';
 import { knowledgeManager } from './knowledge.js';
 import { pluginRegistry } from './plugin.js';
+import { buildArchetypePrompt } from './role-archetypes.js';
 import { chatStore } from './chat-store.js';
 import { cliBackendRegistry } from './cli-backends/index.js';
 
@@ -40,11 +41,12 @@ const PERSONALITY_POOL = [
  * 5. Has avatar and personal signature
  */
 export class Agent {
-  constructor({ name, role, prompt, skills, provider, department, reportsTo, memory, avatar, signature, gender, age, avatarParams, cliBackend, cliProvider, personality }) {
+  constructor({ name, role, prompt, skills, provider, department, reportsTo, memory, avatar, signature, gender, age, avatarParams, cliBackend, cliProvider, personality, templateId }) {
     this.id = uuidv4();
     this.name = name;
     this.role = role;
     this.prompt = prompt;           // Role system prompt
+    this.templateId = templateId || null;  // JobTemplate ID for role archetype knowledge injection
     this.skills = skills || [];
     this.provider = provider;       // Model provider config
     this.department = department;
@@ -200,6 +202,12 @@ export class Agent {
    */
   _buildSystemMessage() {
     let systemContent = this.prompt + '\n\n';
+
+    // Inject role archetype deep knowledge (from agency-agents knowledge base)
+    if (this.templateId) {
+      const archetypePrompt = buildArchetypePrompt(this.templateId);
+      if (archetypePrompt) systemContent += archetypePrompt + '\n';
+    }
 
     // Inject memory context
     const longTermMemories = this.memory.searchLongTerm();
@@ -927,6 +935,7 @@ Do not use any code, tool calls, or technical instructions — reply in natural 
       name: this.name,
       role: this.role,
       prompt: this.prompt,
+      templateId: this.templateId || null,
       skills: [...this.skills],
       provider: {
         id: this.provider.id,
@@ -1000,6 +1009,7 @@ Do not use any code, tool calls, or technical instructions — reply in natural 
       cliBackend: data.cliBackend || null,
       cliProvider,
       personality: data.personality || undefined,  // Restore personality from persisted data; if absent, constructor will randomly generate one
+      templateId: data.templateId || null,
     });
 
     // Restore internal state
@@ -1015,6 +1025,11 @@ Do not use any code, tool calls, or technical instructions — reply in natural 
     }));
     agent.performanceHistory = data.performanceHistory || [];
     agent.createdAt = data.createdAt ? new Date(data.createdAt) : new Date();
+
+    // Backward compatibility: infer templateId from role if not persisted
+    if (!agent.templateId && agent.role) {
+      agent.templateId = agent.role.toLowerCase().replace(/\s+/g, '-');
+    }
 
     return agent;
   }

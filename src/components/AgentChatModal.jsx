@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useStore } from '@/lib/client-store';
 import { useI18n } from '@/lib/i18n';
-import ReactMarkdown from 'react-markdown';
+import { MessageBubble, ChatInput, TaskStatusPanel } from './ChatShared';
 import CachedAvatar from './CachedAvatar';
 
 export default function AgentChatModal({ agentId, agentName, agentAvatar, agentRole, agentSignature, agentDepartment, onClose }) {
@@ -16,7 +16,6 @@ export default function AgentChatModal({ agentId, agentName, agentAvatar, agentR
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
 
-  // 加载聊天历史
   useEffect(() => {
     (async () => {
       setLoadingHistory(true);
@@ -28,9 +27,7 @@ export default function AgentChatModal({ agentId, agentName, agentAvatar, agentR
     })();
   }, [agentId, fetchAgentChatHistory]);
 
-  // 手动滚动到底部（仅在用户发送消息时调用）
   const scrollToBottom = useCallback(() => {
-    // 使用双重rAF确保DOM更新完成后再滚动
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -38,7 +35,6 @@ export default function AgentChatModal({ agentId, agentName, agentAvatar, agentR
     });
   }, []);
 
-  // 自动聚焦输入框
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
@@ -49,20 +45,15 @@ export default function AgentChatModal({ agentId, agentName, agentAvatar, agentR
     setInput('');
     setSending(true);
 
-    // 乐观更新：先在本地添加 boss 消息
     const optimisticMsg = { role: 'boss', content: userMessage, time: new Date().toISOString() };
     setMessages(prev => [...prev, optimisticMsg]);
-
-    // 用户发送消息后自动滚动到底部
     scrollToBottom();
 
     try {
       const data = await chatWithAgent(agentId, userMessage);
-      // 用服务端返回的完整历史替换
       if (data.chatHistory) {
         setMessages(data.chatHistory);
       } else if (data.reply) {
-        // fallback: 追加 agent 回复
         setMessages(prev => [...prev, {
           role: 'agent',
           content: data.reply.reply,
@@ -70,7 +61,6 @@ export default function AgentChatModal({ agentId, agentName, agentAvatar, agentR
         }]);
       }
     } catch (e) {
-      // 回滚并显示错误
       setMessages(prev => [...prev, {
         role: 'agent',
         content: `😵 ${t('agentChat.error')}: ${e.message}`,
@@ -89,7 +79,6 @@ export default function AgentChatModal({ agentId, agentName, agentAvatar, agentR
   };
 
   const bossAvatar = company?.bossAvatar;
-  const bossName = company?.boss || 'Boss';
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[70] !m-0" onClick={onClose}>
@@ -116,7 +105,7 @@ export default function AgentChatModal({ agentId, agentName, agentAvatar, agentR
           <button onClick={onClose} className="text-[var(--muted)] hover:text-white text-xl w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white/10 transition-all">✕</button>
         </div>
 
-        {/* Messages */}
+        {/* Messages - reuse MessageBubble */}
         <div className="flex-1 overflow-auto py-3 space-y-3">
           {loadingHistory ? (
             <div className="text-center text-[var(--muted)] py-8">
@@ -129,82 +118,45 @@ export default function AgentChatModal({ agentId, agentName, agentAvatar, agentR
               <p className="text-sm mt-2">{t('agentChat.empty', { name: agentName })}</p>
             </div>
           ) : (
-            messages.map((msg, i) => {
-              const isBoss = msg.role === 'boss';
-              return (
-                <div key={i} className={`flex gap-2 ${isBoss ? 'flex-row-reverse' : ''}`}>
-                  {/* Avatar */}
-                  {isBoss ? (
-                    bossAvatar ? (
-                      <CachedAvatar src={bossAvatar} alt="boss" className="w-7 h-7 rounded-full bg-[var(--border)] shrink-0 mt-0.5" />
-                    ) : (
-                      <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">
-                        👤
-                      </div>
-                    )
-                  ) : (
-                    <CachedAvatar src={agentAvatar} alt={agentName} className="w-7 h-7 rounded-full bg-[var(--border)] shrink-0 mt-0.5" />
-                  )}
-
-                  {/* Bubble */}
-                  <div className={`max-w-[75%] ${isBoss ? 'text-right' : ''}`}>
-                    <div className={`inline-block rounded-xl px-3 py-2 text-sm ${
-                      isBoss
-                        ? 'bg-[var(--accent)]/20 text-[var(--foreground)]'
-                        : 'bg-[var(--background)] border border-[var(--border)] text-[var(--foreground)]'
-                    }`}>
-                      <ReactMarkdown
-                        components={{
-                          p: ({ children }) => <p className="mb-1 last:mb-0">{children}</p>,
-                          code: ({ inline, children }) => inline
-                            ? <code className="bg-white/10 px-1 rounded text-xs">{children}</code>
-                            : <pre className="bg-black/30 rounded p-2 my-1 overflow-auto text-xs"><code>{children}</code></pre>,
-                        }}
-                      >
-                        {msg.content}
-                      </ReactMarkdown>
-                    </div>
-                    {msg.time && (
-                      <div className={`text-[10px] text-[var(--muted)] mt-0.5 ${isBoss ? 'text-right' : ''}`}>
-                        {new Date(msg.time).toLocaleTimeString()}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })
+            messages.map((msg, i) => (
+              <MessageBubble
+                key={i}
+                isMe={msg.role === 'boss'}
+                avatar={msg.role !== 'boss' ? agentAvatar : null}
+                name={msg.role === 'boss' ? (company?.boss || 'Boss') : agentName}
+                content={msg.content}
+                time={msg.time}
+                agentId={null}
+                onClickAvatar={null}
+                bossAvatar={bossAvatar}
+              />
+            ))
           )}
           {sending && (
             <div className="flex gap-2">
               <CachedAvatar src={agentAvatar} alt={agentName} className="w-7 h-7 rounded-full bg-[var(--border)] shrink-0 mt-0.5" />
-              <div className="bg-[var(--background)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm">
-<span className="animate-pulse">💭 {t('agentChat.typing')}</span>
+              <div className="bg-[var(--card)] border border-[var(--border)] rounded-2xl rounded-bl-sm px-3 py-2 text-sm">
+                <span className="animate-pulse text-[var(--muted)]">{t('agentChat.typing')}</span>
               </div>
             </div>
           )}
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Input */}
-        <div className="pt-3 -mx-4 -mb-4 px-4 pb-4 border-t border-[var(--border)] shrink-0">
-          <div className="flex gap-2">
-            <input
-              ref={inputRef}
-              className="input flex-1"
-              placeholder={t('agentChat.inputPlaceholder', { name: agentName })}
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              disabled={sending}
-            />
-            <button
-              className="btn-primary px-4"
-              onClick={handleSend}
-              disabled={!input.trim() || sending}
-            >
-              {sending ? '⏳' : '📤'}
-            </button>
-          </div>
+        {/* Task status panel - shared */}
+        <TaskStatusPanel />
+
+        {/* Input - reuse ChatInput, with negative margin to match card padding */}
+        <div className="-mx-4 -mb-4">
+          <ChatInput
+            value={input}
+            onChange={setInput}
+            onSend={handleSend}
+            onKeyDown={handleKeyDown}
+            sending={sending}
+            placeholder={t('agentChat.inputPlaceholder', { name: agentName })}
+            inputRef={inputRef}
+          />
         </div>
       </div>
     </div>
