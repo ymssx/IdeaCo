@@ -122,7 +122,7 @@ function createWindow(port) {
     minWidth: 1024,
     minHeight: 700,
     title: 'IdeaCo',
-    icon: path.join(getResourcePath(), 'public', 'logo.jpeg'),
+    icon: path.join(getResourcePath(), 'public', 'logo.png'),
     backgroundColor: '#0a0a0a',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
