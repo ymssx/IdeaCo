@@ -35,6 +35,8 @@ export function saveAgentMemory(agentId, memoryData, meta = {}) {
       department: meta.department || 'unknown',
       shortTerm: memoryData.shortTerm || [],
       longTerm: memoryData.longTerm || [],
+      historySummary: memoryData.historySummary || {},
+      relationships: memoryData.relationships || {},
       savedAt: new Date().toISOString(),
     };
     fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
@@ -58,6 +60,8 @@ export function loadAgentMemory(agentId) {
     return {
       shortTerm: data.shortTerm || [],
       longTerm: data.longTerm || [],
+      historySummary: data.historySummary || {},
+      relationships: data.relationships || {},
     };
   } catch (e) {
     console.error(`❌ Failed to load memory [${agentId}]:`, e.message);

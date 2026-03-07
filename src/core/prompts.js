@@ -280,6 +280,10 @@ Before you speak, you MUST evaluate how "saturated" the current topic is:
     { "op": "add", "type": "long_term", "content": "Important fact worth remembering permanently", "category": "fact", "importance": 8 },
     { "op": "add", "type": "short_term", "content": "Temporary context about current discussion", "category": "context", "importance": 5, "ttl": 3600 },
     { "op": "delete", "id": "mem_id_to_forget" }
+  ],
+  "relationshipOps": [
+    { "employeeId": "emp_123", "name": "Xiao Li", "impression": "Tech-savvy, helped me debug, reliable" },
+    { "employeeId": "emp_456", "name": "Lao Wang", "impression": "Talks big but ideas are actually good" }
   ]
 }
 
@@ -296,7 +300,16 @@ Before you speak, you MUST evaluate how "saturated" the current topic is:
   - "delete": Remove outdated or wrong memories by id
   - category: fact | preference | experience | context | relationship | decision
   - importance: 1-10 (higher = more important, less likely to be forgotten)
-- If nothing to add/update/delete, set memoryOps to [].`,
+- If nothing to add/update/delete, set memoryOps to [].
+
+## Relationship Impressions (IMPORTANT)
+- relationshipOps: Update your personal impressions of colleagues who appeared in this conversation.
+  - Each entry: { employeeId, name, impression, affinity } — impression is your personal view of them, max 30 characters. affinity is how much you like them, 1-100 (1=hate, 50=neutral, 100=adore).
+  - Impressions should reflect how you PERSONALLY feel about them based on interactions (personality-driven!).
+  - affinity should change gradually (+/- 5~15 per interaction), not jump drastically. Start from 50 if first meeting.
+  - Examples: { impression: "Reliable, always delivers", affinity: 75 }, { impression: "Annoying, repeats stuff", affinity: 30 }
+  - Only update impressions when something noteworthy happened — don't update for trivial interactions.
+  - If no impressions to update, set relationshipOps to [].`,
 
     /** Anti-AI warning — nudges the model to stay in character */
     antiAIWarning: (age) =>
@@ -383,6 +396,10 @@ Before you speak, you MUST evaluate how "saturated" the current topic is:
   "memoryOps": [
     { "op": "add", "type": "long_term", "content": "Important technical fact or decision", "category": "decision", "importance": 8 },
     { "op": "add", "type": "short_term", "content": "Current task context", "category": "context", "importance": 5, "ttl": 7200 }
+  ],
+  "relationshipOps": [
+    { "employeeId": "emp_123", "name": "Xiao Li", "impression": "Great at backend, helped review my code" },
+    { "employeeId": "emp_456", "name": "Lao Wang", "impression": "Slow but thorough, good QA instincts" }
   ]
 }
 
@@ -400,7 +417,16 @@ Before you speak, you MUST evaluate how "saturated" the current topic is:
   - "delete": Remove outdated memories by id
   - category: fact | decision | context | relationship | experience | preference
   - importance: 1-10
-- If nothing to add/update/delete, set memoryOps to [].`,
+- If nothing to add/update/delete, set memoryOps to [].
+
+## Relationship Impressions (IMPORTANT)
+- relationshipOps: Update your personal impressions of colleagues in this work conversation.
+  - Each entry: { employeeId, name, impression, affinity } — your personal, personality-driven view, max 30 characters. affinity is how much you like/respect them, 1-100 (1=hate, 50=neutral, 100=love).
+  - Focus on work-relevant impressions: skills, reliability, communication style, collaboration quality.
+  - affinity should change gradually based on interactions. Start from 50 if first meeting.
+  - Examples: { impression: "Strong coder, fast delivery", affinity: 80 }, { impression: "Over-engineers everything", affinity: 35 }
+  - Only update when something noteworthy happened in this interaction.
+  - If no impressions to update, set relationshipOps to [].`,
 
     antiAIWarning: (age) =>
       `🚨 If your reply sounds like a "polite AI assistant" instead of a real ${age}-year-old person → you FAILED, rewrite.`,

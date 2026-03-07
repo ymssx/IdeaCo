@@ -13,6 +13,7 @@ export default function AgentDetailModal({ agentId, onClose }) {
   const { fetchAgentDetail } = useStore();
   const [agent, setAgent] = useState(null);
   const [activeTab, setActiveTab] = useState('info');
+  const [memorySubTab, setMemorySubTab] = useState('personal');
   const [loadingDetail, setLoadingDetail] = useState(true);
   const [showChat, setShowChat] = useState(false);
   const [showSpy, setShowSpy] = useState(false);
@@ -165,30 +166,98 @@ export default function AgentDetailModal({ agentId, onClose }) {
 
           {activeTab === 'memory' && (
             <div className="space-y-4 animate-fade-in">
-              <div>
-                <h4 className="text-sm font-medium mb-2 text-yellow-400">{t('agent.shortTermMemory', { n: agent.memory.shortTermCount })}</h4>
-                <div className="space-y-1.5">
-                  {agent.memory.shortTerm.length === 0 ? (
-                    <p className="text-xs text-[var(--muted)]">{t('agent.noShortTerm')}</p>
-                  ) : agent.memory.shortTerm.map((m) => (
-                    <div key={m.id} className="bg-yellow-900/10 border border-yellow-900/20 rounded-lg p-2 text-xs">
-                      <span className="text-yellow-500">[{m.category}]</span> {m.content}
-                    </div>
-                  ))}
-                </div>
+              {/* Memory Sub-tabs */}
+              <div className="flex gap-1 pb-2 border-b border-[var(--border)]">
+                <button
+                  onClick={() => setMemorySubTab('personal')}
+                  className={`px-3 py-1 text-xs rounded-lg transition-all ${memorySubTab === 'personal' ? 'bg-purple-500/15 text-purple-400' : 'text-[var(--muted)] hover:text-white'}`}
+                >
+                  {t('agent.memorySubTabs.personal')}
+                </button>
+                <button
+                  onClick={() => setMemorySubTab('social')}
+                  className={`px-3 py-1 text-xs rounded-lg transition-all ${memorySubTab === 'social' ? 'bg-pink-500/15 text-pink-400' : 'text-[var(--muted)] hover:text-white'}`}
+                >
+                  {t('agent.memorySubTabs.social')} ({agent.memory.relationships?.length || 0})
+                </button>
               </div>
-              <div>
-                <h4 className="text-sm font-medium mb-2 text-purple-400">{t('agent.longTermMemory', { n: agent.memory.longTermCount })}</h4>
-                <div className="space-y-1.5 max-h-60 overflow-auto">
-                  {agent.memory.longTerm.length === 0 ? (
-                    <p className="text-xs text-[var(--muted)]">{t('agent.noLongTerm')}</p>
-                  ) : agent.memory.longTerm.map((m) => (
-                    <div key={m.id} className="bg-purple-900/10 border border-purple-900/20 rounded-lg p-2 text-xs">
-                      <span className="text-purple-500">[{m.category}]</span> {m.content}
+
+              {memorySubTab === 'personal' && (
+                <div className="space-y-4">
+                  <div>
+                    <h4 className="text-sm font-medium mb-2 text-yellow-400">{t('agent.shortTermMemory', { n: agent.memory.shortTermCount })}</h4>
+                    <div className="space-y-1.5">
+                      {agent.memory.shortTerm.length === 0 ? (
+                        <p className="text-xs text-[var(--muted)]">{t('agent.noShortTerm')}</p>
+                      ) : agent.memory.shortTerm.map((m) => (
+                        <div key={m.id} className="bg-yellow-900/10 border border-yellow-900/20 rounded-lg p-2 text-xs">
+                          <span className="text-yellow-500">[{m.category}]</span> {m.content}
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-medium mb-2 text-purple-400">{t('agent.longTermMemory', { n: agent.memory.longTermCount })}</h4>
+                    <div className="space-y-1.5 max-h-60 overflow-auto">
+                      {agent.memory.longTerm.length === 0 ? (
+                        <p className="text-xs text-[var(--muted)]">{t('agent.noLongTerm')}</p>
+                      ) : agent.memory.longTerm.map((m) => (
+                        <div key={m.id} className="bg-purple-900/10 border border-purple-900/20 rounded-lg p-2 text-xs">
+                          <span className="text-purple-500">[{m.category}]</span> {m.content}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {memorySubTab === 'social' && (
+                <div>
+                  {(!agent.memory.relationships || agent.memory.relationships.length === 0) ? (
+                    <p className="text-sm text-[var(--muted)] text-center py-8">{t('agent.noRelationships')}</p>
+                  ) : (
+                    <div className="overflow-auto max-h-80">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="text-[var(--muted)] border-b border-[var(--border)]">
+                            <th className="text-left py-2 px-2 w-10"></th>
+                            <th className="text-left py-2 px-2">{t('agent.relationshipName')}</th>
+                            <th className="text-left py-2 px-2">{t('agent.relationshipAffinity')}</th>
+                            <th className="text-left py-2 px-2">{t('agent.relationshipImpression')}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {agent.memory.relationships.map((rel) => {
+                            const aff = rel.affinity || 50;
+                            const heart = aff >= 80 ? '❤️' : aff >= 60 ? '😊' : aff >= 40 ? '😐' : aff >= 20 ? '😒' : '💢';
+                            const barColor = aff >= 80 ? 'bg-red-400' : aff >= 60 ? 'bg-green-400' : aff >= 40 ? 'bg-yellow-400' : aff >= 20 ? 'bg-orange-400' : 'bg-red-600';
+                            return (
+                              <tr key={rel.employeeId} className="border-b border-[var(--border)] hover:bg-white/[0.02] transition-colors">
+                                <td className="py-2 px-2">
+                                  <div className="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-600 to-blue-700 flex items-center justify-center text-[10px]">
+                                    {rel.name?.charAt(0) || '?'}
+                                  </div>
+                                </td>
+                                <td className="py-2 px-2 font-medium text-white">{rel.name}</td>
+                                <td className="py-2 px-2">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-sm">{heart}</span>
+                                    <div className="w-16 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                                      <div className={`h-full ${barColor} rounded-full transition-all`} style={{ width: `${aff}%` }} />
+                                    </div>
+                                    <span className="text-[10px] text-[var(--muted)]">{aff}</span>
+                                  </div>
+                                </td>
+                                <td className="py-2 px-2 text-[var(--muted)] italic">{rel.impression}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

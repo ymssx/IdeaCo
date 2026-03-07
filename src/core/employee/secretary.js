@@ -309,6 +309,13 @@ You must understand the boss's intent and reply naturally. Your reply MUST be a 
     - importance: 1-10 (higher = more important, less likely to be forgotten)
     - Only add memory when the boss tells you something worth remembering. Do NOT memorize casual greetings.
     - If nothing to add/update/delete, set memoryOps to [].
+  "relationshipOps": [
+    { "employeeId": "boss", "name": "Boss", "impression": "Decisive, prefers concise updates", "affinity": 70 }
+  ]
+  Relationship impression rules:
+    - relationshipOps: Update your personal impression of the boss or other people mentioned in conversation. Max 30 chars. affinity: 1-100 (50=neutral).
+    - affinity should change gradually (+/- 5~15 per interaction). Start from 50 if first meeting.
+    - Only update when something noteworthy happened. [] if nothing to update.
   "action": null or one of the following:
     - { "type": "secretary_handle", "taskDescription": "detailed task description for yourself to execute" } - when you can handle this task yourself without needing a department (see rules below)
     - { "type": "task_assigned", "departmentId": "dept ID", "departmentName": "dept name", "taskTitle": "short task title (under 10 words)", "taskDescription": "detailed task description including what to do and what to deliver" } - when the boss wants to assign a task to an existing department
@@ -416,6 +423,14 @@ When the boss asks about progress/status/reports, return progress_report
         const memResult = this.memory.processMemoryOps(parsed.memoryOps);
         if (memResult.added + memResult.updated + memResult.deleted > 0) {
           console.log(`  🧠 [Secretary] Memory: +${memResult.added} ~${memResult.updated} -${memResult.deleted}`);
+        }
+      }
+
+      // Process relationship impressions
+      if (parsed.relationshipOps && Array.isArray(parsed.relationshipOps)) {
+        const relResult = this.memory.processRelationshipOps(parsed.relationshipOps);
+        if (relResult.updated > 0) {
+          console.log(`  👥 [Secretary] Relationship updates: ${relResult.updated}`);
         }
       }
 

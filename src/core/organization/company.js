@@ -438,7 +438,7 @@ Rules:
       + ` You work in the "${targetDept.name}" department.`
       + ` Respond naturally based on your personality and role. Be helpful but stay in character.`
       + memoryContext
-      + `\n\n## Output Format\nYou MUST return a JSON object (JSON only, nothing else):\n{\n  "content": "Your natural language reply",\n  "memorySummary": "A concise summary of older messages in this conversation — key facts, decisions, topics discussed. null if conversation just started.",\n  "memoryOps": [\n    { "op": "add", "type": "long_term", "content": "Important fact about the boss or decision made", "category": "fact", "importance": 8 },\n    { "op": "add", "type": "short_term", "content": "Current topic context", "category": "context", "importance": 5, "ttl": 3600 },\n    { "op": "delete", "id": "mem_id_to_forget" }\n  ]\n}\n\n## Memory Management\n- memorySummary: Summarize older conversation messages to compress context. Keep key info, skip chitchat. null if no old messages.\n- memoryOps: Manage your memory — add important facts/preferences about the boss as long_term, add current topic as short_term. [] if nothing to remember.\n- category: preference | fact | instruction | task | context | relationship | experience\n- importance: 1-10 (higher = more important)`;
+      + `\n\n## Output Format\nYou MUST return a JSON object (JSON only, nothing else):\n{\n  "content": "Your natural language reply",\n  "memorySummary": "A concise summary of older messages in this conversation — key facts, decisions, topics discussed. null if conversation just started.",\n  "memoryOps": [\n    { "op": "add", "type": "long_term", "content": "Important fact about the boss or decision made", "category": "fact", "importance": 8 },\n    { "op": "add", "type": "short_term", "content": "Current topic context", "category": "context", "importance": 5, "ttl": 3600 },\n    { "op": "delete", "id": "mem_id_to_forget" }\n  ],\n  "relationshipOps": [\n    { "employeeId": "boss", "name": "Boss", "impression": "Demanding but fair, values results", "affinity": 65 }\n  ]\n}\n\n## Memory Management\n- memorySummary: Summarize older conversation messages to compress context. Keep key info, skip chitchat. null if no old messages.\n- memoryOps: Manage your memory — add important facts/preferences about the boss as long_term, add current topic as short_term. [] if nothing to remember.\n- category: preference | fact | instruction | task | context | relationship | experience\n- importance: 1-10 (higher = more important)\n\n## Relationship Impressions\n- relationshipOps: Update your impression of the boss based on this conversation. Max 30 chars per impression, affinity 1-100 (50=neutral).\n- affinity should change gradually (+/- 5~15 per interaction). Start from 50 if first meeting.\n- Only update when something noteworthy happened. [] if nothing to update.`;
 
     const messages = [
       { role: 'system', content: systemMessage },
@@ -527,6 +527,14 @@ Rules:
           const result = targetAgent.memory.processMemoryOps(parsed.memoryOps);
           if (result.added + result.updated + result.deleted > 0) {
             console.log(`  🧠 [${targetAgent.name}] Boss-chat memory: +${result.added} ~${result.updated} -${result.deleted}`);
+          }
+        }
+
+        // Process relationship impressions
+        if (parsed.relationshipOps && Array.isArray(parsed.relationshipOps)) {
+          const relResult = targetAgent.memory.processRelationshipOps(parsed.relationshipOps);
+          if (relResult.updated > 0) {
+            console.log(`  👥 [${targetAgent.name}] Boss-chat relationship updates: ${relResult.updated}`);
           }
         }
       }

@@ -632,8 +632,9 @@ export class EmployeeLifecycle {
     chatContext += angleHint;
 
     // Build structured memory context from the employee's Memory system
-    // This includes: rolling history summary + long-term memories + short-term memories
-    const memoryContext = agent.memory.buildMemoryContext(requirement.id);
+    // This includes: rolling history summary + long-term memories + short-term memories + relationship impressions
+    const participantIds = members.filter(m => m.id !== agent.id).map(m => m.id);
+    const memoryContext = agent.memory.buildFullContext(requirement.id, participantIds);
 
     const p = agent.personality;
 
@@ -686,6 +687,11 @@ export class EmployeeLifecycle {
       if (result.memoryOps && Array.isArray(result.memoryOps) && result.memoryOps.length > 0) {
         const memResult = agent.memory.processMemoryOps(result.memoryOps);
         console.log(`  🧠 [Lifecycle] ${agent.name} memory ops: +${memResult.added} ~${memResult.updated} -${memResult.deleted}`);
+      }
+      // 3. Relationship impressions: AI updates its personal views of colleagues
+      if (result.relationshipOps && Array.isArray(result.relationshipOps) && result.relationshipOps.length > 0) {
+        const relResult = agent.memory.processRelationshipOps(result.relationshipOps);
+        console.log(`  👥 [Lifecycle] ${agent.name} relationship updates: ${relResult.updated}`);
       }
 
       // Anti-spam gate

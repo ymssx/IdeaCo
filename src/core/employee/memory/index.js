@@ -11,6 +11,11 @@ import { v4 as uuidv4 } from 'uuid';
  * Rolling Context System:
  *   - historySummary: per-group rolling summary of old messages (compressed by AI)
  *   - AI manages its own memory via memoryOps in chat responses
+ *
+ * Relationship Impressions:
+ *   - relationships: Map<employeeId, { name, impression, affinity, updatedAt }>
+ *   - Each employee maintains a personal impression of every colleague they've interacted with
+ *   - Impressions are ≤30 chars, affinity is 1-100 (50=neutral), updated by AI via relationshipOps
  */
 export class Memory {
   constructor() {
@@ -24,6 +29,11 @@ export class Memory {
     // key: groupId, value: string (compressed summary text)
     this.historySummary = new Map();
     this.maxSummaryLength = 2000; // Max chars for a single group's summary
+
+    // Relationship impressions: how this employee perceives each colleague
+    // key: employeeId, value: { name: string, impression: string (≤30 chars), affinity: number (1-100), updatedAt: Date }
+    this.relationships = new Map();
+    this.maxImpressionLength = 30; // Max chars per impression
   }
 
   // ======================== Short-term Memory ========================
@@ -215,6 +225,94 @@ export class Memory {
     return this.historySummary.get(groupId) || '';
   }
 
+  // ======================== Relationship Impressions ========================
+
+  /**
+   * Process relationship operations returned by AI in chat response.
+   * @param {Array} relationshipOps - Array of relationship operations from AI
+   *   Each op: { employeeId, name, impression, affinity }
+   * @returns {{ updated: number }}
+   */
+  processRelationshipOps(relationshipOps) {
+    if (!Array.isArray(relationshipOps) || relationshipOps.length === 0) {
+      return { updated: 0 };
+    }
+
+    let updated = 0;
+    for (const op of relationshipOps) {
+      try {
+        if (!op.employeeId || !op.impression) continue;
+        const impression = op.impression.slice(0, this.maxImpressionLength);
+        const existing = this.relationships.get(op.employeeId);
+        // Clamp affinity to 1-100, default to existing or 50 (neutral)
+        let affinity = 50;
+        if (typeof op.affinity === 'number') {
+          affinity = Math.max(1, Math.min(100, Math.round(op.affinity)));
+        } else if (existing?.affinity) {
+          affinity = existing.affinity;
+        }
+        this.relationships.set(op.employeeId, {
+          name: op.name || existing?.name || op.employeeId,
+          impression,
+          affinity,
+          updatedAt: new Date(),
+        });
+        updated++;
+      } catch (e) {
+        console.warn(`  ⚠️ [Memory] Failed to process relationshipOp:`, op, e.message);
+      }
+    }
+
+    if (updated > 0) {
+      console.log(`  👥 [Memory] Updated ${updated} relationship impressions`);
+    }
+
+    return { updated };
+  }
+
+  /**
+   * Build a relationship context string for prompt injection.
+   * Only includes impressions for employees present in the given participant list.
+   * @param {Array<string>} participantIds - IDs of employees in the current conversation
+   * @returns {string}
+   */
+  buildRelationshipContext(participantIds) {
+    if (!participantIds || participantIds.length === 0) return '';
+
+    const impressions = [];
+    for (const pid of participantIds) {
+      const rel = this.relationships.get(pid);
+      if (rel) {
+        const heart = rel.affinity >= 80 ? '❤️' : rel.affinity >= 60 ? '😊' : rel.affinity >= 40 ? '😐' : rel.affinity >= 20 ? '😒' : '💢';
+        impressions.push(`- ${rel.name} (${pid}): ${rel.impression} ${heart} affinity:${rel.affinity}/100`);
+      }
+    }
+
+    if (impressions.length === 0) return '';
+    return `\n\n**👥 Your impressions of colleagues in this conversation:**\n${impressions.join('\n')}`;
+  }
+
+  /**
+   * Get impression of a specific employee.
+   * @param {string} employeeId
+   * @returns {{ name: string, impression: string, affinity: number, updatedAt: Date } | null}
+   */
+  getImpression(employeeId) {
+    return this.relationships.get(employeeId) || null;
+  }
+
+  /**
+   * Get all relationship impressions.
+   * @returns {Array<{ employeeId: string, name: string, impression: string, affinity: number, updatedAt: Date }>}
+   */
+  getAllImpressions() {
+    const result = [];
+    for (const [id, rel] of this.relationships) {
+      result.push({ employeeId: id, ...rel });
+    }
+    return result;
+  }
+
   // ======================== Context Builder ========================
 
   /**
@@ -255,6 +353,19 @@ export class Memory {
     }
 
     return parts.length > 0 ? '\n\n' + parts.join('\n\n') : '';
+  }
+
+  /**
+   * Build full context including memory + relationships for a group conversation.
+   * @param {string} groupId - Current group context
+   * @param {Array<string>} [participantIds] - IDs of employees in the conversation
+   * @returns {string}
+   */
+  buildFullContext(groupId, participantIds = []) {
+    let ctx = this.buildMemoryContext(groupId);
+    const relCtx = this.buildRelationshipContext(participantIds);
+    if (relCtx) ctx += relCtx;
+    return ctx;
   }
 
   // ======================== Existing Methods (preserved) ========================
@@ -369,6 +480,7 @@ export class Memory {
       shortTermCount: this.shortTerm.length,
       longTermCount: this.longTerm.length,
       historySummaryGroups: this.historySummary.size,
+      relationshipCount: this.relationships.size,
       shortTerm: this.shortTerm.map(m => ({
         id: m.id,
         content: m.content,
@@ -381,6 +493,13 @@ export class Memory {
         content: m.content,
         category: m.category,
         importance: m.importance || 5,
+      })),
+      relationships: this.getAllImpressions().map(r => ({
+        employeeId: r.employeeId,
+        name: r.name,
+        impression: r.impression,
+        affinity: r.affinity || 50,
+        updatedAt: r.updatedAt,
       })),
     };
   }
@@ -397,6 +516,15 @@ export class Memory {
       summaryObj[k] = v;
     }
 
+    // Serialize relationships Map → plain object
+    const relObj = {};
+    for (const [k, v] of this.relationships) {
+      relObj[k] = {
+        ...v,
+        updatedAt: v.updatedAt instanceof Date ? v.updatedAt.toISOString() : v.updatedAt,
+      };
+    }
+
     return {
       shortTerm: this.shortTerm.map(m => ({
         ...m,
@@ -408,6 +536,7 @@ export class Memory {
         createdAt: m.createdAt instanceof Date ? m.createdAt.toISOString() : m.createdAt,
       })),
       historySummary: summaryObj,
+      relationships: relObj,
     };
   }
 
@@ -433,6 +562,15 @@ export class Memory {
     if (data.historySummary && typeof data.historySummary === 'object') {
       for (const [k, v] of Object.entries(data.historySummary)) {
         memory.historySummary.set(k, v);
+      }
+    }
+    // Restore relationships
+    if (data.relationships && typeof data.relationships === 'object') {
+      for (const [k, v] of Object.entries(data.relationships)) {
+        memory.relationships.set(k, {
+          ...v,
+          updatedAt: v.updatedAt ? new Date(v.updatedAt) : new Date(),
+        });
       }
     }
     return memory;
@@ -496,5 +634,9 @@ export class Memory {
       console.log(`     💾 [${m.category}] ${m.content}${imp}`);
     });
     console.log(`   History Summaries: ${this.historySummary.size} groups`);
+    console.log(`   Relationships (${this.relationships.size} colleagues):`);
+    for (const [id, rel] of this.relationships) {
+      console.log(`     👤 ${rel.name} (${id}): ${rel.impression}`);
+    }
   }
 }
