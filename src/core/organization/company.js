@@ -428,11 +428,17 @@ Rules:
     // Get recent chat history for context
     const recentMessages = chatStore.getRecentMessages(sessionId, 20);
 
-    // Build messages for LLM
+    // Build memory context from the new Memory system
+    const bossChatGroupId = `boss-chat-${agentId}`;
+    const memoryContext = targetAgent.memory.buildMemoryContext(bossChatGroupId);
+
+    // Build messages for LLM — now with structured memory + JSON output
     const systemMessage = targetAgent._buildSystemMessage()
       + `\n\n## Current Conversation\nYou are having a private 1-on-1 conversation with your boss "${this.bossName}".`
       + ` You work in the "${targetDept.name}" department.`
-      + ` Respond naturally based on your personality and role. Be helpful but stay in character.`;
+      + ` Respond naturally based on your personality and role. Be helpful but stay in character.`
+      + memoryContext
+      + `\n\n## Output Format\nYou MUST return a JSON object (JSON only, nothing else):\n{\n  "content": "Your natural language reply",\n  "memorySummary": "A concise summary of older messages in this conversation — key facts, decisions, topics discussed. null if conversation just started.",\n  "memoryOps": [\n    { "op": "add", "type": "long_term", "content": "Important fact about the boss or decision made", "category": "fact", "importance": 8 },\n    { "op": "add", "type": "short_term", "content": "Current topic context", "category": "context", "importance": 5, "ttl": 3600 },\n    { "op": "delete", "id": "mem_id_to_forget" }\n  ]\n}\n\n## Memory Management\n- memorySummary: Summarize older conversation messages to compress context. Keep key info, skip chitchat. null if no old messages.\n- memoryOps: Manage your memory — add important facts/preferences about the boss as long_term, add current topic as short_term. [] if nothing to remember.\n- category: preference | fact | instruction | task | context | relationship | experience\n- importance: 1-10 (higher = more important)`;
 
     const messages = [
       { role: 'system', content: systemMessage },
@@ -500,6 +506,32 @@ Rules:
       } catch (err) {
         replyContent = `(Sorry boss, my brain froze: ${err.message})`;
       }
+    }
+
+    // Process structured memory from AI response (new Memory system)
+    try {
+      const { robustJSONParse } = await import('../utils/json-parse.js');
+      const parsed = robustJSONParse(replyContent);
+      if (parsed && parsed.content) {
+        // Extract actual reply content from JSON
+        replyContent = parsed.content;
+
+        // Process rolling history summary
+        if (parsed.memorySummary) {
+          targetAgent.memory.updateHistorySummary(bossChatGroupId, parsed.memorySummary);
+          console.log(`  📜 [${targetAgent.name}] Boss-chat history summary updated`);
+        }
+
+        // Process memory operations
+        if (parsed.memoryOps && Array.isArray(parsed.memoryOps)) {
+          const result = targetAgent.memory.processMemoryOps(parsed.memoryOps);
+          if (result.added + result.updated + result.deleted > 0) {
+            console.log(`  🧠 [${targetAgent.name}] Boss-chat memory: +${result.added} ~${result.updated} -${result.deleted}`);
+          }
+        }
+      }
+    } catch (e) {
+      // JSON parse failed — replyContent is plain text, that's fine
     }
 
     // Append agent reply

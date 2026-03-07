@@ -274,12 +274,29 @@ Before you speak, you MUST evaluate how "saturated" the current topic is:
   "topicSaturation": 5,
   "shouldSpeak": true,
   "reason": "reason",
-  "messages": [{ "content": "your reply" }]
+  "messages": [{ "content": "your reply" }],
+  "memorySummary": "A concise summary of the OLD messages marked as 'already read' — preserve key facts, decisions, names, numbers. null if no old messages need summarizing.",
+  "memoryOps": [
+    { "op": "add", "type": "long_term", "content": "Important fact worth remembering permanently", "category": "fact", "importance": 8 },
+    { "op": "add", "type": "short_term", "content": "Temporary context about current discussion", "category": "context", "importance": 5, "ttl": 3600 },
+    { "op": "delete", "id": "mem_id_to_forget" }
+  ]
 }
 
 - topicSaturation: 1-10 score of how saturated/exhausted the current topic is. Be honest!
 - When topicSaturation ≥ 7, you MUST set shouldSpeak: false.
-- When not speaking, messages should be [].`,
+- When not speaking, messages should be [].
+
+## Memory Management (IMPORTANT)
+- memorySummary: Summarize the OLD (already read) messages into a brief recap. Keep key info: who said what important thing, decisions made, facts shared. Skip pure chitchat. Set to null if there are no old messages to summarize.
+- memoryOps: Optional array of memory operations. Use this to manage your own memory:
+  - "add" + "long_term": Important facts about people, relationships, decisions, preferences (stays forever)
+  - "add" + "short_term": Temporary context like current topics, ongoing discussions (auto-expires, ttl in seconds, default 24h)
+  - "update": Update an existing memory by id with new content
+  - "delete": Remove outdated or wrong memories by id
+  - category: fact | preference | experience | context | relationship | decision
+  - importance: 1-10 (higher = more important, less likely to be forgotten)
+- If nothing to add/update/delete, set memoryOps to [].`,
 
     /** Anti-AI warning — nudges the model to stay in character */
     antiAIWarning: (age) =>
@@ -361,13 +378,29 @@ Before you speak, you MUST evaluate how "saturated" the current topic is:
   "topicSaturation": 5,
   "shouldSpeak": true/false,
   "reason": "reason",
-  "messages": [{ "content": "your message (use @[agentId] to @ others, use [[file:path]] to reference files)" }]
+  "messages": [{ "content": "your message (use @[agentId] to @ others, use [[file:path]] to reference files)" }],
+  "memorySummary": "A concise summary of the OLD messages — preserve key facts, decisions, names, technical details. null if no old messages.",
+  "memoryOps": [
+    { "op": "add", "type": "long_term", "content": "Important technical fact or decision", "category": "decision", "importance": 8 },
+    { "op": "add", "type": "short_term", "content": "Current task context", "category": "context", "importance": 5, "ttl": 7200 }
+  ]
 }
 
 - topicSaturation: 1-10 score of how saturated/exhausted the current discussion point is. Be honest!
 - When topicSaturation ≥ 7, you MUST set shouldSpeak: false (unless directly asked).
 - When not speaking, messages should be [].
-- When mentioning files, use [[file:relative/path]] format so others can click to view the file.`,
+- When mentioning files, use [[file:relative/path]] format so others can click to view the file.
+
+## Memory Management (IMPORTANT)
+- memorySummary: Summarize the OLD (already read) messages. Preserve: key decisions, technical details, who is working on what, problems found. Skip filler. null if no old messages.
+- memoryOps: Optional array of memory operations:
+  - "add" + "long_term": Technical decisions, architecture choices, colleague expertise, important facts
+  - "add" + "short_term": Current task status, ongoing discussions, temporary blockers (ttl in seconds)
+  - "update": Update existing memory by id
+  - "delete": Remove outdated memories by id
+  - category: fact | decision | context | relationship | experience | preference
+  - importance: 1-10
+- If nothing to add/update/delete, set memoryOps to [].`,
 
     antiAIWarning: (age) =>
       `🚨 If your reply sounds like a "polite AI assistant" instead of a real ${age}-year-old person → you FAILED, rewrite.`,

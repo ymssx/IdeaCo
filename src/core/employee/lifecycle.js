@@ -548,17 +548,19 @@ export class EmployeeLifecycle {
 
       this._activeMonologues.delete(groupId);
 
-      // Save agent memory
+      // Save agent memory — now uses the structured Memory system.
+      // The AI-driven memoryOps (processed in _agentThink) handle long-term/short-term memory.
+      // Here we still keep a lightweight _agentMemory for backward compat (e.g. monologue peek).
       if (!this._agentMemory.has(groupId)) this._agentMemory.set(groupId, []);
-      const memory = this._agentMemory.get(groupId);
+      const legacyMemory = this._agentMemory.get(groupId);
       const memoryThoughts = monologue.thoughts
         .filter(t => !t.content.startsWith('[Sent to group]') && !t.content.startsWith('[Self-regulation]'))
         .map(t => t.content);
       if (memoryThoughts.length > 0) {
         const summary = memoryThoughts[memoryThoughts.length - 1];
         const action = monologue.decision === 'spoke' ? '[spoke]' : '[silent]';
-        memory.push(`${action} ${summary.slice(0, 200)}`);
-        if (memory.length > 10) this._agentMemory.set(groupId, memory.slice(-10));
+        legacyMemory.push(`${action} ${summary.slice(0, 200)}`);
+        if (legacyMemory.length > 10) this._agentMemory.set(groupId, legacyMemory.slice(-10));
       }
 
       this._emit('monologue:end', {
@@ -629,11 +631,9 @@ export class EmployeeLifecycle {
     chatContext += dedupeWarning;
     chatContext += angleHint;
 
-    // Agent memory context
-    const agentMemory = this._agentMemory.get(requirement.id) || [];
-    const memoryContext = agentMemory.length > 0
-      ? `\n\n**🧠 Your previous thoughts in this group (your memory):**\n${agentMemory.slice(-5).map((m, i) => `${i + 1}. ${m}`).join('\n')}`
-      : '';
+    // Build structured memory context from the employee's Memory system
+    // This includes: rolling history summary + long-term memories + short-term memories
+    const memoryContext = agent.memory.buildMemoryContext(requirement.id);
 
     const p = agent.personality;
 
@@ -675,6 +675,18 @@ export class EmployeeLifecycle {
           ? `[Inner thought] ${result.reason}`
           : `[Read group messages, processing...]`;
       monologue.addThought(thoughtContent);
+
+      // ── Process AI-driven memory management ──
+      // 1. Rolling history summary: AI compresses old messages into a summary
+      if (result.memorySummary && typeof result.memorySummary === 'string' && result.memorySummary.trim()) {
+        agent.memory.updateHistorySummary(groupId, result.memorySummary.trim());
+        console.log(`  📜 [Lifecycle] ${agent.name} updated history summary for ${groupId} (${result.memorySummary.trim().length} chars)`);
+      }
+      // 2. Memory operations: AI adds/updates/deletes its own memories
+      if (result.memoryOps && Array.isArray(result.memoryOps) && result.memoryOps.length > 0) {
+        const memResult = agent.memory.processMemoryOps(result.memoryOps);
+        console.log(`  🧠 [Lifecycle] ${agent.name} memory ops: +${memResult.added} ~${memResult.updated} -${memResult.deleted}`);
+      }
 
       // Anti-spam gate
       const spamCheck = this._getSpamInfo(requirement.id, isDeptChat);

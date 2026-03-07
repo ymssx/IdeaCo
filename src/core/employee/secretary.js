@@ -273,17 +273,9 @@ When communicating with the boss, you need to:
       }
     } catch {}
 
-    let memorySection = '';
-    const longTermMemories = this.memory.searchLongTerm();
-    const shortTermMemories = this.memory.shortTerm;
-    if (longTermMemories.length > 0) {
-      memorySection += `\n## Your Long-term Memories (important facts, preferences, and notes from the boss)\n`;
-      longTermMemories.slice(-30).forEach(m => { memorySection += `- [${m.category}] ${m.content}\n`; });
-    }
-    if (shortTermMemories.length > 0) {
-      memorySection += `\n## Your Short-term Memories (recent context)\n`;
-      shortTermMemories.forEach(m => { memorySection += `- ${m.content}\n`; });
-    }
+    // Build memory context using the unified Memory system
+    const secretaryChatGroupId = `secretary-boss-chat`;
+    const memorySection = this.memory.buildMemoryContext(secretaryChatGroupId);
 
     const systemPrompt = `You are "${this.name}", the personal secretary of ${company.bossName || 'the Boss'}.
 ${secretaryPrompt ? `\nYour core persona: ${secretaryPrompt}\n` : ''}
@@ -300,13 +292,23 @@ ${capabilitiesSection}
 You must understand the boss's intent and reply naturally. Your reply MUST be a JSON object (return JSON only, nothing else):
 {
   "content": "Your natural language reply (like a real secretary — warm, personal, no rigid templates)",
-  "memory": null or an array of items to remember for future reference, e.g.:
-    [ { "type": "long", "content": "Boss prefers weekly reports on Monday", "category": "preference" },
-      { "type": "short", "content": "Boss asked about Q3 revenue data", "category": "task" } ]
-    - type: "long" for important, persistent facts/preferences/instructions (stored permanently), "short" for temporary context
-    - category: "preference" (boss preferences/habits), "fact" (important facts/data), "instruction" (standing orders), "task" (current task context), "experience" (lessons learned)
-    - Only add memory when the boss tells you something worth remembering (preferences, important info, standing instructions, key decisions). Do NOT memorize casual greetings or trivial chat.
-    - If nothing needs to be remembered, set memory to null.
+  "memorySummary": "A concise summary of older conversation messages — keep key facts, decisions, instructions, names. null if conversation just started or no old messages to summarize.",
+  "memoryOps": [
+    { "op": "add", "type": "long_term", "content": "Boss prefers weekly reports on Monday", "category": "preference", "importance": 8 },
+    { "op": "add", "type": "short_term", "content": "Boss asked about Q3 revenue data", "category": "task", "importance": 5, "ttl": 3600 },
+    { "op": "update", "id": "existing_mem_id", "content": "Updated content", "importance": 7 },
+    { "op": "delete", "id": "outdated_mem_id" }
+  ]
+  Memory management rules:
+    - memoryOps: Array of memory operations to manage your knowledge base
+    - "add" + "long_term": Important facts, boss preferences, standing instructions, key decisions (stays forever)
+    - "add" + "short_term": Current task context, temporary info (auto-expires, ttl in seconds, default 24h)
+    - "update": Modify an existing memory by id when info changes
+    - "delete": Remove outdated or incorrect memories by id
+    - category: preference | fact | instruction | task | context | relationship | experience | decision
+    - importance: 1-10 (higher = more important, less likely to be forgotten)
+    - Only add memory when the boss tells you something worth remembering. Do NOT memorize casual greetings.
+    - If nothing to add/update/delete, set memoryOps to [].
   "action": null or one of the following:
     - { "type": "secretary_handle", "taskDescription": "detailed task description for yourself to execute" } - when you can handle this task yourself without needing a department (see rules below)
     - { "type": "task_assigned", "departmentId": "dept ID", "departmentName": "dept name", "taskTitle": "short task title (under 10 words)", "taskDescription": "detailed task description including what to do and what to deliver" } - when the boss wants to assign a task to an existing department
@@ -403,16 +405,17 @@ When the boss asks about progress/status/reports, return progress_report
 
       console.log(`🤖 [Secretary-LLM] action type: ${result.action?.type || 'null'}, departmentId: ${result.action?.departmentId || 'N/A'}`);
 
-      if (parsed.memory && Array.isArray(parsed.memory)) {
-        for (const mem of parsed.memory) {
-          if (!mem.content) continue;
-          if (mem.type === 'long') {
-            this.memory.addLongTerm(mem.content, mem.category || 'experience');
-            console.log(`🧠 [Secretary] Stored long-term memory: [${mem.category || 'experience'}] ${mem.content.slice(0, 80)}`);
-          } else {
-            this.memory.addShortTerm(mem.content, mem.category || 'task');
-            console.log(`🧠 [Secretary] Stored short-term memory: ${mem.content.slice(0, 80)}`);
-          }
+      // Process rolling history summary (new Memory system)
+      if (parsed.memorySummary) {
+        this.memory.updateHistorySummary(secretaryChatGroupId, parsed.memorySummary);
+        console.log(`  📜 [Secretary] History summary updated`);
+      }
+
+      // Process memory operations (new unified format)
+      if (parsed.memoryOps && Array.isArray(parsed.memoryOps)) {
+        const memResult = this.memory.processMemoryOps(parsed.memoryOps);
+        if (memResult.added + memResult.updated + memResult.deleted > 0) {
+          console.log(`  🧠 [Secretary] Memory: +${memResult.added} ~${memResult.updated} -${memResult.deleted}`);
         }
       }
 
@@ -506,16 +509,17 @@ When the boss asks about progress/status/reports, return progress_report
       let result = { content: displayContent, action };
       console.log(`🤖 [Secretary-LLM-FaultTolerant] action type: ${result.action?.type || 'null'}`);
 
+      // Try to extract memory ops from malformed JSON (fault-tolerant)
       try {
-        const memoryMatch = response.content.match(/"memory"\s*:\s*(\[\s*\{[\s\S]*?\}\s*\])/);
-        if (memoryMatch) {
-          const memories = JSON.parse(memoryMatch[1]);
-          if (Array.isArray(memories)) {
-            for (const mem of memories) {
-              if (!mem.content) continue;
-              if (mem.type === 'long') this.memory.addLongTerm(mem.content, mem.category || 'experience');
-              else this.memory.addShortTerm(mem.content, mem.category || 'task');
-            }
+        const summaryMatch = response.content.match(/"memorySummary"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+        if (summaryMatch) {
+          this.memory.updateHistorySummary(secretaryChatGroupId, summaryMatch[1].replace(/\\n/g, '\n'));
+        }
+        const memOpsMatch = response.content.match(/"memoryOps"\s*:\s*(\[\s*\{[\s\S]*?\}\s*\])/);
+        if (memOpsMatch) {
+          const ops = JSON.parse(memOpsMatch[1]);
+          if (Array.isArray(ops)) {
+            this.memory.processMemoryOps(ops);
           }
         }
       } catch {}
@@ -531,14 +535,7 @@ When the boss asks about progress/status/reports, return progress_report
 
     const secretaryPrompt = this.prompt || '';
 
-    let memoryContext = '';
-    const longTermMemories = this.memory.searchLongTerm();
-    if (longTermMemories.length > 0) {
-      memoryContext += '\n## Your memories (for reference):\n';
-      longTermMemories.slice(-15).forEach(m => {
-        memoryContext += `- [${m.category}] ${m.content}\n`;
-      });
-    }
+    const memoryContext = this.memory.buildMemoryContext('secretary-task-exec');
 
     const systemPrompt = `You are "${this.name}", the personal secretary of ${company.bossName || 'the Boss'}.
 ${secretaryPrompt ? `\nYour persona: ${secretaryPrompt}\n` : ''}
