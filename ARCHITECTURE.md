@@ -48,7 +48,7 @@ The Agent layer is a **pure communication engine** — it only handles LLM input
 BaseAgent (abstract)
   ├── LLMAgent     — OpenAI-compatible API (API key auth)
   ├── CLIAgent     — Local CLI tools (Claude Code, Codex, CodeBuddy)
-  └── WebAgent     — Browser-based Web API (ChatGPT Web, Claude Web)
+└── WebAgent     — Browser DOM automation (ChatGPT Web, Claude Web)
 ```
 
 **Unified Interface:**
@@ -61,7 +61,7 @@ BaseAgent (abstract)
 **Internal differentiation (not exposed):**
 - **LLMAgent**: Native function calling via OpenAI SDK
 - **CLIAgent**: Subprocess execution, stdout parsing, fallback to LLM
-- **WebAgent**: Cookie session management, conversation ID tracking, tool-call simulation via prompt
+- **WebAgent**: Hidden BrowserWindow DOM scripting, per-employee session isolation, tool-call simulation via prompt
 
 ---
 

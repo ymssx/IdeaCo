@@ -2,15 +2,16 @@ import { BaseAgent } from '../base-agent.js';
 import { webClientRegistry } from './web-client.js';
 
 /**
- * WebAgent — Communication engine powered by browser cookie-based web APIs.
+ * WebAgent — Communication engine powered by browser DOM automation.
  *
- * Uses session cookies to call web chat interfaces (e.g. ChatGPT web, Claude web)
- * instead of official API keys. This is a parallel agent type alongside LLMAgent and CLIAgent.
+ * Opens a hidden Electron BrowserWindow, lets the user log in once, then controls
+ * the web chat interface (e.g. ChatGPT web, Claude web) via DOM scripting.
+ * No API key required — uses the user's existing subscription.
  *
  * Limitations vs LLMAgent:
- * - No native tool calling (web APIs don't expose function calling)
+ * - No native tool calling (web UIs don't expose function calling)
  * - Simulates tool calls by embedding tool definitions in the system prompt
- * - Cookie sessions may expire and need re-authentication
+ * - Session may expire and need re-login
  */
 export class WebAgent extends BaseAgent {
   /**

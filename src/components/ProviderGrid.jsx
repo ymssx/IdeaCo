@@ -46,7 +46,7 @@ export default function ProviderGrid({
   const [configTarget, setConfigTarget] = useState(null);
   const [apiKey, setApiKey] = useState('');
 
-  // Web/cookie config state
+  // Web agent config state
   const [webConfigTarget, setWebConfigTarget] = useState(null);
   const [cookieValue, setCookieValue] = useState('');
   const [cookieTestResult, setCookieTestResult] = useState(null);
@@ -334,7 +334,7 @@ export default function ProviderGrid({
                         }
                       }}
                     >
-                      {p.enabled ? t('common.manage') : '🍪 Cookie'}
+                      {p.enabled ? t('common.manage') : '🌐 Login'}
                     </button>
                   ) : (
                     <button
@@ -423,7 +423,7 @@ export default function ProviderGrid({
         </div>
       )}
 
-      {/* Web/Cookie config modal */}
+      {/* Web Agent config modal */}
       {webConfigTarget && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 !m-0" onClick={() => setWebConfigTarget(null)}>
           <div className="card max-w-md w-full mx-4 space-y-4" onClick={e => e.stopPropagation()}>
@@ -470,6 +470,7 @@ export default function ProviderGrid({
                 <>🚀 {t('providers.webConfigure.autoLoginBtn')}</>
               )}
             </button>
+            <p className="text-[10px] text-[var(--muted)]">{t('providers.webConfigure.loginHint')}</p>
             {/* Selector Calibration */}
             {isElectron && (
               <div className="p-3 rounded-lg bg-white/5 border border-[var(--border)] space-y-2">
@@ -521,22 +522,6 @@ export default function ProviderGrid({
                 )}
               </div>
             )}
-            {/* Divider */}
-            <div className="flex items-center gap-3 text-[10px] text-[var(--muted)]">
-              <div className="flex-1 h-px bg-[var(--border)]" />
-              <span>{t('providers.webConfigure.orManual')}</span>
-              <div className="flex-1 h-px bg-[var(--border)]" />
-            </div>
-            <div>
-              <label className="block text-sm mb-1 text-[var(--muted)]">{t('providers.webConfigure.cookieLabel')}</label>
-              <textarea
-                className="input w-full h-24 text-xs font-mono resize-none"
-                placeholder={t('providers.webConfigure.cookiePlaceholder')}
-                value={cookieValue}
-                onChange={e => { setCookieValue(e.target.value); setCookieTestResult(null); }}
-              />
-              <p className="text-[10px] text-[var(--muted)] mt-1">{t('providers.webConfigure.cookieHint')}</p>
-            </div>
             {cookieTestResult && (
               <div className={`text-xs p-2 rounded ${cookieTestResult.ok ? 'bg-green-900/20 text-green-400' : 'bg-red-900/20 text-red-400'}`}>
                 {cookieTestResult.ok ? t('providers.webConfigure.testSuccess') : t('providers.webConfigure.testFailed', { error: cookieTestResult.error })}
@@ -552,38 +537,6 @@ export default function ProviderGrid({
                   {t('common.disable')}
                 </button>
               )}
-              <button
-                className="flex-1 px-3 py-2 rounded-lg text-xs bg-cyan-900/30 text-cyan-400 hover:bg-cyan-900/50 transition-all disabled:opacity-50"
-                disabled={!cookieValue || cookieTesting}
-                onClick={async () => {
-                  setCookieTesting(true);
-                  setCookieTestResult(null);
-                  try {
-                    const res = await fetch(`/api/providers/${webConfigTarget.id}/test-cookie`, {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ cookie: cookieValue }),
-                    });
-                    const data = await res.json();
-                    setCookieTestResult(data);
-                  } catch (e) {
-                    setCookieTestResult({ ok: false, error: e.message });
-                  }
-                  setCookieTesting(false);
-                }}
-              >
-                {cookieTesting ? t('providers.webConfigure.testing') : t('providers.webConfigure.testBtn')}
-              </button>
-              <button
-                className="btn-primary flex-1"
-                disabled={!cookieValue}
-                onClick={async () => {
-                  await configureProvider(webConfigTarget.id, cookieValue);
-                  setWebConfigTarget(null);
-                }}
-              >
-                {webConfigTarget.enabled ? t('common.update') : t('common.enable')}
-              </button>
             </div>
           </div>
         </div>

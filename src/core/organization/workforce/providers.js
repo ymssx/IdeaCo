@@ -11,7 +11,7 @@ export const JobCategory = {
   MUSIC: 'music',           // Music positions
   VIDEO: 'video',           // Video positions
   CLI: 'cli',               // CLI coding assistant positions (local CLI tools)
-  BROWSER: 'browser',       // Browser cookie-based web chat (no API key needed)
+  BROWSER: 'browser',       // Browser DOM-based web chat (no API key needed)
 };
 
 // Job category label mapping (i18n keys for frontend)
@@ -234,9 +234,9 @@ export const ModelProviders = {
   // They appear in the Brain Providers board as a separate "CLI" category.
   // When enabled, HR can recruit agents that use local CLI tools as execution engines.
 
-  // === Browser (Cookie-based) Providers ===
-  // These use browser session cookies instead of API keys.
-  // The user logs in via browser, we extract cookies, and call the web API directly.
+  // === Browser (DOM-based) Providers ===
+  // These use Electron's hidden BrowserWindow to interact with web chat UIs via DOM scripting.
+  // The user logs in once via browser, then IdeaCo controls the page automatically.
   CHATGPT_WEB: {
     id: 'web-chatgpt-4o',
     name: 'ChatGPT (Browser)',
@@ -246,12 +246,12 @@ export const ModelProviders = {
     category: JobCategory.BROWSER,
     capabilities: ['text-generation', 'coding', 'data-analysis', 'reasoning', 'translation'],
     costPerToken: 0,
-    priceLabel: 'Free (cookie)',
+    priceLabel: 'Free (browser)',
     priceLevel: 1,
     rating: 95,
-    description: 'ChatGPT via browser cookie — no API key needed, uses your existing ChatGPT subscription',
-    apiKey: '',      // Not used — cookie is stored separately
-    cookie: '',      // Browser session cookie
+    description: 'ChatGPT via browser DOM automation — no API key needed, uses your existing ChatGPT subscription',
+    apiKey: '',      // Not used — session managed by Electron's Chromium
+    cookie: '',      // Legacy field, kept for backward compatibility
     enabled: false,
     isWeb: true,
   },
@@ -333,7 +333,7 @@ export class ProviderRegistry {
       provider.enabled = !!apiKey;
       return provider;
     }
-    // Web/browser providers use cookie instead of API key
+    // Web/browser providers use DOM-based session (cookie field kept for backward compat)
     if (provider.isWeb) {
       provider.cookie = apiKey;  // apiKey field carries the cookie string
       provider.enabled = !!apiKey;
@@ -355,10 +355,10 @@ export class ProviderRegistry {
       provider.enabled = enabled;
       return provider;
     }
-    // Web providers need cookie instead of API key
+    // Web providers use DOM-based browser session (cookie field kept for backward compat)
     if (provider.isWeb) {
       if (enabled && !provider.cookie) {
-        throw new Error(`Provider ${provider.name} has no cookie configured, cannot enable`);
+        throw new Error(`Provider ${provider.name} has no browser session configured, cannot enable`);
       }
       provider.enabled = enabled;
       return provider;

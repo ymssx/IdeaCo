@@ -1478,7 +1478,7 @@ const dept = this.findDepartment(departmentId);
     const provider = this.providerRegistry.configure(providerId, apiKey);
     // Sync with the appropriate client
     if (provider.isWeb) {
-      // For web providers, apiKey carries the cookie string
+      // For web providers, apiKey carries the session token (legacy cookie field)
       webClientRegistry.configureCookie(providerId, apiKey);
     } else {
       // Clear LLM client cache to ensure next call uses new apiKey
@@ -2328,7 +2328,7 @@ const dept = this.findDepartment(departmentId);
       });
     });
 
-    // Serialize provider configs (only save API Key/cookie and enabled state)
+    // Serialize provider configs (only save API Key/session and enabled state)
     const providerConfigs = {};
     this.providerRegistry.listAll().forEach(p => {
       if (p.apiKey || p.cookie || p.enabled) {
@@ -2411,7 +2411,7 @@ const dept = this.findDepartment(departmentId);
     if (data.providerConfigs) {
       for (const [pid, cfg] of Object.entries(data.providerConfigs)) {
         try {
-          // For web providers, restore cookie and configure webClientRegistry
+          // For web providers, restore session and configure webClientRegistry
           if (cfg.cookie) {
             const provider = company.providerRegistry.getById(pid);
             if (provider && provider.isWeb) {

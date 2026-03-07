@@ -136,7 +136,7 @@ stats: { departments: 'Dptos', workers: 'Obreros', requirements: 'Requisitos' },
   providers: {
     title: '⚡ Proveedores IA', subtitle: 'Configura API Keys para que RR.HH. pueda reclutar.',
     hint: { title: '💡 Estrategia de RR.HH.', desc: 'RR.HH. prioriza proveedores con <strong class="text-green-400">alta puntuación + bajo precio</strong>.' },
-    categories: { general: 'General', drawing: 'Dibujo', music: 'Música', video: 'Video', cli: 'Motores de Código Local', browser: 'Navegador (Cookie)' },
+    categories: { general: 'General', drawing: 'Dibujo', music: 'Música', video: 'Video', cli: 'Motores de Código Local', browser: 'Navegador (DOM)' },
     enabled: '{n}/{total} habilitados',
     configure: { title: '🔑 Configurar {name}', provider: 'Proveedor: {name}', apiKeyLabel: 'API Key', apiKeyPlaceholder: 'Ingresa API Key' },
     talentMarket: { btn: 'Mercado de Talentos' },

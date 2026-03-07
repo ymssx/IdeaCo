@@ -136,7 +136,7 @@ stats: { departments: 'Dpts', workers: 'Ouvriers', requirements: 'Exigences' },
   providers: {
     title: '⚡ Fournisseurs IA', subtitle: 'Configurez les clés API pour que les RH puissent recruter.',
     hint: { title: '💡 Stratégie RH', desc: 'Les RH privilégient les fournisseurs avec <strong class="text-green-400">haute note + bas prix</strong>.' },
-    categories: { general: 'Général', drawing: 'Dessin', music: 'Musique', video: 'Vidéo', cli: 'Moteurs de Code Locaux', browser: 'Navigateur (Cookie)' },
+    categories: { general: 'Général', drawing: 'Dessin', music: 'Musique', video: 'Vidéo', cli: 'Moteurs de Code Locaux', browser: 'Navigateur (DOM)' },
     enabled: '{n}/{total} activés',
     configure: { title: '🔑 Configurer {name}', provider: 'Fournisseur : {name}', apiKeyLabel: 'Clé API', apiKeyPlaceholder: 'Entrez la clé API' },
     talentMarket: { btn: 'Marché des Talents' },

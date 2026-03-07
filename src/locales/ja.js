@@ -155,7 +155,7 @@ stats: { departments: '部門', workers: '社員', requirements: '要件' },
   providers: {
     title: '⚡ AIプロバイダー', subtitle: 'API Keyを設定すると、HRが対応する社員を採用できます。',
     hint: { title: '💡 HR採用戦略', desc: 'HRは<strong class="text-green-400">高評価＋低価格</strong>のプロバイダーを優先します。' },
-    categories: { general: '汎用職', drawing: '描画職', music: '音楽職', video: '動画職', cli: 'ローカルコーディングエンジン', browser: 'ブラウザ (Cookie)' },
+    categories: { general: '汎用職', drawing: '描画職', music: '音楽職', video: '動画職', cli: 'ローカルコーディングエンジン', browser: 'ブラウザ (DOM)' },
     enabled: '{n}/{total} 有効',
     configure: { title: '🔑 {name}を設定', provider: 'プロバイダー: {name}', apiKeyLabel: 'API Key', apiKeyPlaceholder: 'API Keyを入力' },
     talentMarket: { btn: '人材市場' },
