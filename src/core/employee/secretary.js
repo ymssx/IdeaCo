@@ -313,7 +313,7 @@ You must understand the boss's intent and reply naturally. Your reply MUST be a 
     { "employeeId": "boss", "name": "Boss", "impression": "Decisive, prefers concise updates", "affinity": 70 }
   ]
   Relationship impression rules:
-    - relationshipOps: Update your personal impression of the boss or other people mentioned in conversation. Max 30 chars. affinity: 1-100 (50=neutral).
+    - relationshipOps: Update your personal impression of the boss or other people mentioned in conversation. Max 200 chars. affinity: 1-100 (50=neutral).
     - affinity should change gradually (+/- 5~15 per interaction). Start from 50 if first meeting.
     - Only update when something noteworthy happened. [] if nothing to update.
   "action": null or one of the following:

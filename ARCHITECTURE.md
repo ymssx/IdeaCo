@@ -262,7 +262,7 @@ Memory
 | 1 | Reply | `messages[]` — actual messages sent to group chat |
 | 2 | Memory Ops | `memoryOps[]` — add/delete long-term & short-term entries with importance and category |
 | 3 | History Summary | `memorySummary` — compressed key points, incrementally appended |
-| 4 | Social Memory | `relationshipOps[]` — update impressions (≤30 chars) and affinity (1–100) |
+| 4 | Social Memory | `relationshipOps[]` — update impressions (≤200 chars) and affinity (1–100) |
 | 5 | Actions | Tool calls (shell, file ops) or command execution |
 
 ### Social Memory (Relationships)
@@ -273,12 +273,12 @@ Each employee maintains an impression table for every other employee (including 
 |-------|-------------|
 | `employeeId` | Target employee ID |
 | `name` | Target name |
-| `impression` | ≤30 characters (e.g., "Great coder, helped me debug, reliable") |
+| `impression` | ≤200 characters (e.g., "Great coder, helped me debug, reliable") |
 | `affinity` | 1–100 scale (1=hostile, 50=neutral, 100=best friend), ±5–15 per interaction |
 
 - Social memories are only injected when the corresponding employee appears in the chat
 - Affinity displayed as emoji: ❤️(≥80) 😊(≥60) 😐(≥40) 😒(≥20) 💢(<20)
-- Token cost is minimal: ~30 chars per person, 10 colleagues ≈ 150 tokens
+- Token cost is minimal: ~200 chars per person, 10 colleagues ≈ 1000 tokens
 
 ### Memory Management Strategies
 

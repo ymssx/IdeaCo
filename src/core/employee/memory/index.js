@@ -15,7 +15,7 @@ import { v4 as uuidv4 } from 'uuid';
  * Relationship Impressions:
  *   - relationships: Map<employeeId, { name, impression, affinity, updatedAt }>
  *   - Each employee maintains a personal impression of every colleague they've interacted with
- *   - Impressions are ≤30 chars, affinity is 1-100 (50=neutral), updated by AI via relationshipOps
+ *   - Impressions are ≤200 chars, affinity is 1-100 (50=neutral), updated by AI via relationshipOps
  */
 export class Memory {
   constructor() {
@@ -31,9 +31,9 @@ export class Memory {
     this.maxSummaryLength = 2000; // Max chars for a single group's summary
 
     // Relationship impressions: how this employee perceives each colleague
-    // key: employeeId, value: { name: string, impression: string (≤30 chars), affinity: number (1-100), updatedAt: Date }
+    // key: employeeId, value: { name: string, impression: string (≤200 chars), affinity: number (1-100), updatedAt: Date }
     this.relationships = new Map();
-    this.maxImpressionLength = 30; // Max chars per impression
+    this.maxImpressionLength = 200; // Max chars per impression
   }
 
   // ======================== Short-term Memory ========================
