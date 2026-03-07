@@ -578,15 +578,16 @@ content: `⚠️ ${t('mailbox.sendFailed')}: ${err.message}`,
         <div ref={chatEndRef} />
       </div>
 
-      {/* 心流中的员工提示条 */}
+      {/* 心流中的员工提示条 — 轻量：只显示谁在思考/谁刚思考完，点名字看详情 */}
       {activeThinking.length > 0 && (() => {
         const thinking = activeThinking.filter(a => a.status === 'thinking');
         const done = activeThinking.filter(a => a.status === 'done');
+        if (thinking.length === 0 && done.length === 0) return null;
         return (
-          <div className="px-4 py-2 bg-purple-900/20 border-t border-purple-500/20 shrink-0 space-y-2 max-h-60 overflow-y-auto">
-            {/* 正在思考的员工 */}
+          <div className="px-4 py-1.5 bg-purple-900/15 border-t border-purple-500/20 shrink-0 flex items-center flex-wrap gap-x-3 gap-y-1 text-xs">
             {thinking.length > 0 && (
-              <div className="flex items-center gap-1 text-xs text-purple-300 animate-pulse">
+              <span className="flex items-center gap-1 text-purple-300 animate-pulse">
+                🧠{' '}
                 {thinking.map((a, i) => (
                   <span key={a.agentId}>
                     {i > 0 && '、'}
@@ -597,42 +598,18 @@ content: `⚠️ ${t('mailbox.sendFailed')}: ${err.message}`,
                   </span>
                 ))}
                 {' '}{t('reqDetail.flowPeek.thinking')}
-              </div>
+              </span>
             )}
-            {/* 刚思考完的员工 — 展示 decision + reason + thoughts */}
             {done.map(a => (
-              <div key={a.agentId} className="bg-white/5 rounded-lg p-2 space-y-1">
-                <div className="flex items-center gap-2 text-xs">
-                  <span
-                    className="text-purple-200 font-medium cursor-pointer hover:underline"
-                    onClick={() => peekMonologue(a.agentId)}
-                  >{a.agentName}</span>
-                  <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${
-                    a.decision === 'spoke'
-                      ? 'bg-green-500/20 text-green-400'
-                      : 'bg-gray-500/20 text-gray-400'
-                  }`}>
-                    {a.decision === 'spoke' ? t('reqDetail.flowPeek.spoke') : t('reqDetail.flowPeek.keptSilent')}
-                  </span>
-                  {a.reason && (
-                    <span className="text-[var(--muted)] text-[10px] truncate max-w-[200px]" title={a.reason}>
-                      — {a.reason}
-                    </span>
-                  )}
-                </div>
-                {a.thoughts?.length > 0 && (
-                  <div className="space-y-1">
-                    {a.thoughts.map((thought, ti) => (
-                      <div key={thought.id || ti} className="text-xs text-[var(--muted)] bg-black/20 rounded px-2 py-1">
-                        {thought.content.startsWith('[Sent to group]') || thought.content.startsWith('[发送到群聊]') || thought.content.startsWith(t('systemSettings.sendToGroupChat'))
-                          ? <span className="text-green-400 not-italic">{thought.content}</span>
-                          : <span className="italic">{thought.content}</span>
-                        }
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <span key={a.agentId} className="flex items-center gap-1 text-[var(--muted)]">
+                <span
+                  className="text-purple-200/70 cursor-pointer hover:underline"
+                  onClick={() => peekMonologue(a.agentId)}
+                >{a.agentName}</span>
+                <span className={`text-[10px] ${a.decision === 'spoke' ? 'text-green-400' : 'text-gray-500'}`}>
+                  {a.decision === 'spoke' ? '💬' : '🤫'}
+                </span>
+              </span>
             ))}
           </div>
         );
