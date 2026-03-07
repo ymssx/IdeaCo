@@ -1,5 +1,7 @@
 import { groupChatLoop } from '@/core/organization/group-chat-loop.js';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * SSE endpoint for real-time monologue (flow) events.
  *
