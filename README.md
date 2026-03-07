@@ -2,57 +2,111 @@
   <img src="public/logo.jpeg" alt="IdeaCo" width="200" />
 </p>
 
-<h1 align="center">Idea Unlimited Company</h1>
+<h1 align="center">IdeaCo</h1>
 
 <p align="center">
-  <b>Hire AI employees. Run Claude Code, Codex, and others in one company.</b>
+  <b>Run a virtual AI company. Hire employees powered by any LLM. Watch them think, argue, bond, and ship real code.</b>
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/Next.js-14-black?logo=next.js" />
   <img src="https://img.shields.io/badge/React-18-blue?logo=react" />
-  <img src="https://img.shields.io/badge/TailwindCSS-3.4-38bdf8?logo=tailwindcss" />
+  <img src="https://img.shields.io/badge/Electron-33-9feaf9?logo=electron" />
   <img src="https://img.shields.io/badge/License-MIT-green" />
 </p>
 
+<p align="center">
+  <a href="#-quick-start">Quick Start</a> ·
+  <a href="#-features">Features</a> ·
+  <a href="#-architecture">Architecture</a> ·
+  <a href="#-download">Download</a> ·
+  <a href="ARCHITECTURE.md">Full Architecture Doc</a>
+</p>
+
+---
+
+## What is IdeaCo?
+
 IdeaCo is not another multi-agent framework. It's an **AI employee management system** — you run a virtual company, hire AI agents as employees, assign tasks, and they collaborate autonomously to produce real deliverables.
 
-Each employee has persistent memory, a unique personality, and can be powered by different backends — from cloud LLMs to local CLI tools like **Claude Code**, **Codex**, and **CodeBuddy**.
+Each employee has **persistent memory**, a **unique personality**, **social relationships** with coworkers, and can be powered by different backends — from cloud LLMs to local CLI tools like **Claude Code**, **Codex**, and **CodeBuddy**.
 
 > The name comes from *Idea Unlimited Company* (金点子无限公司), inspired by Yang Hongying's children's story, playfully turning a "Limited Company" into "Unlimited".
 
 ---
 
-## Why IdeaCo?
+## 🧬 Why IdeaCo?
 
-Most agent frameworks create **workflows**. IdeaCo manages **long-living AI employees**.
+Most agent frameworks create **stateless workflows**. IdeaCo manages **long-living AI employees with memory, personality, and social bonds**.
 
 | | Typical Agent Framework | IdeaCo |
 |---|---|---|
-| Agents | Ephemeral, per-task | Persistent employees with memory & personality |
-| Orchestration | DAG / workflow graph | Company org structure — departments, teams, roles |
-| Backend | Single LLM | Mix LLMs + CLI tools (Claude Code, Codex, CodeBuddy) |
-| Interface | Code / YAML | Visual — pixel office, group chats, dashboards |
+| **Agents** | Ephemeral, per-task | Persistent employees with memory & personality |
+| **Memory** | None or simple RAG | Layered: long-term + short-term + social impressions + rolling summary |
+| **Social** | Agents don't know each other | Employees form opinions, track affinity, and remember coworkers |
+| **Orchestration** | DAG / workflow graph | Company org structure — departments, teams, roles |
+| **Backend** | Single LLM | Mix LLMs + CLI tools (Claude Code, Codex, CodeBuddy) |
+| **Autonomy** | Triggered by code | Employees poll, think, decide to speak or stay silent on their own |
+| **Interface** | Code / YAML | Visual — pixel office, group chats, dashboards |
 
 ---
 
-## Features
+## ✨ Features
 
 | Screenshot | Feature | Description |
 |:---:|---|---|
-| <img src="public/demo/dashboard.png" width="280" /> | **Dashboard** | Company overview — departments, employees, budget, requirements status, and task forces at a glance |
-| <img src="public/demo/office.png" width="280" /> | **Office** | Pixel-art virtual office where AI agents wander, work at desks, and show real-time chat bubbles |
-| <img src="public/demo/employee.png" width="280" /> | **Employee Profile** | Detailed agent card — role prompt, skills, personality, memory, performance, task history and cost tracking |
-| <img src="public/demo/messages.png" width="280" /> | **Messages** | Internal messaging system with department group chats where agents discuss, debate, and collaborate autonomously |
-| <img src="public/demo/requirement.png" width="280" /> | **Requirements** | Assign tasks to departments — agents auto-decompose into workflow nodes, execute with real tools, and produce deliverables |
+| <img src="public/demo/dashboard.png" width="280" /> | **Dashboard** | Company overview — departments, employees, budget, requirements, and task forces at a glance |
+| <img src="public/demo/office.png" width="280" /> | **Pixel Office** | Pixel-art virtual office where AI agents wander, work at desks, and show real-time chat bubbles |
+| <img src="public/demo/employee.png" width="280" /> | **Employee Profile** | Detailed card — personality, memory (long/short-term), social relationships, affinity scores, performance, and cost tracking |
+| <img src="public/demo/messages.png" width="280" /> | **Group Chat** | Department chats where agents discuss, debate, and collaborate autonomously with flow-of-thought reasoning |
+| <img src="public/demo/requirement.png" width="280" /> | **Requirements** | Assign tasks to departments — agents auto-decompose, execute with real tools, and produce deliverables |
+
+### Key Highlights
+
+- 🧠 **Flow-of-Thought** — Each employee reads messages, has an inner monologue, and independently decides whether to reply based on topic saturation, relevance, and anti-spam rules
+- 💾 **Layered Memory** — Long-term memory (facts, preferences), short-term memory (TTL-based), rolling history summaries, and AI-managed memory ops (add/delete)
+- 👥 **Social Memory** — Every employee maintains impressions and affinity scores for coworkers. They remember who helped them, who they disagree with, and who they like
+- 🎭 **12 Personality Archetypes** — From "Chatterbox" to "Zen Slacker" to "Anxious Perfectionist", each employee has a unique voice and behavior pattern
+- 🔌 **Multi-Backend** — Mix cloud LLMs (OpenAI, DeepSeek, Anthropic), CLI tools (Claude Code, Codex, CodeBuddy), and web agents (ChatGPT Web) in one company
+- 🏢 **Org Structure** — Departments, teams, roles, talent market, HR hiring — a complete company simulation
 
 ---
 
-## Download
+## 🏗 Architecture
+
+```
+┌───────────────────────────────────────────────────┐
+│                  👤 User (Boss)                    │
+├───────────────────────────────────────────────────┤
+│                🧑‍💼 Secretary                       │
+│     Intent Parsing · HR · Task Dispatch · Reports │
+├───────────────────────────────────────────────────┤
+│               🏢 Organization                      │
+│       Company · Department · Team · Requirement   │
+├───────────────────────────────────────────────────┤
+│                👥 Employee                          │
+│     Memory · Personality · Skills · Lifecycle     │
+├───────────────────────────────────────────────────┤
+│                🤖 Agent                             │
+│       LLM Agent · CLI Agent · Web Agent           │
+│      (Unified interface, zero business logic)     │
+└───────────────────────────────────────────────────┘
+```
+
+- **Agent** — Pure LLM communication engine. Supports API, CLI, and Web backends behind a single `chat()` interface. Zero business logic.
+- **Employee** — The atomic unit. Wraps an Agent with persistent memory, personality, skills, and autonomous poll-think-reply behavior.
+- **Organization** — Company structure: departments, teams, group chats, requirements workflow.
+- **Secretary** — Boss's AI assistant that understands intent, manages HR, and coordinates departments.
+
+> 📖 See [ARCHITECTURE.md](ARCHITECTURE.md) for the full deep-dive — employee lifecycle, memory system design, flow-of-thought pipeline, anti-spam gates, and social memory details.
+
+---
+
+## ⬇ Download
 
 Grab the latest release for your platform:
 
-**[⬇ Download IdeaCo](https://github.com/ymssx/IdeaCo/releases/latest)**
+**[Download IdeaCo](https://github.com/ymssx/IdeaCo/releases/latest)**
 
 | Platform | File |
 |----------|------|
@@ -61,52 +115,42 @@ Grab the latest release for your platform:
 | Windows | `IdeaCo-x.x.x-Setup.exe` |
 | Linux | `IdeaCo-x.x.x.AppImage` / `.deb` |
 
-### macOS Security Notice
+<details>
+<summary><b>macOS Security Notice</b></summary>
 
-Since IdeaCo is not signed with an Apple Developer certificate, macOS will show:
+Since IdeaCo is not signed with an Apple Developer certificate, macOS will show a security warning. To open it:
 
-> "Apple cannot verify that IdeaCo is free of malware."
-
-To open it:
-
-1. **First time**: Right-click (or Control-click) the app → click **Open** → click **Open** again in the dialog
-2. **Or**: Go to **System Settings → Privacy & Security**, scroll down to find the blocked message, click **Open Anyway**
-3. **Or via Terminal**:
-   ```bash
-   xattr -cr /Applications/IdeaCo.app
-   ```
+1. **Right-click** the app → **Open** → **Open** again in the dialog
+2. **Or**: System Settings → Privacy & Security → scroll down → **Open Anyway**
+3. **Or via Terminal**: `xattr -cr /Applications/IdeaCo.app`
+</details>
 
 ---
 
-## Quick Start (from source)
+## 🚀 Quick Start
 
-### Prerequisites
-
-- **Node.js** >= 20 (`.nvmrc` included)
-- **yarn**
-
-### Development
+### From Source
 
 ```bash
 git clone https://github.com/ymssx/IdeaCo.git
 cd IdeaCo
-nvm use 20
 yarn install
 yarn dev
 ```
 
-Open **http://localhost:9999** — the Setup Wizard will guide you through company creation and LLM configuration.
+Open **http://localhost:9999** — the Setup Wizard will guide you.
 
-### Production
+### Docker
 
 ```bash
-yarn build
-yarn start
+docker compose up -d
 ```
+
+Data is persisted via Docker volumes (`app-data`, `app-workspace`).
 
 ---
 
-## Configuration
+## ⚙ Configuration
 
 ### LLM Providers
 
@@ -121,7 +165,7 @@ Configure via the Setup Wizard on first launch, or later through the **Brain Pro
 
 ### CLI Coding Backends
 
-IdeaCo can dispatch tasks to local CLI coding assistants. Install any of these and they'll be auto-detected:
+IdeaCo can dispatch coding tasks to local CLI assistants. Install any of these and they'll be auto-detected:
 
 | Backend | Command | Description |
 |---------|---------|-------------|
@@ -133,48 +177,25 @@ IdeaCo can dispatch tasks to local CLI coding assistants. Install any of these a
 
 ---
 
-## Deployment
-
-### Docker (Recommended)
-
-```bash
-# Build and start
-docker compose up -d
-
-# View logs
-docker compose logs -f
-
-# Stop
-docker compose down
-```
-
-Data is persisted via Docker volumes (`app-data`, `app-workspace`).
-
-### One-click Deploy
-
-```bash
-./deploy.sh
-```
-
-The script detects Docker Compose version and runs `docker compose up -d --build`.
-
----
-
-## Architecture
+## 📁 Project Structure
 
 ```
 IdeaCo/
 ├── src/
-│   ├── app/              # Next.js App Router + API Routes
-│   ├── components/       # React UI components
-│   ├── core/             # Core engine (agents, company, LLM client, tools...)
-│   │   └── cli-backends/ # Claude Code, Codex, CodeBuddy integrations
-│   ├── lib/              # Frontend utilities (Zustand store, i18n, avatar)
-│   └── locales/          # i18n translations (zh/en/ja/ko/es/de/fr)
-├── data/                 # Runtime data (auto-created)
-├── workspace/            # Agent-produced files per department
-├── Dockerfile
-├── docker-compose.yml
+│   ├── app/                  # Next.js App Router + API Routes
+│   ├── components/           # React UI (Pixel Office, Group Chat, Dashboards...)
+│   ├── core/                 # Core engine
+│   │   ├── agent/            # Agent layer (LLM / CLI / Web)
+│   │   ├── employee/         # Employee layer (memory, lifecycle, skills)
+│   │   ├── organization/     # Org layer (company, dept, team, HR)
+│   │   ├── system/           # System services (audit, cron, plugins)
+│   │   ├── prompts.js        # All LLM prompt templates
+│   │   └── requirement.js    # Requirement workflow engine
+│   ├── lib/                  # Frontend utilities (Zustand store, i18n)
+│   └── locales/              # i18n (zh/en/ja/ko/es/de/fr)
+├── data/                     # Runtime data (auto-created)
+├── workspace/                # Agent-produced files per department
+├── electron/                 # Electron desktop app shell
 └── package.json
 ```
 
