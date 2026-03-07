@@ -17,7 +17,8 @@
     "electron:build": "npm run build && node scripts/prepare-electron.js && electron-builder",
     "electron:build:mac": "npm run build && node scripts/prepare-electron.js && electron-builder --mac",
     "electron:build:win": "npm run build && node scripts/prepare-electron.js && electron-builder --win",
-    "electron:build:linux": "npm run build && node scripts/prepare-electron.js && electron-builder --linux"
+    "electron:build:linux": "npm run build && node scripts/prepare-electron.js && electron-builder --linux",
+    "release": "node scripts/release.js"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
