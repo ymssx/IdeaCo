@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { JobTemplates } from './workforce/hr.js';
 import { cliBackendRegistry } from '../agent/cli-agent/backends/index.js';
 import { chatStore } from '../agent/chat-store.js';
+import { robustJSONParse } from '../utils/json-parse.js';
 // Agent instances are passed in from outside; no direct import needed
 
 /**
@@ -383,13 +384,13 @@ Requirements:
     const response = await analyst.chat([
       { role: 'system', content: systemPrompt },
       { role: 'user', content: `Boss's requirement: ${requirement}` },
-    ], { temperature: 0.7, maxTokens: 2048 });
+    ], { temperature: 0.7, maxTokens: 2048, newConversation: true });
 
     let aiPlan;
     try {
-      const jsonStr = response.content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      aiPlan = JSON.parse(jsonStr);
+      aiPlan = Department._extractJSON(response.content);
     } catch (e) {
+      console.error('  ❌ Failed to parse AI response:', response.content?.substring(0, 500));
       throw new Error('Failed to parse AI response format');
     }
 
@@ -709,13 +710,7 @@ Boss's adjustment goal: ${adjustGoal}`;
   // ======================== Static Helpers ========================
 
   static _extractJSON(rawOutput) {
-    try { return JSON.parse(rawOutput.trim()); } catch {}
-    const jsonMatch = rawOutput.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (jsonMatch) return JSON.parse(jsonMatch[1].trim());
-    const start = rawOutput.indexOf('{');
-    const end = rawOutput.lastIndexOf('}');
-    if (start !== -1 && end > start) return JSON.parse(rawOutput.slice(start, end + 1));
-    throw new Error('Cannot extract JSON from output');
+    return robustJSONParse(rawOutput);
   }
 
   static _designCollaboration(members) {

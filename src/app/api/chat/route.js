@@ -22,7 +22,7 @@ export async function POST(request) {
     // If secretary returned a create_department action, auto-trigger department creation flow
     if (reply.action?.type === 'create_department') {
       const taskId = `dept_${Date.now()}`;
-      const { departmentName, mission } = reply.action;
+      const { departmentName, mission, members } = reply.action;
       const deptName = departmentName || 'New Project Dept';
       const deptMission = mission || message;
 
@@ -31,12 +31,12 @@ export async function POST(request) {
       // Async department creation (non-blocking response)
       (async () => {
         try {
-          // Step 1: Let secretary plan the team
-          const plan = await company.planDepartment(deptName, deptMission);
-          console.log(`📋 Department plan complete: ${plan.departmentName}, ${plan.members.length} people`);
-
-          // Step 2: Confirm and execute recruitment
-          const dept = await company.confirmPlan(plan.planId);
+          // Secretary already designed the team — create department directly
+          const dept = await company.createDepartmentDirect({
+            departmentName: deptName,
+            mission: deptMission,
+            members: members || [],
+          });
           console.log(`✅ Department created: ${dept.name}, ${dept.agents.size} people ready`);
 
           runningTasks.set(taskId, {
@@ -92,9 +92,12 @@ export async function POST(request) {
 
       (async () => {
         try {
-          // Step 1: Create department
-          const plan = await company.planDepartment('New Project Dept', suggestedMission);
-          const dept = await company.confirmPlan(plan.planId);
+          // Step 1: Create department (will fallback to planDepartment since no members)
+          const dept = await company.createDepartmentDirect({
+            departmentName: 'New Project Dept',
+            mission: suggestedMission,
+            members: [],
+          });
           console.log(`✅ Auto-created department: ${dept.name}, ${dept.agents.size} people ready`);
 
           // Append secretary message

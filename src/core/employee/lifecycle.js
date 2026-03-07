@@ -28,6 +28,7 @@ import {
   getFewShotExamples,
   getFallbackReplies,
 } from '../prompts.js';
+import { robustJSONParse } from '../utils/json-parse.js';
 
 // ─── File reference expansion ──────────────────────────────────────────
 // Agent writes [[file:path/to/file]], we expand to [[file:deptId:path|displayName]]
@@ -370,6 +371,10 @@ export class EmployeeLifecycle {
     const agent = this.employee;
     const company = this._getCompany();
 
+    // NOTE: wakeUp follows lazy-loading principle.
+    // The employee will be automatically woken up on their first chat()
+    // call via _ensureSession(). No need to pre-initialize here.
+
     try {
       const isDeptChat = groupId.startsWith('dept-');
       let dept, chatTarget, contextTitle;
@@ -390,6 +395,24 @@ export class EmployeeLifecycle {
         chatTarget = requirement;
         contextTitle = requirement.title;
         allVisibleMessages = (requirement.groupChat || []).filter(m => m.visibility !== 'flow');
+      }
+
+      // ── Per-employee context scene management ──
+      // Switch the employee's active context if the group has changed.
+      // For web agents this injects the scene prompt into the existing ChatGPT conversation
+      // without re-sending memory+prompt (which was done once at wake-up).
+      if (agent.switchContext) {
+        const contextType = isDeptChat ? 'dept-chat' : 'work-chat';
+        const members = dept.getMembers().map(a => `${a.name}(${a.role})`).join(', ');
+        const scenePrompt = isDeptChat
+          ? `You are now in the "${contextTitle}" group.\nMembers: ${members}\nThis is a casual department chat. Respond naturally in your personality.`
+          : `You are now in the "${contextTitle}" work group.\nMembers: ${members}\nThis is a task-focused discussion. Stay on topic and contribute professionally.`;
+        await agent.switchContext({
+          contextId: groupId,
+          contextType,
+          contextTitle,
+          scenePrompt,
+        });
       }
 
       // Distinguish read vs unread
@@ -644,23 +667,7 @@ export class EmployeeLifecycle {
       ], { temperature: 0.95, maxTokens: 1024 });
 
       const rawContent = response.content || '';
-      let result;
-      try {
-        result = JSON.parse(rawContent);
-      } catch {
-        const jsonMatch = rawContent.match(/```(?:json)?\s*([\s\S]*?)```/);
-        if (jsonMatch) {
-          result = JSON.parse(jsonMatch[1].trim());
-        } else {
-          const start = rawContent.indexOf('{');
-          const end = rawContent.lastIndexOf('}');
-          if (start !== -1 && end > start) {
-            result = JSON.parse(rawContent.slice(start, end + 1));
-          } else {
-            throw new Error('Cannot parse LLM response as JSON');
-          }
-        }
-      }
+      const result = robustJSONParse(rawContent);
 
       const thoughtContent = (result.innerThoughts && result.innerThoughts.trim())
         ? result.innerThoughts.trim()

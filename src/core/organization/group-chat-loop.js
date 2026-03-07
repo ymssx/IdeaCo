@@ -85,6 +85,11 @@ export class GroupChatLoop extends EventEmitter {
     lifecycle.start();
     this._lifecycles.set(agent.id, lifecycle);
 
+    // NOTE: wakeUp() follows lazy-loading principle.
+    // Employees are NOT woken up here — they will be automatically
+    // woken up on their first chat() call via _ensureSession().
+    // This avoids unnecessary session initialization for idle employees.
+
     console.log(`  🔄 [GroupChatLoop] ${agent.name} joined chat loop`);
   }
 
@@ -105,6 +110,7 @@ export class GroupChatLoop extends EventEmitter {
 
   /**
    * Trigger an employee to check a group (e.g. on @mention).
+   * The employee will be lazily woken up via _ensureSession() when they chat().
    */
   async triggerImmediate(agentId, groupId, _triggerMessage) {
     if (!this.running || !this.company) return;
@@ -115,6 +121,7 @@ export class GroupChatLoop extends EventEmitter {
 
   /**
    * Nudge an employee to check a group (lower urgency, used internally by lifecycles).
+   * The employee will be lazily woken up via _ensureSession() when they chat().
    */
   async nudgeAgent(agentId, groupId) {
     if (!this.running || !this.company) return;

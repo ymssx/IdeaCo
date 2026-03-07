@@ -3,6 +3,7 @@ import path from 'path';
 import { existsSync, readFileSync } from 'fs';
 import { chatStore } from './agent/chat-store.js';
 import { WorkspaceManager } from './workspace.js';
+import { robustJSONParse } from './utils/json-parse.js';
 
 /** Group chat prefix for requirement group chats in chatStore */
 const REQ_GROUP_PREFIX = 'req-';
@@ -339,31 +340,7 @@ Requirements:
       ], { temperature: 0.7, maxTokens: 2048 });
 
       // Parse JSON (robust extraction for both LLM and CLI output)
-      const tick = String.fromCharCode(96);
-      const fence = tick + tick + tick;
-      let jsonStr = response.content
-        .replace(fence + 'json', '').replace(fence, '')
-        .replace(fence + 'json', '').replace(fence, '')
-        .trim();
-
-      let workflow;
-      try {
-        workflow = JSON.parse(jsonStr);
-      } catch {
-        // CLI output may contain extra text; try to extract JSON object
-        const jsonMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
-        if (jsonMatch) {
-          workflow = JSON.parse(jsonMatch[1].trim());
-        } else {
-          const start = jsonStr.indexOf('{');
-          const end = jsonStr.lastIndexOf('}');
-          if (start !== -1 && end > start) {
-            workflow = JSON.parse(jsonStr.slice(start, end + 1));
-          } else {
-            throw new Error('Cannot extract JSON from response');
-          }
-        }
-      }
+      const workflow = robustJSONParse(response.content);
 
       // Validate and complete
       const memberIds = new Set(members.map(m => m.id));

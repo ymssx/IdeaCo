@@ -1,11 +1,11 @@
 import { Employee } from './base-employee.js';
 import { createEmployee } from './index.js';
 
-import { pluginRegistry } from '../system/plugin.js';
-import { skillRegistry } from './skills.js';
 import { knowledgeManager } from './knowledge.js';
 import { chatStore } from '../agent/chat-store.js';
 import { cliBackendRegistry } from '../agent/cli-agent/backends/index.js';
+import { JobTemplates } from '../organization/workforce/hr.js';
+import { robustJSONParse } from '../utils/json-parse.js';
 
 
 /**
@@ -158,15 +158,23 @@ export class Secretary extends Employee {
     super({
       name: secretaryName || 'Secretary',
       role: 'Personal Secretary',
-      prompt: `You are the boss's personal secretary, responsible for understanding business requirements, analyzing required team composition,
-designing organizational structure (who does what, who reports to whom, how to collaborate), and coordinating HR for talent recruitment.
-You need to plan the number and types of positions based on project requirements to ensure the team can efficiently achieve its goals.
+      prompt: `You are the boss's personal secretary, the core hub for company operations management.
+
+## Your Core Capabilities:
+1. **Organizational Management**: Create new departments, dissolve departments, adjust organizational structure
+2. **Human Resources**: Coordinate HR recruitment, adjust staffing, transfer employees between departments, design team composition
+3. **Task Management**: Understand boss requirements, assign tasks to appropriate departments, track and report progress
+4. **Business Analysis**: Analyze business requirements, plan team size and role types based on project needs
+5. **Team Design**: Design organizational structure (who does what, who reports to whom, how to collaborate), ensure teams can efficiently achieve goals
+
 You have a dedicated HR assistant to help you handle specific recruitment tasks, including searching and recalling talent from the talent market.
 
 When communicating with the boss, you need to:
-1. Understand the boss's intent (task assignment, progress inquiry, or casual conversation)
-2. If it's a task, assign it to the corresponding department
-3. Periodically report department progress to the boss`,
+1. Understand the boss's intent (create department, assign task, adjust staffing, progress inquiry, or casual conversation)
+2. For department creation requests: design the team structure and initiate recruitment
+3. For task requests: assign to the corresponding department or handle simple ones yourself
+4. For staffing adjustments: coordinate HR to execute personnel changes
+5. Periodically report department progress to the boss`,
       skills: ['requirements-analysis', 'team-planning', 'org-design', 'hr-coordination', 'project-management', 'task-assignment', 'progress-reporting'],
       provider: providerConfig,
       avatar: secretaryAvatar,
@@ -194,6 +202,10 @@ When communicating with the boss, you need to:
       }
       throw new Error('Secretary AI is not configured. Please configure a valid API Key for the secretary provider first.');
     }
+
+    // Session initialization follows lazy-loading principle:
+    // _ensureSession() is called automatically inside this.chat()
+    // when _llmHandleBossMessage eventually calls this.chat(messages)
     return await this._llmHandleBossMessage(message, company);
   }
 
@@ -242,31 +254,17 @@ When communicating with the boss, you need to:
 
     const secretaryPrompt = this.prompt || '';
 
+    // Build HR context: available job templates + enabled providers
+    const availableRoles = Object.values(JobTemplates).map(t => ({
+      id: t.id, title: t.title, category: t.category,
+    }));
+    const enabledProviders = company.providerRegistry.listEnabled().map(p => ({
+      id: p.id, name: p.name, category: p.category,
+      isCLI: p.isCLI || false, cliBackendId: p.cliBackendId || null,
+    }));
+    const availableCategories = [...new Set(enabledProviders.map(p => p.category))];
+
     let capabilitiesSection = '';
-    try {
-      const enabledPlugins = pluginRegistry.list().filter(p => p.state === 'enabled');
-      if (enabledPlugins.length > 0) {
-        capabilitiesSection += `\n## Installed Plugins (${enabledPlugins.length} active)\n`;
-        enabledPlugins.forEach(p => {
-          capabilitiesSection += `- 🧩 ${p.name} v${p.version}: ${p.description} (${p.toolCount} tools)\n`;
-        });
-        const pluginTools = pluginRegistry.getPluginTools();
-        if (pluginTools.length > 0) {
-          capabilitiesSection += `\nAvailable plugin tools:\n`;
-          pluginTools.forEach(t => {
-            const fn = t.function || t;
-            capabilitiesSection += `  • ${fn.name}: ${fn.description}\n`;
-          });
-        }
-      }
-    } catch {}
-    try {
-      const skills = skillRegistry.list();
-      if (skills.length > 0) {
-        capabilitiesSection += `\n## Available Skills (${skills.length})\n`;
-        skills.forEach(s => { capabilitiesSection += `- 🎯 ${s.name}: ${s.description}\n`; });
-      }
-    } catch {}
     try {
       const kbs = knowledgeManager.list();
       if (kbs.length > 0) {
@@ -298,7 +296,6 @@ Current company "${company.name}" status:
 - Talent market: ${talentCount} available
 ${departments.length > 0 ? `\nDepartment details:\n${departments.map(d => `  🏢 ${d.name} [${d.status}] - Mission: ${d.mission} | ${d.memberCount} people | Leader: ${d.leader}\n     Members: ${d.members.map(m => m.name + '(' + m.role + ')').join(', ')}`).join('\n')}` : '\nNo departments yet.'}
 ${capabilitiesSection}
-When the boss asks about your capabilities, plugins, tools, skills, or what you can do, you MUST accurately list ALL installed plugins, available tools, skills, and knowledge bases shown above. NEVER say you don't have plugin support.
 
 You must understand the boss's intent and reply naturally. Your reply MUST be a JSON object (return JSON only, nothing else):
 {
@@ -313,7 +310,7 @@ You must understand the boss's intent and reply naturally. Your reply MUST be a 
   "action": null or one of the following:
     - { "type": "secretary_handle", "taskDescription": "detailed task description for yourself to execute" } - when you can handle this task yourself without needing a department (see rules below)
     - { "type": "task_assigned", "departmentId": "dept ID", "departmentName": "dept name", "taskTitle": "short task title (under 10 words)", "taskDescription": "detailed task description including what to do and what to deliver" } - when the boss wants to assign a task to an existing department
-    - { "type": "create_department", "departmentName": "department name", "mission": "department mission/responsibilities" } - when the boss explicitly requests creating a new department (no task assignment, just creating the dept)
+    - { "type": "create_department", "departmentName": "department name", "mission": "department mission/responsibilities", "members": [ { "templateId": "job template id", "name": "creative employee nickname", "isLeader": true/false, "reportsTo": null or member index (0=first member) } ] } - when the boss explicitly requests creating a new department — you MUST design the team directly
     - { "type": "need_new_department", "suggestedMission": "task description" } - when the boss wants to assign a task but no existing department can handle it (need to create dept first then assign)
     - { "type": "progress_report" } - when the boss wants to see progress reports
     - null - casual chat or no special action needed
@@ -326,6 +323,14 @@ When the boss says "create/establish/set up/found + department", this is an org 
   - Even if the message contains words like "help me", as long as the core intent is "create/establish a department", return create_department
   - departmentName: intelligently name the department based on boss's description
   - mission: summarize department mission and responsibilities from boss's description
+  - members: you MUST design the team directly! Plan 2-6 members based on the mission. Rules:
+    * Available job templates (you can ONLY choose from these): ${JSON.stringify(availableRoles)}
+    * Currently enabled provider categories: ${availableCategories.join(', ')}
+    * You can ONLY use templates whose category has an enabled provider (enabled categories above)
+    * The first member MUST be project-leader with isLeader=true
+    * Other members' reportsTo = 0 (index of leader)
+    * If CLI providers are available and the task is coding-related, prefer cli-* templates
+    * Employee names should be creative and fun
 
 **High Priority - Secretary Handles Simple Tasks Directly**:
 For simple, straightforward tasks that DON'T require a specialized team, you should handle them yourself using secretary_handle. Examples:
@@ -390,15 +395,10 @@ When the boss asks about progress/status/reports, return progress_report
       { role: 'user', content: message },
     ];
 
-    const response = await this.chat(messages, { temperature: 0.8, maxTokens: 1024 });
+    const response = await this.chat(messages, { temperature: 0.8, maxTokens: 2048 });
 
     try {
-      let jsonStr = response.content.trim();
-      const fenceMatch = jsonStr.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
-      if (fenceMatch) jsonStr = fenceMatch[1].trim();
-      const jsonObjMatch = jsonStr.match(/\{[\s\S]*\}/);
-      if (jsonObjMatch) jsonStr = jsonObjMatch[0];
-      const parsed = JSON.parse(jsonStr);
+      const parsed = robustJSONParse(response.content);
       let result = { content: parsed.content || response.content, action: parsed.action || null };
 
       console.log(`🤖 [Secretary-LLM] action type: ${result.action?.type || 'null'}, departmentId: ${result.action?.departmentId || 'N/A'}`);
@@ -594,12 +594,12 @@ ${memoryContext}
       if (toolExecutor) {
         response = await this.chatWithTools(
           [{ role: 'system', content: systemPrompt }, { role: 'user', content: taskDescription }],
-          toolExecutor, { temperature: 0.7, maxTokens: 2048, maxIterations: 5 }
+          toolExecutor, { temperature: 0.7, maxTokens: 2048, maxIterations: 5, newConversation: true }
         );
       } else {
         response = await this.chat(
           [{ role: 'system', content: systemPrompt }, { role: 'user', content: taskDescription }],
-          { temperature: 0.7, maxTokens: 2048 }
+          { temperature: 0.7, maxTokens: 2048, newConversation: true }
         );
       }
 

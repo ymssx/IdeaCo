@@ -136,7 +136,7 @@ stats: { departments: 'Abt.', workers: 'Arbeiter', requirements: 'Anforderungen'
   providers: {
     title: '⚡ KI-Anbieter', subtitle: 'API-Schlüssel konfigurieren, damit HR rekrutieren kann.',
     hint: { title: '💡 HR-Strategie', desc: 'HR bevorzugt Anbieter mit <strong class="text-green-400">hoher Bewertung + niedrigem Preis</strong>.' },
-    categories: { general: 'Allgemein', drawing: 'Zeichnung', music: 'Musik', video: 'Video', cli: 'Lokale Code-Engines' },
+    categories: { general: 'Allgemein', drawing: 'Zeichnung', music: 'Musik', video: 'Video', cli: 'Lokale Code-Engines', browser: 'Browser (Cookie)' },
     enabled: '{n}/{total} aktiviert',
     configure: { title: '🔑 {name} konfigurieren', provider: 'Anbieter: {name}', apiKeyLabel: 'API-Schlüssel', apiKeyPlaceholder: 'API-Schlüssel eingeben' },
     talentMarket: { btn: 'Talentmarkt' },

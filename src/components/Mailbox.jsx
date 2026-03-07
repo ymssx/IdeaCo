@@ -16,7 +16,7 @@ import CachedAvatar from './CachedAvatar';
 export default function Mailbox() {
   const { t } = useI18n();
   const {
-    company,
+    company, fetchCompany,
     chatWithSecretary, chatOpen, setChatOpen,
     navigateToRequirement, fetchRequirements, fetchRequirementDetail,
     chatWithAgent, fetchAgentChatHistory, markAgentChatRead,
@@ -40,6 +40,7 @@ export default function Mailbox() {
   const [agentChatLoading, setAgentChatLoading] = useState(false); // Agent chat loading state
   const [showGroupMembers, setShowGroupMembers] = useState(false); // 群聊成员弹窗
   const reqChatPollRef = useRef(null);
+  const agentChatPollRef = useRef(null);
   const messagesEndRef = useRef(null);
   const activeChatRef = useRef(null); // 追踪当前活跃的聊天对象，防止异步消息串台
 
@@ -57,6 +58,15 @@ for (const agent of (dept.members || dept.agents || [])) {
       }
     }
   }
+
+  // 定时刷新 company 状态，确保新的 agentChatSessions（如 onboarding 打招呼）能及时出现
+  const companyPollRef = useRef(null);
+  useEffect(() => {
+    companyPollRef.current = setInterval(() => {
+      fetchCompany();
+    }, 5000);
+    return () => clearInterval(companyPollRef.current);
+  }, []);
 
   // Load requirements list (for group chat sessions)
   useEffect(() => {
@@ -115,6 +125,34 @@ for (const agent of (dept.members || dept.agents || [])) {
       if (deptChatPollRef.current) clearInterval(deptChatPollRef.current);
     };
   }, [activeDeptChat]);
+
+  // Agent 1-on-1 chat polling（和群聊一样，3秒轮询）
+  useEffect(() => {
+    if (agentChatPollRef.current) clearInterval(agentChatPollRef.current);
+    if (activeChat?.type === 'agent-chat' && activeChat.agentId) {
+      const agentId = activeChat.agentId;
+      agentChatPollRef.current = setInterval(() => {
+        // 只在不是正在发送消息时才轮询，避免和发送逻辑冲突
+        if (!sending) {
+          fetchAgentChatHistory(agentId).then(msgs => {
+            // 只有当前仍在同一会话时才更新
+            if (activeChatRef.current?.agentId === agentId && msgs.length > 0) {
+              setAgentChatMessages(prev => {
+                // 只有消息数量变化时才更新，避免无谓的 re-render
+                if (prev.length !== msgs.length) {
+                  return msgs;
+                }
+                return prev;
+              });
+            }
+          });
+        }
+      }, 3000);
+    }
+    return () => {
+      if (agentChatPollRef.current) clearInterval(agentChatPollRef.current);
+    };
+  }, [activeChat?.type === 'agent-chat' ? activeChat?.agentId : null, sending]);
 
   // Sync secretary chat history
   useEffect(() => {

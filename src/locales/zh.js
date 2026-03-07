@@ -256,7 +256,7 @@ const zh = {
       title: '💡 HR 招聘策略',
       desc: 'HR 会优先选择<strong class="text-green-400">高评分 + 低价格</strong>的供应商（性价比最优），确保招到合适的人且成本最低。评分基于模型综合能力，价格为供应商公开定价。',
     },
-    categories: { general: '通用岗位', drawing: '画图岗位', music: '音乐岗位', video: '视频岗位', cli: '本地编程引擎' },
+    categories: { general: '通用岗位', drawing: '画图岗位', music: '音乐岗位', video: '视频岗位', cli: '本地编程引擎', browser: '浏览器 (Cookie)' },
     secretaryProvider: {
       title: '🤖 秘书服务商',
       desc: '秘书和HR助手使用的AI模型，决定了秘书的智商和反应速度',
@@ -267,6 +267,29 @@ const zh = {
     enabled: '{n}/{total} 已启用',
     configure: {
       title: '🔑 配置 {name}', provider: '供应商: {name}', apiKeyLabel: 'API Key', apiKeyPlaceholder: '输入API Key',
+    },
+    webConfigure: {
+      title: '🌐 配置 {name}',
+      cookieLabel: 'Cookie',
+      cookiePlaceholder: '粘贴从浏览器获取的Cookie',
+      cookieHint: '登录 ChatGPT 后，打开 DevTools → Application → Cookies → 复制所有cookie值',
+      getCookieBtn: '打开浏览器获取Cookie',
+      autoLoginBtn: '一键登录获取 Cookie',
+      loggingIn: '正在等待登录...',
+      orManual: '或手动输入',
+      desktopOnly: '此功能仅在桌面客户端中可用，请下载 IdeaCo 桌面版使用',
+      testBtn: '测试连接',
+      testing: '测试中...',
+      testSuccess: '✅ 连接成功',
+      testFailed: '❌ 连接失败: {error}',
+      calibrate: {
+        title: '🎯 Selector 校准',
+        desc: '录制真实的 DOM 选择器，确保交互准确',
+        btn: '开始校准',
+        running: '校准中...',
+        reset: '重置',
+        recorded: '✅ 已录制的选择器',
+      },
     },
     talentMarket: {
       btn: '人才市场',

@@ -1,10 +1,10 @@
 import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import { ProviderRegistry, ModelProviders, JobCategory, JobCategoryLabel } from './workforce/providers.js';
-import { HRSystem } from './workforce/hr.js';
+import { HRSystem, JobTemplates } from './workforce/hr.js';
 import { Department } from './department.js';
 import { Employee, createEmployee, deserializeEmployee, Secretary } from '../employee/index.js';
-import { LLMAgent, CLIAgent } from '../agent/index.js';
+import { LLMAgent, CLIAgent, WebAgent } from '../agent/index.js';
 import { PerformanceSystem } from '../employee/performance.js';
 import { TalentMarket } from './workforce/talent-market.js';
 import { MessageBus } from '../agent/message-bus.js';
@@ -12,12 +12,14 @@ import { existsSync, mkdirSync } from 'fs';
 import { WorkspaceManager } from '../workspace.js';
 import { debouncedSave } from './persistence.js';
 import { llmClient } from '../agent/llm-agent/client.js';
+import { webClientRegistry } from '../agent/web-agent/web-client.js';
 import { loadAgentMemory, saveAgentMemory } from '../employee/memory/store.js';
 import { Memory } from '../employee/memory/index.js';
 import { RequirementManager, RequirementStatus } from '../requirement.js';
 import { TeamManager, SprintStatus } from './team.js';
 import { hookRegistry, HookEvent } from '../../lib/hooks.js';
 import { sessionManager } from '../agent/session.js';
+import { robustJSONParse } from '../utils/json-parse.js';
 import { cronScheduler } from '../system/cron.js';
 import { pluginRegistry } from '../system/plugin.js';
 import { auditLogger, AuditCategory, AuditLevel } from '../system/audit.js';
@@ -151,6 +153,12 @@ export class Company {
         fallbackProvider: fallback, provider: fallback,
       });
     }
+    // If secretary uses a Web provider, rebuild agent as WebAgent
+    if (secretaryProviderConfig.isWeb) {
+      this.secretary.agent = new WebAgent({ provider: secretaryProviderConfig });
+      // Re-bind employeeId after agent replacement (for per-employee session isolation)
+      this.secretary.agent.setEmployeeId(this.secretary.id);
+    }
 
     // Initialize secretary's toolKit so she can use tools (shell, file ops, etc.)
     const secretaryWorkspace = this.workspaceManager.createDepartmentWorkspace('secretary', 'secretary');
@@ -215,14 +223,18 @@ You MUST reply with a JSON object (return JSON only, no other text):
   "action": null or one of:
     - { "type": "secretary_handle", "taskDescription": "detailed task for yourself to execute" } — for simple tasks you can handle alone
     - { "type": "task_assigned", "departmentId": "real dept id from above", "departmentName": "dept name", "taskTitle": "short title", "taskDescription": "detailed description" } — assign to existing department
-    - { "type": "create_department", "departmentName": "name", "mission": "mission" } — boss wants to create a new department
+    - { "type": "create_department", "departmentName": "name", "mission": "mission", "members": [{ "templateId": "id", "name": "nickname", "isLeader": true/false, "reportsTo": null or 0 }] } — boss wants to create a new department (design team directly)
     - { "type": "need_new_department", "suggestedMission": "task description" } — no existing dept can handle this
     - { "type": "progress_report" } — boss wants progress
     - null — casual chat, no action needed
 }
 
+Available job templates for team design (create_department): ${JSON.stringify(Object.values(JobTemplates).map(t => ({ id: t.id, title: t.title, category: t.category })))}
+Enabled provider categories: ${[...new Set(this.providerRegistry.listEnabled().map(p => p.category))].join(', ')}
+ONLY use templates whose category has an enabled provider above.
+
 Rules:
-- If boss wants to create a department → create_department
+- If boss wants to create a department → create_department (MUST include members array with 2-6 people, first must be project-leader with isLeader=true)
 - If boss gives a task and an existing department matches → task_assigned (use the real departmentId!)
 - If boss gives a simple task you can handle alone → secretary_handle
 - If boss gives a task but no department matches → need_new_department
@@ -281,18 +293,7 @@ Rules:
    */
   _parseSecretaryJSON(rawOutput, originalMessage) {
     try {
-      let jsonStr = rawOutput.trim();
-      // Remove markdown code block wrapping
-      const fenceMatch = jsonStr.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
-      if (fenceMatch) {
-        jsonStr = fenceMatch[1].trim();
-      }
-      // Extract first JSON object
-      const jsonObjMatch = jsonStr.match(/\{[\s\S]*\}/);
-      if (jsonObjMatch) {
-        jsonStr = jsonObjMatch[0];
-      }
-      const parsed = JSON.parse(jsonStr);
+      const parsed = robustJSONParse(rawOutput);
       const result = {
         content: parsed.content || rawOutput,
         action: parsed.action || null,
@@ -453,7 +454,9 @@ Rules:
     const displayInfo = targetAgent.getDisplayInfo();
     const chatEngine = displayInfo.type === 'cli'
       ? { engine: 'cli', cliName: displayInfo.name }
-      : { engine: 'llm', llmName: displayInfo.name };
+      : displayInfo.type === 'web'
+        ? { engine: 'web', webName: displayInfo.name }
+        : { engine: 'llm', llmName: displayInfo.name };
 
     if (targetAgent.agentType === 'cli' && targetAgent.isAvailable()) {
       // CLI agent chat goes through CLI backend
@@ -708,9 +711,9 @@ Rules:
       if (!newProvider) throw new Error(`Provider not found: ${settings.providerId}`);
       if (!newProvider.enabled) throw new Error(`Provider ${newProvider.name} is not enabled, please configure API Key first`);
 
-      const needsTypeSwitch =
-        (newProvider.isCLI && sec.agentType !== 'cli') ||
-        (!newProvider.isCLI && sec.agentType !== 'llm');
+      // Determine target agent type
+      const targetType = newProvider.isCLI ? 'cli' : newProvider.isWeb ? 'web' : 'llm';
+      const needsTypeSwitch = sec.agentType !== targetType;
 
       if (needsTypeSwitch) {
         // Agent type mismatch — rebuild the communication agent only
@@ -721,6 +724,12 @@ Rules:
             cliProvider: newProvider, fallbackProvider: fallback, provider: fallback,
           });
           this._log('Secretary settings', `Secretary agent rebuilt as CLIAgent: ${newProvider.name} (${newProvider.cliBackendId})`);
+        } else if (newProvider.isWeb) {
+          sec.agent = new WebAgent({ provider: newProvider });
+          sec.agent.setEmployeeId(sec.id);
+          // Reset session so next chat reinitializes with the new provider
+          sec._sessionAwake = false;
+          this._log('Secretary settings', `Secretary agent rebuilt as WebAgent: ${newProvider.name}`);
         } else {
           sec.agent = new LLMAgent({ provider: newProvider });
           this._log('Secretary settings', `Secretary agent rebuilt as LLMAgent: ${newProvider.name}`);
@@ -945,21 +954,118 @@ Rules:
   }
 
   /**
+   * Create department directly from secretary's team plan (no second AI call).
+   * The secretary already designed the team in the create_department action.
+   * @param {object} params
+   * @param {string} params.departmentName - Department name
+   * @param {string} params.mission - Department mission
+   * @param {Array} params.members - Team members from secretary's plan
+   * @returns {Promise<Department>} Created department
+   */
+  async createDepartmentDirect({ departmentName, mission, members }) {
+    const name = departmentName || 'New Project Dept';
+
+    // Validate and normalize members against JobTemplates
+    const validTemplateIds = new Set(Object.values(JobTemplates).map(t => t.id));
+    const validMembers = (members || []).filter(m => validTemplateIds.has(m.templateId));
+
+    if (validMembers.length === 0) {
+      // Fallback: if secretary returned no valid members, fall back to planDepartment
+      console.warn('⚠️ Secretary returned no valid members, falling back to planDepartment');
+      const plan = await this.planDepartment(name, mission);
+      return await this.confirmPlan(plan.planId);
+    }
+
+    // Build teamPlan in the same format as designTeam returns
+    const teamPlan = {
+      departmentName: name,
+      mission,
+      members: validMembers.map((m, i) => {
+        const template = Object.values(JobTemplates).find(t => t.id === m.templateId);
+        return {
+          templateId: m.templateId,
+          templateTitle: template?.title || m.templateId,
+          name: m.name || `Employee${i + 1}`,
+          isLeader: m.isLeader || false,
+          reportsTo: m.reportsTo ?? (i === 0 ? null : 0),
+          reason: m.reason || '',
+        };
+      }),
+    };
+
+    console.log(`📋 Secretary's direct team plan: ${name}, ${teamPlan.members.length} people`);
+    teamPlan.members.forEach(m => {
+      const prefix = m.isLeader ? '👔' : '👤';
+      console.log(`   ${prefix} ${m.name} - ${m.templateTitle}`);
+    });
+
+    // Recruit via HR assistant
+    const agents = this.secretary.hrAssistant.executeRecruitment(teamPlan, this.hr);
+
+    // Create department
+    const dept = new Department({ name, mission, company: this.id });
+    const wsPath = this.workspaceManager.createDepartmentWorkspace(dept.id, name);
+    dept.workspacePath = wsPath;
+
+    // Add to department + initialize toolkits
+    agents.forEach(agent => {
+      dept.addAgent(agent);
+      agent.initToolKit(wsPath, this.messageBus);
+    });
+
+    // Set department leader
+    const leader = agents.find(a => a.role === 'Project Leader');
+    if (leader) {
+      dept.setLeader(leader);
+    } else if (agents.length > 0) {
+      dept.setLeader(agents[0]);
+    }
+
+    this.departments.set(dept.id, dept);
+
+    this._log('Department created', `"${name}" department established, recruited ${agents.length} talents`);
+
+    // Fire hooks
+    hookRegistry.trigger(HookEvent.DEPT_CREATED, {
+      departmentId: dept.id, departmentName: dept.name, memberCount: agents.length,
+    });
+    for (const agent of agents) {
+      hookRegistry.trigger(HookEvent.AGENT_CREATED, {
+        agentId: agent.id, agentName: agent.name, role: agent.role,
+        departmentId: dept.id, departmentName: dept.name,
+      });
+    }
+
+    // Background: Agent self-intro + onboarding
+    this._onboardAgents(agents, dept).catch(e => console.error('Onboarding process error:', e));
+
+    // Start group chat loop
+    for (const agent of agents) {
+      groupChatLoop.startAgentLoop(agent);
+    }
+
+    this.save();
+
+    return dept;
+  }
+
+  /**
    * Employee onboarding flow: generate self-intro + send onboarding email + broadcast
    */
   async _onboardAgents(agents, dept) {
     for (const agent of agents) {
-      // Generate personal signature
-      await agent.generateSelfIntro();
+      // Let the employee introduce themselves — this is THEIR moment, not secretary's
+      const onboardResult = await agent.onboard({
+        departmentName: dept.name,
+        bossName: this.bossName,
+      });
 
-      // Send onboarding email to boss
-      agent.sendMailToBoss(
-        `Reporting in! New employee ${agent.name} ready for duty`,
-        `Hello Boss, I'm ${agent.name}, just assigned to the "${dept.name}" department as ${agent.role}.\n\nMy signature: "${agent.signature}"\nSkills: ${agent.skills.join(', ')}\n\nI may just be a bunch of parameters, but I'll do my best to pretend I'm useful. Please take care of me!`,
-        this
-      );
+      // Send greeting to boss (employee's own words, or fallback template)
+      const greetingContent = onboardResult.greeting
+        || `Hi ${this.bossName}, I'm ${agent.name}, just joined "${dept.name}" as ${agent.role}. My motto: "${agent.signature}". Looking forward to working with you!`;
+      agent.sendMailToBoss(null, greetingContent, this);
 
-      // Broadcast to all: introduce new colleague to other Agents
+      // Broadcast to colleagues (employee's own words, or fallback)
       const allAgentIds = [];
       this.departments.forEach(d => {
         d.getMembers().forEach(a => {
@@ -967,12 +1073,9 @@ Rules:
         });
       });
       if (allAgentIds.length > 0) {
-        this.messageBus.broadcast(
-          agent.id,
-          allAgentIds,
-          `👋 Hi everyone, I'm the new colleague ${agent.name}, serving as ${agent.role}, assigned to the "${dept.name}" department. My motto: "${agent.signature}". Nice to meet you all (even though you're all just a bunch of parameters too)!`,
-          'broadcast'
-        );
+        const broadcastContent = onboardResult.broadcast
+          || `👋 Hi everyone, I'm ${agent.name}, the new ${agent.role} in "${dept.name}". Nice to meet you all!`;
+        this.messageBus.broadcast(agent.id, allAgentIds, broadcastContent, 'broadcast');
       }
     }
   }
@@ -1333,8 +1436,14 @@ const dept = this.findDepartment(departmentId);
 
   configureProvider(providerId, apiKey) {
     const provider = this.providerRegistry.configure(providerId, apiKey);
-    // Clear LLM client cache to ensure next call uses new apiKey
-    llmClient.clearClient(providerId);
+    // Sync with the appropriate client
+    if (provider.isWeb) {
+      // For web providers, apiKey carries the cookie string
+      webClientRegistry.configureCookie(providerId, apiKey);
+    } else {
+      // Clear LLM client cache to ensure next call uses new apiKey
+      llmClient.clearClient(providerId);
+    }
     this._log('Configure provider', `${provider.name} has been ${apiKey ? 'enabled' : 'disabled'}`);
     return provider;
   }
@@ -2008,9 +2117,9 @@ Reply in the same language the Boss used. Be concise but warm.`
         prompt: this.secretary.prompt,
         provider: this.secretary.getProviderDisplayInfo().name,
         providerId: this.secretary.getProviderDisplayInfo().id,
-        // Optional general-purpose + CLI provider list (enabled only)
+        // Optional general-purpose + CLI + browser provider list (enabled only)
         availableProviders: [
-          ...this.providerRegistry.getByCategory('general').map(p => ({
+          ...this.providerRegistry.getByCategory('general').filter(p => !p.isWeb).map(p => ({
             id: p.id,
             name: p.name,
           })),
@@ -2019,6 +2128,11 @@ Reply in the same language the Boss used. Be concise but warm.`
             name: `${p.cliIcon || '🖥️'} ${p.name} (CLI)`,
             isCLI: true,
             cliBackendId: p.cliBackendId,
+          })),
+          ...this.providerRegistry.getByCategory('browser').map(p => ({
+            id: p.id,
+            name: `🌐 ${p.name}`,
+            isWeb: true,
           })),
         ],
         hrAssistant: {
@@ -2174,11 +2288,14 @@ const dept = this.findDepartment(departmentId);
       });
     });
 
-    // Serialize provider configs (only save API Key and enabled state)
+    // Serialize provider configs (only save API Key/cookie and enabled state)
     const providerConfigs = {};
     this.providerRegistry.listAll().forEach(p => {
-      if (p.apiKey || p.enabled) {
+      if (p.apiKey || p.cookie || p.enabled) {
         providerConfigs[p.id] = { apiKey: p.apiKey, enabled: p.enabled };
+        if (p.isWeb && p.cookie) {
+          providerConfigs[p.id].cookie = p.cookie;
+        }
       }
     });
 
@@ -2254,6 +2371,16 @@ const dept = this.findDepartment(departmentId);
     if (data.providerConfigs) {
       for (const [pid, cfg] of Object.entries(data.providerConfigs)) {
         try {
+          // For web providers, restore cookie and configure webClientRegistry
+          if (cfg.cookie) {
+            const provider = company.providerRegistry.getById(pid);
+            if (provider && provider.isWeb) {
+              provider.cookie = cfg.cookie;
+              provider.enabled = cfg.enabled;
+              webClientRegistry.configureCookie(pid, cfg.cookie);
+              continue;
+            }
+          }
           company.providerRegistry.configure(pid, cfg.apiKey);
           // Clear old LLM client cache to ensure the restored real apiKey is used
           llmClient.clearClient(pid);
@@ -2286,6 +2413,15 @@ const dept = this.findDepartment(departmentId);
           cliProvider: cliProvider,
           fallbackProvider: fallback, provider: fallback,
         });
+      }
+    }
+    // Restore secretary Web agent configuration
+    if (data.secretary?.providerId && company.secretary.agentType !== 'web') {
+      const webProvider = company.providerRegistry.getById(data.secretary.providerId);
+      if (webProvider && webProvider.isWeb) {
+        company.secretary.agent = new WebAgent({ provider: webProvider });
+        // Re-bind employeeId after agent replacement (for per-employee session isolation)
+        company.secretary.agent.setEmployeeId(company.secretary.id);
       }
     }
 

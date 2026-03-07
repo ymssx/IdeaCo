@@ -165,7 +165,7 @@ stats: { departments: '부서', workers: '직원', requirements: '요구사항' 
   providers: {
     title: '⚡ AI 공급자', subtitle: 'API Key를 설정하면 HR이 해당 유형의 직원을 채용할 수 있습니다.',
     hint: { title: '💡 HR 채용 전략', desc: 'HR은 <strong class="text-green-400">높은 평점 + 낮은 가격</strong>의 공급자를 우선 선택합니다.' },
-    categories: { general: '일반 직무', drawing: '드로잉 직무', music: '음악 직무', video: '영상 직무', cli: '로컬 코딩 엔진' },
+    categories: { general: '일반 직무', drawing: '드로잉 직무', music: '음악 직무', video: '영상 직무', cli: '로컬 코딩 엔진', browser: '브라우저 (Cookie)' },
     enabled: '{n}/{total} 활성화',
     configure: { title: '🔑 {name} 설정', provider: '공급자: {name}', apiKeyLabel: 'API Key', apiKeyPlaceholder: 'API Key 입력' },
     talentMarket: { btn: '인재 시장' },

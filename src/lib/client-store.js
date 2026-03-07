@@ -75,6 +75,46 @@ function normalizeCompanyAvatars(company) {
   return company;
 }
 
+/**
+ * Attempt to refresh ChatGPT cookie via Electron IPC.
+ * Called when a "session expired" error is detected from web provider.
+ * Returns true if cookie was refreshed successfully.
+ */
+async function tryRefreshChatGPTCookie() {
+  if (typeof window === 'undefined' || !window.electronAPI?.refreshChatGPTCookie) {
+    return false;
+  }
+  try {
+    console.log('[cookie-refresh] Attempting to refresh ChatGPT cookie via Electron...');
+    const result = await window.electronAPI.refreshChatGPTCookie();
+    if (result.ok && result.cookie) {
+      // Find the web-chatgpt provider and update its cookie on the server
+      await apiCall('/providers/web-chatgpt-4o/refresh-cookie', {
+        method: 'POST',
+        body: JSON.stringify({ cookie: result.cookie }),
+      });
+      console.log('[cookie-refresh] Cookie refreshed successfully');
+      return true;
+    }
+    console.warn('[cookie-refresh] Refresh failed:', result.error);
+    return false;
+  } catch (e) {
+    console.error('[cookie-refresh] Error:', e.message);
+    return false;
+  }
+}
+
+/**
+ * Check if an error message indicates ChatGPT session expiry
+ */
+function isChatGPTSessionExpired(errorMessage) {
+  if (!errorMessage) return false;
+  return errorMessage.includes('session expired') ||
+    errorMessage.includes('re-login and update cookie') ||
+    errorMessage.includes('Session expired') ||
+    errorMessage.includes('login required');
+}
+
 export const useStore = create((set, get) => ({
   // === Company State ===
   company: null,
@@ -374,7 +414,7 @@ chatMinimized: false,
 
   // === Chat with Secretary ===
   chatWithSecretary: async (message) => {
-    try {
+    const attempt = async () => {
       const data = await apiCall('/chat', {
         method: 'POST',
         body: JSON.stringify({ message }),
@@ -388,7 +428,23 @@ chatMinimized: false,
       }
 
       return data.data;
+    };
+
+    try {
+      return await attempt();
     } catch (e) {
+      // Auto-retry once if ChatGPT session expired
+      if (isChatGPTSessionExpired(e.message)) {
+        const refreshed = await tryRefreshChatGPTCookie();
+        if (refreshed) {
+          try {
+            return await attempt();
+          } catch (retryErr) {
+            set({ error: retryErr.message });
+            throw retryErr;
+          }
+        }
+      }
       set({ error: e.message });
       throw e;
     }

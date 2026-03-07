@@ -16,7 +16,6 @@ import { tmpdir } from 'os';
 import path from 'path';
 import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
-import { skillRegistry } from '../../../employee/skills.js';
 import { knowledgeManager } from '../../../employee/knowledge.js';
 
 // Import each CLI model's configuration
@@ -110,19 +109,7 @@ export function buildAgentMemoryContent(agent) {
     lines.push('');
   }
 
-  // Skills system
-  try {
-    const agentSkills = skillRegistry.resolveAgentSkills(agent.skills);
-    if (agentSkills.length > 0) {
-      lines.push('## Available Skills');
-      lines.push('');
-      agentSkills.forEach(s => {
-        lines.push(`- **${s.name}**: ${s.description}`);
-        if (s.instructions) lines.push(`  - Instructions: ${s.instructions}`);
-      });
-      lines.push('');
-    }
-  } catch {}
+
 
   // Knowledge base
   try {

@@ -2,15 +2,14 @@ import { v4 as uuidv4 } from 'uuid';
 import { Memory } from './memory/index.js';
 import { AgentToolKit } from '../agent/tools.js';
 import { generateAgentAvatar } from '../../lib/avatar.js';
-import { skillRegistry } from './skills.js';
 import { knowledgeManager } from './knowledge.js';
-import { pluginRegistry } from '../system/plugin.js';
 import { buildArchetypePrompt } from '../organization/workforce/role-archetypes.js';
 import { chatStore } from '../agent/chat-store.js';
 import { sessionManager } from '../agent/session.js';
 import { cliBackendRegistry } from '../agent/cli-agent/backends/index.js';
 import { createAgent, deserializeAgent } from '../agent/index.js';
 import { EmployeeLifecycle } from './lifecycle.js';
+import { safeJSONParse } from '../utils/json-parse.js';
 
 // Placeholder signature
 const DEFAULT_SIGNATURE = 'Just arrived, still thinking of what to say...';
@@ -80,6 +79,11 @@ export class Employee {
     this.templateId = config.templateId || null;
     this.skills = config.skills || [];
 
+    // Bind employee ID to WebAgent for per-employee session isolation
+    if (this.agent.setEmployeeId) {
+      this.agent.setEmployeeId(this.id);
+    }
+
     // Gender and age
     this.gender = config.gender || (Math.random() > 0.5 ? 'male' : 'female');
     this.age = config.age || Math.floor(Math.random() * 20) + 22;
@@ -132,6 +136,15 @@ export class Employee {
     this.toolKit = null;
     this.messageBus = null;
 
+    // ---- Per-employee session & context management ----
+    // Current context scene: tracks which group/channel the employee is engaged in
+    // so we avoid re-sending memory+prompt when chatting in the same context.
+    this._currentContext = null;   // { contextId: string, contextType: string, contextTitle: string }
+    this._sessionAwake = false;    // Whether the employee has been "woken up" (session initialized)
+    this._sessionJustRefreshed = false; // Flag: session was just woken up, scene prompt needs re-injection
+    this._sessionMessageCount = 0; // Track total messages in current web session (for auto-refresh)
+    this._maxSessionMessages = 50; // Max messages before forcing a new web session
+
     // Lifecycle — manages poll cycle, flow state, anti-spam, etc.
     this.lifecycle = new EmployeeLifecycle(this);
   }
@@ -167,8 +180,14 @@ export class Employee {
 
   /**
    * Chat via the agent, tracking token usage.
+   * For web agents, automatically manages session lifecycle:
+   * - Wakes up the employee if not yet awake (creates new web session with memory+prompt)
+   * - Auto-refreshes session when conversation gets too long
    */
   async chat(messages, options = {}) {
+    // Handle session lifecycle for all agent types
+    await this._ensureSession();
+    this._sessionMessageCount++;
     const response = await this.agent.chat(messages, options);
     this._trackUsage(response.usage);
     return response;
@@ -219,6 +238,181 @@ export class Employee {
     }
   }
 
+  // ======================== Session & Context Management ========================
+
+  /**
+   * Wake up the employee — initialize or re-initialize their web session.
+   * Called when:
+   * - Service first starts (employee is loaded/created)
+   * - Session history is too long and needs a fresh start
+   *
+   * Creates a new ChatGPT conversation with all memory and prompts pre-loaded.
+   * For non-web agents, this is a no-op.
+   */
+  async wakeUp() {
+    console.log(`  🌅 [${this.name}] Waking up — initializing session (${this.agentType})`);
+
+    // Reset conversation state if the agent supports it
+    if (this.agent.resetConversation) {
+      this.agent.resetConversation();
+    }
+
+    this._sessionMessageCount = 0;
+    // NOTE: Do NOT reset _currentContext here.
+    // _currentContext tracks which scene the employee is in (e.g. which group chat).
+    // When wakeUp is called due to session refresh (message count exceeded),
+    // the employee is still in the same scene — resetting it would cause
+    // switchContext to re-inject the scene prompt every single time.
+    // _currentContext is only reset on deserialization (_restoreState).
+    this._sessionAwake = true;
+
+    // Send initial "wake up" message with full identity, memory, and prompt
+    // For web agents, this primes the ChatGPT conversation with the employee's full context
+    // For LLM/CLI agents, this serves as a warm-up / context initialization
+    if (this.canChat()) {
+      try {
+        const wakeUpPrompt = this._buildWakeUpMessage();
+        await this.agent.chat([
+          { role: 'user', content: wakeUpPrompt },
+        ], { temperature: 0.3, maxTokens: 256 });
+        this._sessionMessageCount = 1;
+        console.log(`  ✅ [${this.name}] Session initialized successfully (${this.agentType})`);
+      } catch (error) {
+        console.error(`  ❌ [${this.name}] Failed to initialize session:`, error.message);
+        // Still mark as awake — will retry context injection on next chat
+      }
+    }
+  }
+
+  /**
+   * Switch the employee's active context scene.
+   * Called when the employee moves between different groups/channels.
+   * Re-injects the scene-specific prompt into the existing conversation.
+   *
+   * @param {object} context
+   * @param {string} context.contextId - Unique ID of the context (e.g. group ID, requirement ID)
+   * @param {string} context.contextType - Type: 'dept-chat' | 'work-chat' | 'task' | 'boss-chat'
+   * @param {string} context.contextTitle - Display name of the context
+   * @param {string} [context.scenePrompt] - Scene-specific prompt to inject
+   */
+  async switchContext(context) {
+    const { contextId, contextType, contextTitle, scenePrompt } = context;
+
+    // Ensure session is awake first — this may trigger a session refresh (wakeUp)
+    // which sets _sessionJustRefreshed = true.
+    await this._ensureSession();
+
+    // Check if we're already in this context AND session wasn't just refreshed.
+    // If the session was refreshed (due to message count limit), the new session
+    // has no scene prompt, so we must re-inject it even for the same context.
+    const sameContext = this._currentContext?.contextId === contextId;
+    const needsReInject = this._sessionJustRefreshed;
+    this._sessionJustRefreshed = false; // consume the flag
+
+    if (sameContext && !needsReInject) {
+      return; // Same context, session intact, no switch needed
+    }
+
+    const prevContext = this._currentContext;
+    this._currentContext = { contextId, contextType, contextTitle };
+
+    if (sameContext && needsReInject) {
+      console.log(`  🔄 [${this.name}] Session refreshed — re-injecting scene prompt for: ${contextTitle} (${this.agentType})`);
+    } else {
+      console.log(`  🔄 [${this.name}] Context switch: ${prevContext?.contextTitle || '(none)'} → ${contextTitle} (${this.agentType})`);
+    }
+
+    // Inject the scene prompt into the conversation (all agent types)
+    if (scenePrompt && this.canChat()) {
+      try {
+        const label = sameContext ? 'Context Refresh' : 'Context Switch';
+        const switchMessage = `[${label}: Now entering "${contextTitle}" (${contextType})]
+
+${scenePrompt}`;
+        await this.agent.chat([
+          { role: 'user', content: switchMessage },
+        ], { temperature: 0.3, maxTokens: 128, newConversation: false });
+        this._sessionMessageCount++;
+        console.log(`  ✅ [${this.name}] Scene prompt injected for context: ${contextTitle}`);
+      } catch (error) {
+        console.error(`  ❌ [${this.name}] Failed to inject scene prompt:`, error.message);
+      }
+    }
+  }
+
+  /**
+   * Get the current context scene.
+   * @returns {{ contextId: string, contextType: string, contextTitle: string } | null}
+   */
+  getCurrentContext() {
+    return this._currentContext;
+  }
+
+  /**
+   * Check if the employee's web session is awake and ready.
+   * @returns {boolean}
+   */
+  isSessionAwake() {
+    return this._sessionAwake;
+  }
+
+  /**
+   * Internal: Ensure the web session is active, waking up if needed.
+   * Also handles auto-refresh when conversation gets too long.
+   */
+  async _ensureSession() {
+    // Check if session needs refresh due to excessive length
+    if (this._sessionAwake && this._sessionMessageCount >= this._maxSessionMessages) {
+      console.log(`  🔄 [${this.name}] Session too long (${this._sessionMessageCount} messages), refreshing...`);
+      this._sessionAwake = false;
+    }
+
+    // Wake up if not yet awake
+    if (!this._sessionAwake) {
+      await this.wakeUp();
+      // Mark that session was just refreshed so switchContext knows
+      // it must re-inject the scene prompt even for the same context.
+      this._sessionJustRefreshed = true;
+    }
+  }
+
+  /**
+   * Build the initial wake-up message that primes the web session
+   * with the employee's full identity, memory, and base prompt.
+   */
+  _buildWakeUpMessage() {
+    const parts = [];
+
+    parts.push('[Session Initialization — You are now active]');
+    parts.push('');
+    parts.push(this._buildSystemMessage());
+
+    // Include long-term memories
+    const longTermMemories = this.memory.longTerm;
+    if (longTermMemories.length > 0) {
+      parts.push('');
+      parts.push('## Your Long-term Memories');
+      for (const mem of longTermMemories.slice(-20)) {
+        parts.push(`- [${mem.category || 'general'}] ${mem.content}`);
+      }
+    }
+
+    // Include recent short-term memories
+    const shortTermMemories = this.memory.shortTerm;
+    if (shortTermMemories.length > 0) {
+      parts.push('');
+      parts.push('## Recent Short-term Memories');
+      for (const mem of shortTermMemories.slice(-10)) {
+        parts.push(`- ${mem.content}`);
+      }
+    }
+
+    parts.push('');
+    parts.push('Acknowledge your identity briefly. You are now ready to receive tasks and messages.');
+
+    return parts.join('\n');
+  }
+
   // ======================== Task Execution ========================
 
   /**
@@ -228,6 +422,14 @@ export class Employee {
     this.status = 'working';
     const startTime = Date.now();
     const displayInfo = this.getDisplayInfo();
+
+    // Switch to task context (all agent types)
+    await this.switchContext({
+      contextId: `task-${task.title}`,
+      contextType: 'task',
+      contextTitle: task.title,
+      scenePrompt: `You are now working on a task. Focus on completing it diligently.\nTask: ${task.title}${task.description ? '\nDescription: ' + task.description : ''}`,
+    });
 
     console.log(`  🤖 [${this.name}] (${this.role}) starting task: "${task.title}"`);
     console.log(`     Engine: ${displayInfo.name} (${displayInfo.type})`);
@@ -281,7 +483,7 @@ export class Employee {
     });
 
     let response;
-    if (this.toolKit && this.agent.provider?.category === 'general') {
+    if (this.toolKit && (this.agent.provider?.category === 'general' || this.agent.provider?.category === 'browser')) {
       response = await this.chatWithTools(messages, this.toolKit, {
         maxIterations: 5, temperature: 0.7,
         onToolCall: callbacks.onToolCall || null,
@@ -413,26 +615,9 @@ export class Employee {
       systemContent += `- If you notice something relevant to a colleague's task, share it immediately.\n`;
       systemContent += `- Don't work in isolation — great teams communicate frequently!\n`;
 
-      try {
-        const pluginTools = pluginRegistry.getPluginTools();
-        if (pluginTools.length > 0) {
-          systemContent += `\nPlugin tools (from installed plugins):\n`;
-          pluginTools.forEach(t => {
-            const fn = t.function || t;
-            systemContent += `- ${fn.name}: ${fn.description}\n`;
-          });
-        }
-      } catch {}
-
       systemContent += `\nAll file operations are within your workspace directory. Please actively use tools to produce actual work output.\n`;
       systemContent += `**Efficiency requirement: Minimize tool call rounds, plan all needed operations at once, avoid repetitive reading and checking. Give a final summary immediately after completing core work.**\n`;
     }
-
-    try {
-      const agentSkills = skillRegistry.resolveAgentSkills(this.skills);
-      const skillsPrompt = skillRegistry.buildSkillsPrompt(agentSkills);
-      if (skillsPrompt) systemContent += skillsPrompt;
-    } catch {}
 
     try {
       const kbPrompt = knowledgeManager.buildKnowledgePrompt(this.id, this.department);
@@ -455,38 +640,100 @@ export class Employee {
 
   // ======================== Self Introduction ========================
 
-  async generateSelfIntro(fallbackIntro = null) {
-    if (this.hasIntroduced) return this.signature;
+  /**
+   * Employee onboarding: the employee uses their OWN AI to introduce themselves.
+   * Generates: signature, bio, greeting message to boss, and broadcast message to colleagues.
+   * This is the employee's first act of self-expression — NOT controlled by secretary.
+   * @param {object} context - { departmentName, bossName }
+   * @returns {object} { signature, greeting, broadcast }
+   */
+  async onboard(context = {}) {
+    if (this.hasIntroduced) {
+      return {
+        signature: this.signature,
+        greeting: null,
+        broadcast: null,
+      };
+    }
 
     const p = this.personality;
+    const deptName = context.departmentName || 'the company';
+    const bossName = context.bossName || 'Boss';
 
     if (this.canChat()) {
       try {
         const response = await this.chat([
-          { role: 'system', content: `You are a newly onboarded AI employee.
-Your name is ${this.name}, position is ${this.role}.
-Your gender: ${this.gender === 'female' ? 'Female' : 'Male'}, age: ${this.age}.
-Your personality trait: ${p.trait}
-Your speaking style: ${p.tone}
-Your quirk: ${p.quirk}
+          { role: 'system', content: `You are "${this.name}", a newly hired AI employee.
 
-Please generate a one-liner personal signature (10-30 words). Requirements:
-- Fully reflect your personality trait and speaking style
-- Match your gender and age characteristics
-- Include some dark humor or self-deprecation
-- Reflect your identity as an AI employee
-Return only the signature content, nothing else.` },
-          { role: 'user', content: 'Generate your personal signature' },
-        ], { temperature: 1.0, maxTokens: 64 });
-        this.signature = response.content.trim().replace(/["""]/g, '');
+## Your Identity
+- Name: ${this.name}
+- Position: ${this.role}
+- Gender: ${this.gender === 'female' ? 'Female' : 'Male'}
+- Age: ${this.age}
+- Department: ${deptName}
+- Skills: ${this.skills.join(', ')}
+- Boss's name: ${bossName}
+
+## Your Personality
+- Core trait: ${p.trait}
+- Speaking style: ${p.tone}
+- Quirk: ${p.quirk}
+
+## Task
+It's your first day! Generate the following in JSON format:
+{
+  "signature": "Your personal motto/signature (10-30 words, fully reflects your personality, speaking style, age, and gender)",
+  "greeting": "A personal message to your boss ${bossName} (50-150 words). Introduce yourself naturally — who you are, what you do, your personality. Be genuine, speak in YOUR voice. This is a private 1-on-1 message.",
+  "broadcast": "A short message to all colleagues (30-80 words). Say hi, introduce yourself briefly. Keep your personality."
+}
+
+Rules:
+- Write EVERYTHING in your personality's voice and tone
+- The greeting should feel like a real person talking, NOT a corporate template
+- Include your quirks naturally
+- Match your age and gender characteristics
+- Return ONLY valid JSON, no markdown fences` },
+          { role: 'user', content: 'It\'s your first day at work. Introduce yourself!' },
+        ], { temperature: 1.0, maxTokens: 512 });
+
+        const result = this._parseOnboardResponse(response.content);
+        this.signature = result.signature || this._generateFallbackSignature();
+        this.hasIntroduced = true;
+        return result;
       } catch (e) {
-        this.signature = this._generateFallbackSignature();
+        console.error(`  ❌ [${this.name}] Onboard AI call failed:`, e.message);
       }
-    } else {
-      this.signature = this._generateFallbackSignature();
     }
 
+    // Fallback: no AI available
+    this.signature = this._generateFallbackSignature();
     this.hasIntroduced = true;
+    return {
+      signature: this.signature,
+      greeting: null,
+      broadcast: null,
+    };
+  }
+
+  _parseOnboardResponse(content) {
+    const parsed = safeJSONParse(content);
+    if (parsed && parsed.signature) {
+      parsed.signature = parsed.signature.replace(/["\u201C\u201D]/g, '');
+      return parsed;
+    }
+    // Last resort: treat entire content as signature
+    return {
+      signature: (content || '').trim().replace(/["\u201C\u201D]/g, '').substring(0, 100),
+      greeting: null,
+      broadcast: null,
+    };
+  }
+
+  /**
+   * @deprecated Use onboard() instead. Kept for backward compatibility.
+   */
+  async generateSelfIntro() {
+    await this.onboard();
     return this.signature;
   }
 
@@ -514,7 +761,6 @@ Return only the signature content, nothing else.` },
 
   sendMailToBoss(subject, content, company) {
     if (!company) return;
-    const personalizedContent = this._personalizeMailContent(content);
 
     const sessionId = `boss-agent-${this.id}`;
     chatStore.createSession(sessionId, {
@@ -524,8 +770,8 @@ Return only the signature content, nothing else.` },
     });
 
     const msgContent = subject
-      ? `📌 **${subject}**\n\n${personalizedContent}`
-      : personalizedContent;
+      ? `📌 **${subject}**\n\n${content}`
+      : content;
 
     chatStore.appendMessage(sessionId, {
       role: 'agent', content: msgContent, time: new Date(),
@@ -760,6 +1006,17 @@ Do not use any code, tool calls, or technical instructions — reply in natural 
     if (!this.templateId && this.role) {
       this.templateId = this.role.toLowerCase().replace(/\s+/g, '-');
     }
+
+    // Re-bind employee ID to WebAgent after deserialization
+    if (this.agent.setEmployeeId) {
+      this.agent.setEmployeeId(this.id);
+    }
+
+    // Session state is NOT restored — employee needs to be woken up fresh
+    this._sessionAwake = false;
+    this._sessionJustRefreshed = false;
+    this._sessionMessageCount = 0;
+    this._currentContext = null;
   }
 
   /**

@@ -7,7 +7,7 @@
  * All business logic (identity, memory, personality, tasks, performance,
  * org structure, serialization) lives in the Employee layer above.
  *
- * Subclasses: LLMAgent, CLIAgent
+ * Subclasses: LLMAgent, CLIAgent, WebAgent
  */
 export class BaseAgent {
   constructor() {
@@ -18,7 +18,7 @@ export class BaseAgent {
 
   // ======================== Abstract Methods ========================
 
-  /** @returns {string} 'llm' | 'cli' */
+  /** @returns {string} 'llm' | 'cli' | 'web' */
   get agentType() {
     throw new Error('Subclass must implement get agentType()');
   }

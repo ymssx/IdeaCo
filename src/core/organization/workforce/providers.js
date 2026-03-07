@@ -11,6 +11,7 @@ export const JobCategory = {
   MUSIC: 'music',           // Music positions
   VIDEO: 'video',           // Video positions
   CLI: 'cli',               // CLI coding assistant positions (local CLI tools)
+  BROWSER: 'browser',       // Browser cookie-based web chat (no API key needed)
 };
 
 // Job category label mapping (i18n keys for frontend)
@@ -20,6 +21,7 @@ export const JobCategoryLabel = {
   [JobCategory.MUSIC]: 'music',
   [JobCategory.VIDEO]: 'video',
   [JobCategory.CLI]: 'cli',
+  [JobCategory.BROWSER]: 'browser',
 };
 
 // Model Providers (outsourcing vendor marketplace)
@@ -231,6 +233,28 @@ export const ModelProviders = {
   // CLI providers are auto-populated from CLI Backend Registry at runtime.
   // They appear in the Brain Providers board as a separate "CLI" category.
   // When enabled, HR can recruit agents that use local CLI tools as execution engines.
+
+  // === Browser (Cookie-based) Providers ===
+  // These use browser session cookies instead of API keys.
+  // The user logs in via browser, we extract cookies, and call the web API directly.
+  CHATGPT_WEB: {
+    id: 'web-chatgpt-4o',
+    name: 'ChatGPT (Browser)',
+    provider: 'OpenAI Web',
+    model: 'chatgpt-4o-latest',
+    webModel: 'auto',  // Model identifier used in ChatGPT web API
+    category: JobCategory.BROWSER,
+    capabilities: ['text-generation', 'coding', 'data-analysis', 'reasoning', 'translation'],
+    costPerToken: 0,
+    priceLabel: 'Free (cookie)',
+    priceLevel: 1,
+    rating: 95,
+    description: 'ChatGPT via browser cookie — no API key needed, uses your existing ChatGPT subscription',
+    apiKey: '',      // Not used — cookie is stored separately
+    cookie: '',      // Browser session cookie
+    enabled: false,
+    isWeb: true,
+  },
 };
 
 /**
@@ -309,6 +333,12 @@ export class ProviderRegistry {
       provider.enabled = !!apiKey;
       return provider;
     }
+    // Web/browser providers use cookie instead of API key
+    if (provider.isWeb) {
+      provider.cookie = apiKey;  // apiKey field carries the cookie string
+      provider.enabled = !!apiKey;
+      return provider;
+    }
     provider.apiKey = apiKey;
     provider.enabled = !!apiKey;
     return provider;
@@ -325,6 +355,14 @@ export class ProviderRegistry {
       provider.enabled = enabled;
       return provider;
     }
+    // Web providers need cookie instead of API key
+    if (provider.isWeb) {
+      if (enabled && !provider.cookie) {
+        throw new Error(`Provider ${provider.name} has no cookie configured, cannot enable`);
+      }
+      provider.enabled = enabled;
+      return provider;
+    }
     if (enabled && !provider.apiKey) {
       throw new Error(`Provider ${provider.name} has no API Key configured, cannot enable`);
     }
@@ -332,16 +370,19 @@ export class ProviderRegistry {
     return provider;
   }
 
-  /** Get available (enabled) providers by job category */
+  /** Get available (enabled) providers by job category.
+   *  Browser providers are also returned when querying 'general' (they share capabilities). */
   getByCategory(category) {
     return [...this.providers.values()].filter(
-      p => p.category === category && p.enabled
+      p => (p.category === category || (category === 'general' && p.category === 'browser')) && p.enabled
     );
   }
 
   /** Get all providers by job category (including disabled) */
   getAllByCategory(category) {
-    return [...this.providers.values()].filter(p => p.category === category);
+    return [...this.providers.values()].filter(
+      p => p.category === category || (category === 'general' && p.category === 'browser')
+    );
   }
 
   /** Check if a category has any enabled provider */
@@ -390,10 +431,11 @@ export class ProviderRegistry {
   getStats() {
     const stats = {};
     for (const cat of Object.values(JobCategory)) {
-      const all = this.getAllByCategory(cat);
+      // For stats display, use exact category match (don't merge browser into general)
+      const all = [...this.providers.values()].filter(p => p.category === cat);
       // Skip empty CLI category if no CLI backends registered
       if (cat === JobCategory.CLI && all.length === 0) continue;
-      const enabled = this.getByCategory(cat);
+      const enabled = all.filter(p => p.enabled);
       stats[cat] = {
         label: JobCategoryLabel[cat],
         total: all.length,
@@ -415,6 +457,9 @@ export class ProviderRegistry {
           cliState: p.cliState || null,
           cliVersion: p.cliVersion || null,
           cliIcon: p.cliIcon || null,
+          // Web/browser-specific fields
+          isWeb: p.isWeb || false,
+          hasCookie: !!(p.cookie),
         })),
       };
     }
