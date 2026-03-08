@@ -8,7 +8,7 @@ const webBackends = require('./web-backends.cjs');
 
 const isDev = !app.isPackaged;
 const disableDevtools = process.env.IDEACO_DISABLE_DEVTOOLS === '1';
-const PORT = 9999;
+const PORT = Number(process.env.IDEACO_PORT || 9999);
 
 let mainWindow = null;
 let serverProcess = null;

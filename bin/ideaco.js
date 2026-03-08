@@ -9,6 +9,18 @@ import chalk from 'chalk';
 import { createCliT } from './i18n.js';
 import { Jimp } from 'jimp';
 
+// Check Node.js version
+const requiredVersion = 20;
+const currentVersion = process.versions.node;
+const majorVersion = parseInt(currentVersion.split('.')[0], 10);
+
+if (majorVersion < requiredVersion) {
+  console.error(chalk.red(`\nError: Node.js version ${requiredVersion} or higher is required.`));
+  console.error(chalk.white(`You are running Node.js ${currentVersion}`));
+  console.error(chalk.gray(`Please upgrade your Node.js version and try again.\n`));
+  process.exit(1);
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT = path.resolve(__dirname, '..');
@@ -381,7 +393,20 @@ async function startServer() {
   child.unref();
   try {
     await waitForPort(port);
-    console.log(t('cli.startSuccess', { pid: child.pid, url: `http://127.0.0.1:${port}` }));
+    const url = `http://127.0.0.1:${port}`;
+    console.log(t('cli.startSuccess', { pid: child.pid, url }));
+    
+    // Tip for user
+    console.log(chalk.gray(`\nTip: You can use ${chalk.bold('ideaco ui')} to open the dashboard next time.`));
+
+    // Try to open Electron first
+    try {
+      console.log(chalk.cyan(`Opening Electron UI...`));
+      await openElectron(port);
+    } catch (error) {
+      console.log(chalk.yellow('Failed to open Electron UI, falling back to browser...'));
+      openUrl(url);
+    }
   } catch (err) {
     try { process.kill(child.pid, 'SIGTERM'); } catch {}
     clearPid();
@@ -455,7 +480,7 @@ async function openWeb() {
   console.log(t('cli.webOpened', { url }));
 }
 
-async function openElectron() {
+async function openElectron(port) {
   ensureDependencies();
   const electronBin = getElectronBin();
   const child = spawn(electronBin, ['.'], {
@@ -465,6 +490,7 @@ async function openElectron() {
       ...process.env,
       NODE_ENV: 'production',
       IDEACO_DISABLE_DEVTOOLS: '1',
+      IDEACO_PORT: String(port || PORT),
     },
   });
   child.on('exit', (code) => process.exit(code ?? 0));
