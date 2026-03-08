@@ -9,3 +9,6 @@ data/
 # Electron
 electron-dist/
 release/
+
+# NPM
+.npmrc
