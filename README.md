@@ -17,10 +17,13 @@
 
 <p align="center">
   <a href="#-quick-start">Quick Start</a> ·
-  <a href="#-features">Features</a> ·
   <a href="#-architecture">Architecture</a> ·
   <a href="#-download">Download</a> ·
   <a href="ARCHITECTURE.md">Full Architecture Doc</a>
+</p>
+
+<p align="center">
+  <img src="public/demo/demo.gif" width="100%" alt="IdeaCo Demo" />
 </p>
 
 ---
@@ -32,6 +35,65 @@ IdeaCo is not another multi-agent framework. It's an **AI employee management sy
 Each employee has **persistent memory**, a **unique personality**, **social relationships** with coworkers, and can be powered by different backends — from cloud LLMs to local CLI tools like **Claude Code**, **Codex**, and **CodeBuddy**.
 
 > The name comes from *Idea Unlimited Company* (金点子无限公司), inspired by Yang Hongying's children's story, playfully turning a "Limited Company" into "Unlimited".
+
+---
+
+## 🚀 Quick Start
+
+### Option 1: NPM (Recommended)
+
+Requires Node.js 20+
+
+```bash
+# Install globally
+npm install -g ideaco
+
+# Start your company (opens dashboard automatically)
+ideaco start
+
+# Open the dashboard
+ideaco ui
+```
+
+### Option 2: Desktop Client (Mac/Windows/Linux)
+
+Grab the latest release for your platform:
+
+**[Download IdeaCo](https://github.com/ymssx/IdeaCo/releases/latest)**
+
+| Platform | File |
+|----------|------|
+| macOS (Apple Silicon) | `IdeaCo-x.x.x-arm64.dmg` |
+| macOS (Intel) | `IdeaCo-x.x.x-x64.dmg` |
+| Windows | `IdeaCo-x.x.x-Setup.exe` |
+| Linux | `IdeaCo-x.x.x.AppImage` / `.deb` |
+
+<details>
+<summary><b>macOS Security Notice</b></summary>
+
+Since IdeaCo is not signed with an Apple Developer certificate, macOS will show a security warning. To open it:
+
+1. **Right-click** the app → **Open** → **Open** again in the dialog
+2. **Or**: System Settings → Privacy & Security → scroll down → **Open Anyway**
+3. **Or via Terminal**: `xattr -cr /Applications/IdeaCo.app`
+</details>
+
+### Option 3: From Source
+
+```bash
+git clone https://github.com/ymssx/IdeaCo.git
+cd IdeaCo
+yarn install
+yarn dev
+```
+
+### Option 4: Docker
+
+```bash
+docker compose up -d
+```
+
+Data is persisted via Docker volumes (`app-data`, `app-workspace`).
 
 ---
 
@@ -51,28 +113,7 @@ Most agent frameworks create **stateless workflows**. IdeaCo manages **long-livi
 
 ---
 
-## ✨ Features
-
-| Screenshot | Feature | Description |
-|:---:|---|---|
-| <img src="public/demo/dashboard.png" width="280" /> | **Dashboard** | Company overview — departments, employees, budget, requirements, and task forces at a glance |
-| <img src="public/demo/office.png" width="280" /> | **Pixel Office** | Pixel-art virtual office where AI agents wander, work at desks, and show real-time chat bubbles |
-| <img src="public/demo/employee.png" width="280" /> | **Employee Profile** | Detailed card — personality, memory (long/short-term), social relationships, affinity scores, performance, and cost tracking |
-| <img src="public/demo/messages.png" width="280" /> | **Group Chat** | Department chats where agents discuss, debate, and collaborate autonomously with flow-of-thought reasoning |
-| <img src="public/demo/requirement.png" width="280" /> | **Requirements** | Assign tasks to departments — agents auto-decompose, execute with real tools, and produce deliverables |
-
-### Key Highlights
-
-- 🧠 **Flow-of-Thought** — Each employee reads messages, has an inner monologue, and independently decides whether to reply based on topic saturation, relevance, and anti-spam rules
-- 💾 **Layered Memory** — Long-term memory (facts, preferences), short-term memory (TTL-based), rolling history summaries, and AI-managed memory ops (add/delete)
-- 👥 **Social Memory** — Every employee maintains impressions and affinity scores for coworkers. They remember who helped them, who they disagree with, and who they like
-- 🎭 **12 Personality Archetypes** — From "Chatterbox" to "Zen Slacker" to "Anxious Perfectionist", each employee has a unique voice and behavior pattern
-- 🔌 **Multi-Backend** — Mix cloud LLMs (OpenAI, DeepSeek, Anthropic), CLI tools (Claude Code, Codex, CodeBuddy), and web agents (ChatGPT Web) in one company
-- 🏢 **Org Structure** — Departments, teams, roles, talent market, HR hiring — a complete company simulation
-
----
-
-## 🏗 Architecture
+##  Architecture
 
 ```
 ┌───────────────────────────────────────────────────┐
@@ -99,54 +140,6 @@ Most agent frameworks create **stateless workflows**. IdeaCo manages **long-livi
 - **Secretary** — Boss's AI assistant that understands intent, manages HR, and coordinates departments.
 
 > 📖 See [ARCHITECTURE.md](ARCHITECTURE.md) for the full deep-dive — employee lifecycle, memory system design, flow-of-thought pipeline, anti-spam gates, and social memory details.
-
----
-
-## ⬇ Download
-
-Grab the latest release for your platform:
-
-**[Download IdeaCo](https://github.com/ymssx/IdeaCo/releases/latest)**
-
-| Platform | File |
-|----------|------|
-| macOS (Apple Silicon) | `IdeaCo-x.x.x-arm64.dmg` |
-| macOS (Intel) | `IdeaCo-x.x.x-x64.dmg` |
-| Windows | `IdeaCo-x.x.x-Setup.exe` |
-| Linux | `IdeaCo-x.x.x.AppImage` / `.deb` |
-
-<details>
-<summary><b>macOS Security Notice</b></summary>
-
-Since IdeaCo is not signed with an Apple Developer certificate, macOS will show a security warning. To open it:
-
-1. **Right-click** the app → **Open** → **Open** again in the dialog
-2. **Or**: System Settings → Privacy & Security → scroll down → **Open Anyway**
-3. **Or via Terminal**: `xattr -cr /Applications/IdeaCo.app`
-</details>
-
----
-
-## 🚀 Quick Start
-
-### From Source
-
-```bash
-git clone https://github.com/ymssx/IdeaCo.git
-cd IdeaCo
-yarn install
-yarn dev
-```
-
-Open **http://localhost:9999** — the Setup Wizard will guide you.
-
-### Docker
-
-```bash
-docker compose up -d
-```
-
-Data is persisted via Docker volumes (`app-data`, `app-workspace`).
 
 ---
 
@@ -198,9 +191,3 @@ IdeaCo/
 ├── electron/                 # Electron desktop app shell
 └── package.json
 ```
-
----
-
-## License
-
-[MIT](LICENSE)

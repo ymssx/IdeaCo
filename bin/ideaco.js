@@ -496,6 +496,37 @@ async function openElectron(port) {
   child.on('exit', (code) => process.exit(code ?? 0));
 }
 
+async function handleUiCommand() {
+  const pid = readPid();
+  const port = readPort() ?? PORT;
+  
+  // Check if service is already running
+  if (pid && isPidRunning(pid)) {
+    try {
+      // Simple check if port is responding
+      await new Promise((resolve, reject) => {
+        const socket = new net.Socket();
+        socket.setTimeout(1000);
+        socket.on('connect', () => { socket.destroy(); resolve(); });
+        socket.on('timeout', () => { socket.destroy(); reject(new Error('timeout')); });
+        socket.on('error', (err) => reject(err));
+        socket.connect(port, '127.0.0.1');
+      });
+      
+      // Service is running, open Electron directly
+      console.log(chalk.cyan(`Opening Electron UI on port ${port}...`));
+      await openElectron(port);
+      return;
+    } catch (e) {
+      // Port check failed, service might be dead
+    }
+  }
+
+  // Service not running, start it (which will auto-open Electron)
+  console.log(chalk.yellow('Service not running. Starting...'));
+  await startServer();
+}
+
 function printHelp() {
   console.log(`
 ${t('cli.helpTitle')}
@@ -512,8 +543,8 @@ async function main() {
   if (command === 'stop') return await stopServer();
   if (command === 'web') return await openWeb();
   if (command === 'banner') return await runBanner(args[1]);
-  if (command === 'ui') return await openElectron();
-  if (command === 'electron') return await openElectron();
+  if (command === 'ui') return await handleUiCommand();
+  if (command === 'electron') return await handleUiCommand();
   return printHelp();
 }
 
