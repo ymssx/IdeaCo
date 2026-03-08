@@ -7,6 +7,7 @@ const http = require('http');
 const webBackends = require('./web-backends.cjs');
 
 const isDev = !app.isPackaged;
+const disableDevtools = process.env.IDEACO_DISABLE_DEVTOOLS === '1';
 const PORT = 9999;
 
 let mainWindow = null;
@@ -156,7 +157,7 @@ function createWindow(port) {
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
-    if (isDev) mainWindow.webContents.openDevTools();
+    if (isDev && !disableDevtools) mainWindow.webContents.openDevTools();
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {

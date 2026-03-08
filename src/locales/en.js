@@ -24,6 +24,26 @@ const en = {
     minutesAgo: '{n} min ago',
     sun: 'Sun', mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat',
   },
+  cli: {
+    helpTitle: 'Usage:',
+    helpStart: 'ideaco start        Start background service',
+    helpStop: 'ideaco stop         Stop background service',
+    helpUi: 'ideaco ui           Open dashboard UI',
+    helpBanner: 'ideaco banner <img > Customize startup banner',
+    helpHelp: 'ideaco help         Show help',
+    startBoot: 'Booting on port {port}...',
+    alreadyRunning: 'Service already running • PID {pid}',
+    startSuccess: 'Service online • PID {pid} • {url}',
+    startFailed: 'Service start failed: {error}',
+    startTimeout: 'Service startup timed out',
+    notRunning: 'Service not running',
+    stopped: 'Service stopped',
+    webUnavailable: 'Service not running; cannot open UI',
+    webOpened: 'UI opened: {url}',
+    installDeps: 'Installing dependencies...',
+    installDepsDone: 'Dependencies installed',
+    installDepsFailed: 'Dependency installation failed',
+  },
 
   // === Layout & Meta ===
   meta: {

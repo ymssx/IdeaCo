@@ -9,6 +9,9 @@
   "license": "MIT",
   "type": "module",
   "main": "electron/main.cjs",
+  "bin": {
+    "ideaco": "bin/ideaco.js"
+  },
   "scripts": {
     "dev": "next dev -p 9999",
     "build": "next build",
@@ -24,8 +27,10 @@
     "@monaco-editor/react": "^4.7.0",
     "autoprefixer": "^10.4.27",
     "chalk": "^5.3.0",
+    "electron": "^33.0.0",
     "eventemitter3": "^5.0.1",
-    "next": "^14.2.0",
+    "jimp": "^1.6.0",
+    "next": "^15.5.12",
     "openai": "^4.0.0",
     "postcss": "^8.5.8",
     "react": "^18.3.0",
@@ -37,7 +42,6 @@
     "zustand": "^5.0.0"
   },
   "devDependencies": {
-    "electron": "^33.0.0",
     "electron-builder": "^25.1.0"
   },
   "build": {
@@ -60,18 +64,26 @@
       {
         "from": "electron-dist/",
         "to": "app",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "mac": {
       "target": [
         {
           "target": "dmg",
-          "arch": ["x64", "arm64"]
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         },
         {
           "target": "zip",
-          "arch": ["x64", "arm64"]
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         }
       ],
       "icon": "public/logo.png",
@@ -81,11 +93,15 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "zip",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "public/logo.png"
@@ -94,11 +110,15 @@
       "target": [
         {
           "target": "AppImage",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "deb",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "public/logo.png",
