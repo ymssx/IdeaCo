@@ -34,6 +34,12 @@ export const EntryType = {
   NOTE: 'note',           // Notes/memos
 };
 
+const logInfo = (...args) => {
+  if (process.env.IDEACO_SILENT_INIT === '1') return;
+  if (process.env.NEXT_PHASE === 'phase-production-build') return;
+  console.log(...args);
+};
+
 /**
  * Knowledge entry
  */
@@ -161,7 +167,7 @@ export class KnowledgeManager {
   create(config) {
     const kb = new KnowledgeBase(config);
     this.bases.set(kb.id, kb);
-    console.log(`📖 Knowledge base created: ${kb.name} (${kb.type})`);
+    logInfo(`📖 Knowledge base created: ${kb.name} (${kb.type})`);
     return kb;
   }
 

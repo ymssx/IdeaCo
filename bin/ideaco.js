@@ -32,6 +32,7 @@ const LOG_FILE = path.join(HOME_DIR, 'server.log');
 const DATA_DIR = path.join(HOME_DIR, 'data');
 const WORKSPACE_DIR = path.join(HOME_DIR, 'workspace');
 const BANNER_FILE = path.join(DATA_DIR, 'banner.ans');
+const BUILD_VERSION_FILE = path.join(HOME_DIR, 'build.version');
 const t = createCliT();
 
 const args = process.argv.slice(2);
@@ -340,11 +341,24 @@ function getElectronBin() {
 }
 
 function ensureBuild() {
+  ensureDirs();
+  const currentVersion = readPackageVersion();
+  const cachedVersion = readBuildVersion();
+  const hasBuild = fs.existsSync(path.join(ROOT, '.next'));
+  if (currentVersion && cachedVersion === currentVersion && hasBuild) return;
   const npmBin = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-  const result = spawnSync(npmBin, ['run', 'build'], { cwd: ROOT, stdio: 'inherit' });
+  const result = spawnSync(npmBin, ['run', 'build'], {
+    cwd: ROOT,
+    stdio: 'inherit',
+    env: {
+      ...process.env,
+      IDEACO_SILENT_INIT: '1',
+    },
+  });
   if (result.status !== 0) {
     process.exit(result.status ?? 1);
   }
+  if (currentVersion) writeBuildVersion(currentVersion);
 }
 
 function ensureDependencies() {
@@ -399,14 +413,6 @@ async function startServer() {
     // Tip for user
     console.log(chalk.gray(`\nTip: You can use ${chalk.bold('ideaco ui')} to open the dashboard next time.`));
 
-    // Try to open Electron first
-    try {
-      console.log(chalk.cyan(`Opening Electron UI...`));
-      await openElectron(port);
-    } catch (error) {
-      console.log(chalk.yellow('Failed to open Electron UI, falling back to browser...'));
-      openUrl(url);
-    }
   } catch (err) {
     try { process.kill(child.pid, 'SIGTERM'); } catch {}
     clearPid();
@@ -497,34 +503,14 @@ async function openElectron(port) {
 }
 
 async function handleUiCommand() {
-  const pid = readPid();
-  const port = readPort() ?? PORT;
-  
-  // Check if service is already running
-  if (pid && isPidRunning(pid)) {
-    try {
-      // Simple check if port is responding
-      await new Promise((resolve, reject) => {
-        const socket = new net.Socket();
-        socket.setTimeout(1000);
-        socket.on('connect', () => { socket.destroy(); resolve(); });
-        socket.on('timeout', () => { socket.destroy(); reject(new Error('timeout')); });
-        socket.on('error', (err) => reject(err));
-        socket.connect(port, '127.0.0.1');
-      });
-      
-      // Service is running, open Electron directly
-      console.log(chalk.cyan(`Opening Electron UI on port ${port}...`));
-      await openElectron(port);
-      return;
-    } catch (e) {
-      // Port check failed, service might be dead
-    }
+  const ok = await ensureServerRunning();
+  if (!ok) {
+    console.log(t('cli.webUnavailable'));
+    return;
   }
-
-  // Service not running, start it (which will auto-open Electron)
-  console.log(chalk.yellow('Service not running. Starting...'));
-  await startServer();
+  const port = readPort() ?? PORT;
+  console.log(chalk.cyan(`Opening Electron UI on port ${port}...`));
+  await openElectron(port);
 }
 
 function printHelp() {
@@ -536,6 +522,24 @@ ${t('cli.helpTitle')}
   ${t('cli.helpBanner')}
   ${t('cli.helpHelp')}
 `);
+}
+
+function readPackageVersion() {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+    return pkg.version || null;
+  } catch {
+    return null;
+  }
+}
+
+function readBuildVersion() {
+  if (!fs.existsSync(BUILD_VERSION_FILE)) return null;
+  return fs.readFileSync(BUILD_VERSION_FILE, 'utf8').trim() || null;
+}
+
+function writeBuildVersion(version) {
+  fs.writeFileSync(BUILD_VERSION_FILE, version);
 }
 
 async function main() {

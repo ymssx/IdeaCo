@@ -34,6 +34,11 @@ function tryRequire(moduleName) {
 }
 
 const execAsync = promisify(cpExec);
+const logInfo = (...args) => {
+  if (process.env.IDEACO_SILENT_INIT === '1') return;
+  if (process.env.NEXT_PHASE === 'phase-production-build') return;
+  console.log(...args);
+};
 
 // Runtime references (lazily fetched to avoid circular dependencies)
 let _sessionManager = null;
@@ -152,7 +157,7 @@ export class PluginRegistry {
     instance.config = { ...config };
     this.plugins.set(manifest.id, instance);
 
-    console.log(`🔌 Plugin installed: ${manifest.name} v${manifest.version}`);
+    logInfo(`🔌 Plugin installed: ${manifest.name} v${manifest.version}`);
     return instance;
   }
 
@@ -178,7 +183,7 @@ export class PluginRegistry {
 
     instance.state = PluginState.ENABLED;
     instance.enabledAt = new Date();
-    console.log(`✅ Plugin enabled: ${instance.manifest.name}`);
+    logInfo(`✅ Plugin enabled: ${instance.manifest.name}`);
   }
 
   /**

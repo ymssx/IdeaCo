@@ -36,6 +36,12 @@ export const SkillCategory = {
   DEVOPS: 'devops',           // DevOps/deployment
 };
 
+const logInfo = (...args) => {
+  if (process.env.IDEACO_SILENT_INIT === '1') return;
+  if (process.env.NEXT_PHASE === 'phase-production-build') return;
+  console.log(...args);
+};
+
 /**
  * Skill definition
  */
@@ -90,7 +96,7 @@ export class SkillRegistry {
     skill.state = SkillState.INSTALLED;
     skill.config = { ...config };
     skill.installedAt = new Date();
-    console.log(`📚 Skill installed: ${skill.definition.name}`);
+    logInfo(`📚 Skill installed: ${skill.definition.name}`);
     return skill;
   }
 
