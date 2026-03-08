@@ -1,3 +1,5 @@
+import path from 'path';
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone', // Required for Docker deployment
@@ -11,6 +13,11 @@ const nextConfig = {
     ],
   },
   webpack: (config, { isServer }) => {
+    config.resolve = config.resolve || {};
+    config.resolve.alias = {
+      ...(config.resolve.alias || {}),
+      '@': path.resolve(process.cwd(), 'src'),
+    };
     if (isServer) {
       // 将可选依赖标记为 external，避免 webpack 尝试解析/打包它们
       const optionalDeps = ['puppeteer', 'puppeteer-core', 'pdf-parse', 'openai'];
