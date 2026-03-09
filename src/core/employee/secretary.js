@@ -204,8 +204,8 @@ When communicating with the boss, you need to:
     }
 
     // Session initialization follows lazy-loading principle:
-    // _ensureSession() is called automatically inside this.chat()
-    // when _llmHandleBossMessage eventually calls this.chat(messages)
+    // For web agents: _ensureSession() is called inside this.chat() to manage browser sessions.
+    // For LLM/CLI agents: session management is skipped (stateless API, prompt is self-contained).
     return await this._llmHandleBossMessage(message, company);
   }
 

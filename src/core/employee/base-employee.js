@@ -183,21 +183,34 @@ export class Employee {
    * For web agents, automatically manages session lifecycle:
    * - Wakes up the employee if not yet awake (creates new web session with memory+prompt)
    * - Auto-refreshes session when conversation gets too long
+   * For LLM/CLI agents, session management is skipped (stateless API calls).
    */
   async chat(messages, options = {}) {
-    // Handle session lifecycle for all agent types
-    await this._ensureSession();
-    this._sessionMessageCount++;
+    // Session lifecycle only matters for web agents (stateful browser sessions).
+    // LLM/CLI agents are stateless — each chat() is an independent API call,
+    // so wakeUp/switchContext/session-refresh serve no purpose.
+    if (this.agentType === 'web') {
+      await this._ensureSession();
+      this._sessionMessageCount++;
+    }
     const response = await this.agent.chat(messages, options);
     this._trackUsage(response.usage);
     return response;
   }
 
   /**
-   * Chat with tools via the agent.
+   * Chat with tools via the agent, tracking token usage.
+   * Like chat(), web agents get session lifecycle management;
+   * LLM/CLI agents skip it (stateless API calls).
    */
   async chatWithTools(messages, toolExecutor, options = {}) {
-    return await this.agent.chatWithTools(messages, toolExecutor, options);
+    if (this.agentType === 'web') {
+      await this._ensureSession();
+      this._sessionMessageCount++;
+    }
+    const response = await this.agent.chatWithTools(messages, toolExecutor, options);
+    this._trackUsage(response.usage);
+    return response;
   }
 
   // ======================== Toolkit & MessageBus ========================
@@ -247,12 +260,14 @@ export class Employee {
    * - Session history is too long and needs a fresh start
    *
    * Creates a new ChatGPT conversation with all memory and prompts pre-loaded.
-   * For non-web agents, this is a no-op.
+   * For LLM/CLI agents (stateless API), this only updates internal state flags
+   * without making any API calls — their prompts are fully self-contained in
+   * each _agentThink() call, so a separate "wake up" call would waste tokens.
    */
   async wakeUp() {
     console.log(`  🌅 [${this.name}] Waking up — initializing session (${this.agentType})`);
 
-    // Reset conversation state if the agent supports it
+    // Reset conversation state if the agent supports it (web agents only)
     if (this.agent.resetConversation) {
       this.agent.resetConversation();
     }
@@ -266,9 +281,15 @@ export class Employee {
     // _currentContext is only reset on deserialization (_restoreState).
     this._sessionAwake = true;
 
-    // Send initial "wake up" message with full identity, memory, and prompt
-    // For web agents, this primes the ChatGPT conversation with the employee's full context
-    // For LLM/CLI agents, this serves as a warm-up / context initialization
+    // For LLM/CLI agents: stateless API — no need to send a wake-up message.
+    // The _agentThink() prompt already includes full identity, memory, and context
+    // on every call. Sending a wake-up message would waste tokens with no benefit.
+    if (this.agentType !== 'web') {
+      console.log(`  ✅ [${this.name}] Session marked awake (stateless ${this.agentType} agent, no API call needed)`);
+      return;
+    }
+
+    // For web agents: prime the ChatGPT/Claude web conversation with full context
     if (this.canChat()) {
       try {
         const wakeUpPrompt = this._buildWakeUpMessage();
@@ -276,9 +297,9 @@ export class Employee {
           { role: 'user', content: wakeUpPrompt },
         ], { temperature: 0.3, maxTokens: 256 });
         this._sessionMessageCount = 1;
-        console.log(`  ✅ [${this.name}] Session initialized successfully (${this.agentType})`);
+        console.log(`  ✅ [${this.name}] Web session initialized successfully`);
       } catch (error) {
-        console.error(`  ❌ [${this.name}] Failed to initialize session:`, error.message);
+        console.error(`  ❌ [${this.name}] Failed to initialize web session:`, error.message);
         // Still mark as awake — will retry context injection on next chat
       }
     }
@@ -298,6 +319,20 @@ export class Employee {
   async switchContext(context) {
     const { contextId, contextType, contextTitle, scenePrompt } = context;
 
+    // For LLM/CLI agents (stateless API): only update internal context tracking.
+    // No API calls needed — the _agentThink() prompt already includes full scene
+    // context on every call. The _currentContext record is still useful for
+    // lifecycle logic (e.g. knowing which group the employee is currently in).
+    if (this.agentType !== 'web') {
+      const prevContext = this._currentContext;
+      if (prevContext?.contextId !== contextId) {
+        this._currentContext = { contextId, contextType, contextTitle };
+        console.log(`  🔄 [${this.name}] Context updated: ${prevContext?.contextTitle || '(none)'} → ${contextTitle} (stateless ${this.agentType}, no API call)`);
+      }
+      return;
+    }
+
+    // ── Web agent path: stateful browser session ──
     // Ensure session is awake first — this may trigger a session refresh (wakeUp)
     // which sets _sessionJustRefreshed = true.
     await this._ensureSession();
@@ -317,12 +352,12 @@ export class Employee {
     this._currentContext = { contextId, contextType, contextTitle };
 
     if (sameContext && needsReInject) {
-      console.log(`  🔄 [${this.name}] Session refreshed — re-injecting scene prompt for: ${contextTitle} (${this.agentType})`);
+      console.log(`  🔄 [${this.name}] Session refreshed — re-injecting scene prompt for: ${contextTitle} (web)`);
     } else {
-      console.log(`  🔄 [${this.name}] Context switch: ${prevContext?.contextTitle || '(none)'} → ${contextTitle} (${this.agentType})`);
+      console.log(`  🔄 [${this.name}] Context switch: ${prevContext?.contextTitle || '(none)'} → ${contextTitle} (web)`);
     }
 
-    // Inject the scene prompt into the conversation (all agent types)
+    // Inject the scene prompt into the web conversation
     if (scenePrompt && this.canChat()) {
       try {
         const label = sameContext ? 'Context Refresh' : 'Context Switch';
@@ -359,11 +394,24 @@ ${scenePrompt}`;
   /**
    * Internal: Ensure the web session is active, waking up if needed.
    * Also handles auto-refresh when conversation gets too long.
+   *
+   * NOTE: This method is only meaningful for web agents (stateful sessions).
+   * For LLM/CLI agents, it's a lightweight no-op (just marks awake).
    */
   async _ensureSession() {
+    // For LLM/CLI agents: just ensure the awake flag is set.
+    // No session management needed — each API call is independent.
+    if (this.agentType !== 'web') {
+      if (!this._sessionAwake) {
+        this._sessionAwake = true;
+      }
+      return;
+    }
+
+    // ── Web agent path: stateful browser session ──
     // Check if session needs refresh due to excessive length
     if (this._sessionAwake && this._sessionMessageCount >= this._maxSessionMessages) {
-      console.log(`  🔄 [${this.name}] Session too long (${this._sessionMessageCount} messages), refreshing...`);
+      console.log(`  🔄 [${this.name}] Web session too long (${this._sessionMessageCount} messages), refreshing...`);
       this._sessionAwake = false;
     }
 
@@ -423,7 +471,9 @@ ${scenePrompt}`;
     const startTime = Date.now();
     const displayInfo = this.getDisplayInfo();
 
-    // Switch to task context (all agent types)
+    // Switch to task context
+    // For web agents: injects task scene prompt into the browser session.
+    // For LLM/CLI agents: only updates internal _currentContext (no API call).
     await this.switchContext({
       contextId: `task-${task.title}`,
       contextType: 'task',

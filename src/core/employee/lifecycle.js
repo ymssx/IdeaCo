@@ -372,8 +372,9 @@ export class EmployeeLifecycle {
     const company = this._getCompany();
 
     // NOTE: wakeUp follows lazy-loading principle.
-    // The employee will be automatically woken up on their first chat()
-    // call via _ensureSession(). No need to pre-initialize here.
+    // For web agents: automatically woken up on first chat() via _ensureSession().
+    // For LLM/CLI agents: wakeUp only sets a flag (no API call), since _agentThink()
+    // already builds a fully self-contained prompt with identity+memory+scene.
 
     try {
       const isDeptChat = groupId.startsWith('dept-');
@@ -399,8 +400,9 @@ export class EmployeeLifecycle {
 
       // ── Per-employee context scene management ──
       // Switch the employee's active context if the group has changed.
-      // For web agents this injects the scene prompt into the existing ChatGPT conversation
-      // without re-sending memory+prompt (which was done once at wake-up).
+      // For web agents: injects scene prompt into the existing ChatGPT conversation.
+      // For LLM/CLI agents: only updates internal _currentContext tracking (no API call);
+      //   the _agentThink() prompt is fully self-contained with identity+scene+memory.
       if (agent.switchContext) {
         const contextType = isDeptChat ? 'dept-chat' : 'work-chat';
         const members = dept.getMembers().map(a => `${a.name}(${a.role})`).join(', ');
