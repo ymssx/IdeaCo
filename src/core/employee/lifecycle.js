@@ -152,6 +152,9 @@ export class EmployeeLifecycle {
     // Poll timer (single timer for the employee)
     this._pollTimer = null;
 
+    // Adaptive poll delay — set by AI's interest/saturation output, consumed by _scheduleNext
+    this._nextPollDelay = null;            // ms or null (null = use default random)
+
     // Back-reference to global coordinator (set externally)
     this._coordinator = null;
   }
@@ -255,7 +258,9 @@ export class EmployeeLifecycle {
 
   _scheduleNext() {
     if (!this._isRunning()) return;
-    const delay = this._randomDelay();
+    // Use adaptive delay if set by the last thinking round, otherwise random
+    const delay = this._nextPollDelay ?? this._randomDelay();
+    this._nextPollDelay = null; // consume it
     this._pollTimer = setTimeout(async () => {
       try {
         await this._pollCycle();
@@ -481,12 +486,19 @@ export class EmployeeLifecycle {
 
       // Topic saturation gate
       const topicSaturation = thinkingResult.topicSaturation || 0;
+      const interestLevel = thinkingResult.interestLevel || 5;
       if (thinkingResult.shouldSpeak && topicSaturation >= this.config.topicSaturationThreshold && !isMentioned) {
         console.log(`  🎯 [Lifecycle] ${agent.name} silenced by topic saturation (score=${topicSaturation})`);
         thinkingResult.shouldSpeak = false;
         thinkingResult.reason = `Topic saturation: ${topicSaturation}/10`;
         monologue.addThought(PROMPT.monologue.topicSaturated(topicSaturation));
       }
+
+      // ── Adaptive poll delay: interest↑ → faster, saturation↑ → slower ──
+      const adaptiveDelay = this._computeAdaptiveDelay(topicSaturation, interestLevel);
+      this._nextPollDelay = adaptiveDelay;
+      console.log(`  ⏱️ [Lifecycle] ${agent.name} next poll in ${Math.round(adaptiveDelay / 1000)}s (interest=${interestLevel}, saturation=${topicSaturation})`);
+      monologue.addThought(`[Adaptive timing] Interest: ${interestLevel}/10, Saturation: ${topicSaturation}/10 → next check in ${Math.round(adaptiveDelay / 1000)}s`);
 
       // Cooldown check
       if (thinkingResult.shouldSpeak) {
@@ -717,6 +729,7 @@ export class EmployeeLifecycle {
         reason: result.reason || '',
         innerThoughts: thoughtContent,
         topicSaturation: typeof result.topicSaturation === 'number' ? result.topicSaturation : 0,
+        interestLevel: typeof result.interestLevel === 'number' ? result.interestLevel : 5,
       };
 
     } catch (error) {
@@ -961,6 +974,41 @@ ${pt.antiAIWarning(agent.age)}`;
   _randomDelay() {
     return this.config.pollIntervalMinMs +
       Math.random() * (this.config.pollIntervalMaxMs - this.config.pollIntervalMinMs);
+  }
+
+  /**
+   * Compute adaptive poll delay based on AI's interest level and topic saturation.
+   *
+   * Formula:
+   *   interestFactor  = (10 - interest) / 9   → 0 (very interested) ~ 1 (not interested)
+   *   saturationFactor = saturation / 10       → 0 (fresh) ~ 1 (exhausted)
+   *   combined = 0.6 * interestFactor + 0.4 * saturationFactor  (interest weighted more)
+   *   delay = MIN + combined * (MAX - MIN)
+   *
+   * Result range: pollIntervalMinMs (10s) ~ pollIntervalMaxMs (5min)
+   *
+   * Examples:
+   *   interest=9, saturation=2 → ~15s  (very engaged, fresh topic)
+   *   interest=5, saturation=5 → ~2min (moderate)
+   *   interest=2, saturation=8 → ~4.5min (bored, topic dead)
+   */
+  _computeAdaptiveDelay(topicSaturation, interestLevel) {
+    const interest = Math.max(1, Math.min(10, interestLevel));
+    const saturation = Math.max(0, Math.min(10, topicSaturation));
+
+    const interestFactor = (10 - interest) / 9;   // 0 = max interest, 1 = zero interest
+    const saturationFactor = saturation / 10;       // 0 = fresh, 1 = exhausted
+
+    // Interest has more weight (60%) than saturation (40%)
+    const combined = 0.6 * interestFactor + 0.4 * saturationFactor;
+
+    const minMs = this.config.pollIntervalMinMs;  // 10s
+    const maxMs = this.config.pollIntervalMaxMs;  // 300s
+
+    // Add a small random jitter (±10%) to avoid sync between employees
+    const base = minMs + combined * (maxMs - minMs);
+    const jitter = base * 0.1 * (Math.random() * 2 - 1); // ±10%
+    return Math.round(Math.max(minMs, Math.min(maxMs, base + jitter)));
   }
 
   _delay(ms) {

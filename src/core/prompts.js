@@ -272,6 +272,7 @@ Before you speak, you MUST evaluate how "saturated" the current topic is:
 {
   "innerThoughts": "Your real inner thoughts right now, written with your personality and emotions",
   "topicSaturation": 5,
+  "interestLevel": 5,
   "shouldSpeak": true,
   "reason": "reason",
   "messages": [{ "content": "your reply" }],
@@ -288,6 +289,13 @@ Before you speak, you MUST evaluate how "saturated" the current topic is:
 }
 
 - topicSaturation: 1-10 score of how saturated/exhausted the current topic is. Be honest!
+- interestLevel: 1-10 score of how relevant and interesting this topic is TO YOU PERSONALLY. Be realistic!
+  - 1-3: Not your area, boring, or irrelevant to your role/skills. You'd rather do something else.
+  - 4-6: Somewhat related to you. You have mild curiosity but no strong pull.
+  - 7-8: Directly related to your expertise or interests. You're engaged.
+  - 9-10: This is YOUR thing. You're deeply invested and can't wait to see what happens next.
+  - ⚠️ DON'T be a sycophant — most topics should NOT be 8+. If the topic isn't directly about your domain, keep it low (1-5).
+  - Your interest affects how quickly you'll check messages next time — high interest = check sooner, low interest = check later.
 - When topicSaturation ≥ 7, you MUST set shouldSpeak: false.
 - When not speaking, messages should be [].
 
@@ -389,6 +397,7 @@ Before you speak, you MUST evaluate how "saturated" the current topic is:
 {
   "innerThoughts": "Your inner thoughts right now — be emotional: feelings first, then analysis",
   "topicSaturation": 5,
+  "interestLevel": 5,
   "shouldSpeak": true/false,
   "reason": "reason",
   "messages": [{ "content": "your message (use @[agentId] to @ others, use [[file:path]] to reference files)" }],
@@ -404,6 +413,13 @@ Before you speak, you MUST evaluate how "saturated" the current topic is:
 }
 
 - topicSaturation: 1-10 score of how saturated/exhausted the current discussion point is. Be honest!
+- interestLevel: 1-10 score of how relevant and interesting this work topic is TO YOU PERSONALLY. Be realistic!
+  - 1-3: Not your area at all. Someone else's task, irrelevant tech stack, or trivial discussion.
+  - 4-6: Tangentially related. You could contribute but it's not your core responsibility.
+  - 7-8: Directly in your domain. Your expertise is needed or your work is being discussed.
+  - 9-10: Critical to your current task. You're deeply invested in the outcome.
+  - ⚠️ DON'T inflate your interest — if the discussion is about someone else's module or a topic outside your skills, keep it LOW (1-4). Only rate high when it truly affects YOUR work.
+  - Your interest affects how quickly you'll check messages next time — high interest = check sooner, low interest = check later.
 - When topicSaturation ≥ 7, you MUST set shouldSpeak: false (unless directly asked).
 - When not speaking, messages should be [].
 - When mentioning files, use [[file:relative/path]] format so others can click to view the file.

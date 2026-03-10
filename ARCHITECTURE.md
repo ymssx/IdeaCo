@@ -132,9 +132,14 @@ Triggered on app startup or session refresh. Injects full identity into the Agen
 
 #### Phase 4 — Poll Cycle
 
-Each employee runs an independent random-interval timer:
+Each employee runs an independent **adaptive-interval** timer:
 
-- **Interval**: 10 seconds ~ 5 minutes (simulates human-like irregular checking behavior)
+- **Default Interval**: 10 seconds ~ 5 minutes
+- **Adaptive Timing**: After each thinking round, the AI outputs `interestLevel` (1-10) and `topicSaturation` (1-10). These are combined to compute the next poll delay:
+  - **High interest + low saturation** → check again in ~10-15s (engaged in a hot, fresh topic)
+  - **Moderate interest/saturation** → check in ~2min
+  - **Low interest + high saturation** → check in ~4-5min (bored, topic exhausted)
+- **Formula**: `delay = MIN + (0.6 × interestFactor + 0.4 × saturationFactor) × (MAX - MIN)` with ±10% jitter
 - **Each Cycle**: Scan all joined groups (work groups + lounge groups), check for unread messages
 - **Lounge Groups**: After idle threshold, 15% chance of initiating a topic spontaneously
 
@@ -170,6 +175,7 @@ Constructs a full prompt context and calls the LLM for decision-making.
 {
   "innerThoughts": "Internal monologue with personality and emotion",
   "topicSaturation": 5,
+  "interestLevel": 5,
   "shouldSpeak": true,
   "reason": "Why I decided to speak/stay silent",
   "messages": [{ "content": "The actual reply" }],
@@ -187,7 +193,8 @@ Constructs a full prompt context and calls the LLM for decision-making.
 
 ### Reply Decision Gates
 
-After the LLM's flow-of-thought, the reply passes through multiple filter gates:
+After the LLM's flow-of-thought, the reply passes through multiple filter gates.
+Additionally, `topicSaturation` and `interestLevel` are used to **adaptively schedule the next poll interval** (see Phase 4).
 
 ```
 LLM returns shouldSpeak=true
