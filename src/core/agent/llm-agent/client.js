@@ -14,7 +14,15 @@ import { hookRegistry, HookEvent } from '../../../lib/hooks.js';
  * @returns {object} API client instance
  */
 function createClient(provider) {
-  const { id, apiKey } = provider;
+  const { id, apiKey, baseURL, isCustomOpenAI } = provider;
+
+  // Custom OpenAI-compatible provider with custom baseURL
+  if (isCustomOpenAI && baseURL) {
+    return new OpenAI({
+      apiKey: apiKey || 'not-needed', // Some private models may not need API key
+      baseURL,
+    });
+  }
 
   // OpenAI series (GPT, DALL-E)
   if (id.startsWith('openai-')) {
@@ -80,9 +88,15 @@ export class LLMClient {
    * Get or create an API client
    */
   _getClient(provider) {
-    if (!provider.apiKey) {
+    // Custom OpenAI-compatible providers can have just baseURL without API key
+    if (provider.isCustomOpenAI) {
+      if (!provider.apiKey && !provider.baseURL) {
+        throw new Error(`Provider ${provider.name} has neither API Key nor baseURL configured`);
+      }
+    } else if (!provider.apiKey) {
       throw new Error(`Provider ${provider.name} has no API Key configured`);
     }
+    
     if (!this.clients.has(provider.id)) {
       this.clients.set(provider.id, createClient(provider));
     }

@@ -102,6 +102,24 @@ export const ModelProviders = {
     apiKey: '',
     enabled: false,
   },
+  // === Custom OpenAI-compatible Private Model ===
+  CUSTOM_OPENAI: {
+    id: 'custom-openai',
+    name: 'Custom OpenAI Model',
+    provider: 'Custom',
+    model: 'custom-model',
+    category: JobCategory.GENERAL,
+    capabilities: ['text-generation', 'coding', 'data-analysis', 'reasoning', 'translation'],
+    costPerToken: 0.0,
+    priceLabel: 'Custom pricing',
+    priceLevel: 1,
+    rating: 70,
+    description: 'Custom OpenAI-compatible private model with custom endpoint',
+    apiKey: '',
+    baseURL: '', // Custom endpoint URL for private model
+    enabled: false,
+    isCustomOpenAI: true, // Flag to identify custom OpenAI-compatible providers
+  },
 
   // === Drawing Position Providers ===
   DALLE3: {
@@ -320,12 +338,14 @@ export class ProviderRegistry {
   }
 
   /**
-   * Configure a provider's API Key
+   * Configure a provider's API Key and optional baseURL
    * @param {string} id - Provider ID
    * @param {string} apiKey - API Key
+   * @param {object} [options] - Additional configuration options
+   * @param {string} [options.baseURL] - Custom base URL for custom OpenAI-compatible providers
    * @returns {object} Updated provider config
    */
-  configure(id, apiKey) {
+  configure(id, apiKey, options = {}) {
     const provider = this.providers.get(id);
     if (!provider) throw new Error(`Provider not found: ${id}`);
     // CLI providers use toggle instead of API key
@@ -337,6 +357,16 @@ export class ProviderRegistry {
     if (provider.isWeb) {
       provider.cookie = apiKey;  // apiKey field carries the cookie string
       provider.enabled = !!apiKey;
+      return provider;
+    }
+    // Custom OpenAI-compatible providers can have baseURL
+    if (provider.isCustomOpenAI) {
+      if (options.baseURL !== undefined) {
+        provider.baseURL = options.baseURL;
+      }
+      provider.apiKey = apiKey;
+      // Custom providers can be enabled with just baseURL (no API key needed for private models)
+      provider.enabled = !!(apiKey || provider.baseURL);
       return provider;
     }
     provider.apiKey = apiKey;
@@ -359,6 +389,14 @@ export class ProviderRegistry {
     if (provider.isWeb) {
       if (enabled && !provider.cookie) {
         throw new Error(`Provider ${provider.name} has no browser session configured, cannot enable`);
+      }
+      provider.enabled = enabled;
+      return provider;
+    }
+    // Custom OpenAI-compatible providers can be enabled with just baseURL (no API key required for private models)
+    if (provider.isCustomOpenAI) {
+      if (enabled && !provider.apiKey && !provider.baseURL) {
+        throw new Error(`Provider ${provider.name} has no API Key or baseURL configured, cannot enable`);
       }
       provider.enabled = enabled;
       return provider;
@@ -460,6 +498,9 @@ export class ProviderRegistry {
           // Web/browser-specific fields
           isWeb: p.isWeb || false,
           hasCookie: !!(p.cookie),
+          // Custom OpenAI-compatible provider fields
+          isCustomOpenAI: p.isCustomOpenAI || false,
+          baseURL: p.baseURL || '',
         })),
       };
     }

@@ -235,11 +235,11 @@ chatMinimized: false,
   },
 
   // === Provider Operations ===
-  configureProvider: async (providerId, apiKey) => {
+  configureProvider: async (providerId, apiKey, options = {}) => {
     try {
       await apiCall(`/providers/${providerId}/configure`, {
         method: 'POST',
-        body: JSON.stringify({ apiKey }),
+        body: JSON.stringify({ apiKey, ...options }),
       });
       await get().fetchCompany();
     } catch (e) {

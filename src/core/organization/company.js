@@ -1474,17 +1474,17 @@ const dept = this.findDepartment(departmentId);
     return this.hr.listAllTemplates();
   }
 
-  configureProvider(providerId, apiKey) {
-    const provider = this.providerRegistry.configure(providerId, apiKey);
+  configureProvider(providerId, apiKey, options = {}) {
+    const provider = this.providerRegistry.configure(providerId, apiKey, options);
     // Sync with the appropriate client
     if (provider.isWeb) {
       // For web providers, apiKey carries the session token (legacy cookie field)
       webClientRegistry.configureCookie(providerId, apiKey);
     } else {
-      // Clear LLM client cache to ensure next call uses new apiKey
+      // Clear LLM client cache to ensure next call uses new apiKey/baseURL
       llmClient.clearClient(providerId);
     }
-    this._log('Configure provider', `${provider.name} has been ${apiKey ? 'enabled' : 'disabled'}`);
+    this._log('Configure provider', `${provider.name} has been ${apiKey ? 'enabled' : 'disabled'}${provider.baseURL ? ` with custom endpoint ${provider.baseURL}` : ''}`);
     return provider;
   }
 

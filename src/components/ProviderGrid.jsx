@@ -46,6 +46,11 @@ export default function ProviderGrid({
   const [configTarget, setConfigTarget] = useState(null);
   const [apiKey, setApiKey] = useState('');
 
+  // Custom OpenAI config state
+  const [customOpenAITarget, setCustomOpenAITarget] = useState(null);
+  const [customBaseURL, setCustomBaseURL] = useState('');
+  const [customApiKey, setCustomApiKey] = useState('');
+
   // Web agent config state
   const [webConfigTarget, setWebConfigTarget] = useState(null);
   const [cookieValue, setCookieValue] = useState('');
@@ -320,6 +325,17 @@ export default function ProviderGrid({
                     >
                       {p.enabled ? t('common.disable') : t('common.enable')}
                     </button>
+                  ) : p.isCustomOpenAI ? (
+                    <button
+                      className={`text-xs px-2.5 py-1 rounded transition-all shrink-0 ${
+                        p.enabled
+                          ? 'bg-green-900/30 text-green-400 hover:bg-green-900/50'
+                          : 'bg-[var(--accent)]/10 text-[var(--accent)] hover:bg-[var(--accent)]/20'
+                      }`}
+                      onClick={() => { setCustomOpenAITarget(p); setCustomBaseURL(p.baseURL || ''); setCustomApiKey(''); }}
+                    >
+                      {p.enabled ? t('common.manage') : t('common.configure')}
+                    </button>
                   ) : p.isWeb ? (
                     <button
                       className={`text-xs px-2.5 py-1 rounded transition-all shrink-0 ${
@@ -354,6 +370,9 @@ export default function ProviderGrid({
                   {p.cliVersion && <span className="ml-2 text-[10px] opacity-60">v{p.cliVersion}</span>}
                   {p.cliState && p.cliState !== 'detected' && (
                     <span className="ml-2 text-[10px] text-yellow-400">({t(`systemSettings.cliBackends.status.${p.cliState}`)})</span>
+                  )}
+                  {p.isCustomOpenAI && p.baseURL && (
+                    <div className="text-[10px] text-cyan-400/70 mt-0.5 truncate" title={p.baseURL}>🔗 {p.baseURL}</div>
                   )}
                 </div>
                 <div className="flex items-center gap-3 mb-2">
@@ -537,6 +556,74 @@ export default function ProviderGrid({
                   {t('common.disable')}
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Custom OpenAI config modal */}
+      {customOpenAITarget && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 !m-0" onClick={() => setCustomOpenAITarget(null)}>
+          <div className="card max-w-sm w-full mx-4 space-y-4" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold">{t('providers.configure.title', { name: customOpenAITarget.name })}</h3>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-[var(--muted)]">{t('providers.configure.provider', { name: customOpenAITarget.provider })}</span>
+              <div className="flex items-center gap-2">
+                <span className="text-yellow-400">⭐ {customOpenAITarget.rating}</span>
+                <span className={`${PRICE_COLORS[(customOpenAITarget.priceLevel || 1) - 1]}`}>
+                  {customOpenAITarget.priceLabel}
+                </span>
+              </div>
+            </div>
+            {customOpenAITarget.description && (
+              <p className="text-xs text-[var(--muted)]">{customOpenAITarget.description}</p>
+            )}
+            <div>
+              <label className="block text-sm mb-1 text-[var(--muted)]">{t('providers.customOpenAI.baseURLLabel')}</label>
+              <input
+                type="text"
+                className="input w-full"
+                placeholder={t('providers.customOpenAI.baseURLPlaceholder')}
+                value={customBaseURL}
+                onChange={e => setCustomBaseURL(e.target.value)}
+              />
+              <p className="text-[10px] text-[var(--muted)] mt-1">{t('providers.customOpenAI.baseURLHint')}</p>
+            </div>
+            <div>
+              <label className="block text-sm mb-1 text-[var(--muted)]">{t('providers.customOpenAI.apiKeyLabel')}</label>
+              <input
+                type="password"
+                className="input w-full"
+                placeholder={t('providers.customOpenAI.apiKeyPlaceholder')}
+                value={customApiKey}
+                onChange={e => setCustomApiKey(e.target.value)}
+              />
+              <p className="text-[10px] text-[var(--muted)] mt-1">{t('providers.customOpenAI.apiKeyHint')}</p>
+            </div>
+            <div className="flex gap-2">
+              <button className="btn-secondary flex-1" onClick={() => setCustomOpenAITarget(null)}>{t('common.cancel')}</button>
+              {customOpenAITarget.enabled && (
+                <button
+                  className="btn-danger flex-1"
+                  onClick={async () => { await configureProvider(customOpenAITarget.id, '', { baseURL: '' }); setCustomOpenAITarget(null); }}
+                >
+                  {t('common.disable')}
+                </button>
+              )}
+              <button
+                className="btn-primary flex-1"
+                disabled={!customBaseURL}
+                onClick={async () => {
+                  try {
+                    await configureProvider(customOpenAITarget.id, customApiKey, { baseURL: customBaseURL });
+                    setCustomOpenAITarget(null);
+                    setCustomBaseURL('');
+                    setCustomApiKey('');
+                  } catch (e) { /* handled */ }
+                }}
+              >
+                {customOpenAITarget.enabled ? t('common.update') : t('common.enable')}
+              </button>
             </div>
           </div>
         </div>

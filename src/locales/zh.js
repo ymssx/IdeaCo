@@ -288,6 +288,14 @@ const zh = {
     configure: {
       title: '🔑 配置 {name}', provider: '供应商: {name}', apiKeyLabel: 'API Key', apiKeyPlaceholder: '输入API Key',
     },
+    customOpenAI: {
+      baseURLLabel: 'API 地址 (Base URL)',
+      baseURLPlaceholder: '例如: http://localhost:11434/v1',
+      baseURLHint: '输入你的私有模型 API 地址，需要兼容 OpenAI 格式（以 /v1 结尾）',
+      apiKeyLabel: 'API Key（可选）',
+      apiKeyPlaceholder: '如果私有模型不需要鉴权可以留空',
+      apiKeyHint: '部分私有模型（如本地 Ollama）不需要 API Key，留空即可',
+    },
     webConfigure: {
       title: '🌐 配置 {name}',
       autoLoginBtn: '一键登录',

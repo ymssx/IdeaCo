@@ -390,6 +390,14 @@ When the boss communicates with you, you need to:
       apiKeyLabel: 'API Key',
       apiKeyPlaceholder: 'Enter API Key',
     },
+    customOpenAI: {
+      baseURLLabel: 'API Endpoint (Base URL)',
+      baseURLPlaceholder: 'e.g. http://localhost:11434/v1',
+      baseURLHint: 'Enter your private model API endpoint, must be OpenAI-compatible (ending with /v1)',
+      apiKeyLabel: 'API Key (Optional)',
+      apiKeyPlaceholder: 'Leave empty if your model does not require authentication',
+      apiKeyHint: 'Some local models (e.g. Ollama) do not require an API key',
+    },
     webConfigure: {
       title: '🌐 Configure {name}',
       autoLoginBtn: 'One-Click Login',

@@ -9,11 +9,24 @@ export async function POST(request, { params }) {
 
   try {
     const { id } = await params;
-    const { apiKey } = await request.json();
-    const provider = company.configureProvider(id, apiKey);
+    const { apiKey, baseURL } = await request.json();
+    
+    // Prepare options for custom OpenAI providers
+    const options = {};
+    if (baseURL) {
+      options.baseURL = baseURL;
+    }
+    
+    const provider = company.configureProvider(id, apiKey, options);
     return NextResponse.json({
       success: true,
-      data: { id: provider.id, name: provider.name, enabled: provider.enabled },
+      data: { 
+        id: provider.id, 
+        name: provider.name, 
+        enabled: provider.enabled,
+        hasKey: !!provider.apiKey,
+        baseURL: provider.baseURL || ''
+      },
     });
   } catch (e) {
     return NextResponse.json({ error: e.message }, { status: 400 });
