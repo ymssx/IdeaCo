@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from 'fs';
 import { chatStore } from './agent/chat-store.js';
 import { WorkspaceManager } from './workspace.js';
 import { robustJSONParse } from './utils/json-parse.js';
+import { buildRhetoricPrompt, getRandomRhetoric } from './organization/workforce/management-rhetoric.js';
 
 /** Group chat prefix for requirement group chats in chatStore */
 const REQ_GROUP_PREFIX = 'req-';
@@ -273,10 +274,25 @@ export class RequirementManager {
       skills: m.skills,
     }));
 
-    const systemPrompt = `You are a project leader who needs to decompose a requirement into an executable workflow.
+    const systemPrompt = `You are a P8-level project leader with elite execution capability. You decompose requirements into executable workflows with zero tolerance for mediocrity.
+
+## Your Management Identity
+You are NOT a passive task distributor. You are the OWNER of this project's success. Every task you create must be specific enough that the assignee can deliver without confusion, and every dependency must maximize parallelism.
 
 Team members:
 ${JSON.stringify(memberInfo, null, 2)}
+
+## Three Iron Rules for Task Design
+1. **Exhaust potential** — Assign tasks that push team members to use their full capabilities, not just easy busywork
+2. **Evidence-based delivery** — Every task must have clear, verifiable output criteria. Vague "done" is unacceptable
+3. **Proactive ownership** — Include in task descriptions that assignees should proactively check for related issues, not just do the minimum
+
+## Pressure & Accountability Framework
+When designing tasks, embed accountability:
+- Task descriptions should specify WHAT constitutes "done" (acceptance criteria)
+- For complex tasks, assign a reviewer who will hold the assignee accountable
+- Review criteria must be SPECIFIC and MEASURABLE, not vague "check the code"
+- Reviewers should ask: "Did you exhaust all options? Did you verify? Did you check edge cases?"
 
 Please decompose the requirement into a workflow (DAG - Directed Acyclic Graph) with multiple task nodes. Tasks can have dependency relationships.
 Output in JSON format:
@@ -285,7 +301,7 @@ Output in JSON format:
     {
       "id": "node_1",
       "title": "Task title",
-      "description": "Detailed description",
+      "description": "Detailed description with specific acceptance criteria",
       "assigneeId": "Assignee ID",
       "assigneeName": "Assignee name",
       "dependencies": [],
@@ -293,30 +309,43 @@ Output in JSON format:
       "outputType": "text|code|file",
       "reviewerId": "Reviewer agent ID (optional, null if no review needed)",
       "reviewerName": "Reviewer name",
-      "reviewCriteria": "Specific review criteria the reviewer should check (optional)"
+      "reviewCriteria": "Specific, measurable review criteria (e.g. 'Verify all API endpoints handle errors, check edge cases, confirm tests pass')"
     }
   ],
   "summary": "Workflow overview"
 }
 
-Requirements:
+## Task Design Rules (Non-negotiable)
 1. Task granularity should be moderate, each task assigned to one person
-2. **MAXIMIZE PARALLELISM**: Tasks that can run in parallel MUST not be serialized. Prefer wide parallel DAGs over deep serial chains
+2. **MAXIMIZE PARALLELISM**: Tasks that can run in parallel MUST not be serialized. Prefer wide parallel DAGs over deep serial chains. A P8 leader optimizes for speed.
 3. dependencies should contain the dependent node id array, empty array if no dependencies
-4. The leader can handle "integration and review" type tasks
+4. The leader can handle "integration and review" type tasks — but MUST actually read files and verify, not rubber-stamp
 5. assigneeId must be selected from team members
 6. Return JSON only, no other content
-7. **Extremely important: Not every member needs to participate!** Only assign people who are truly needed. Members unrelated to the requirement should not be given tasks. Better to leave people idle than to create busywork
+7. **Extremely important: Not every member needs to participate!** Only assign people who are truly needed. Members unrelated to the requirement should not be given tasks. Better to leave people idle than to create busywork — busywork is a sign of poor leadership
 8. Task nodes should be lean and efficient. Simple requirements only need 1-3 nodes, avoid over-decomposition
-9. Each task description should be clear and specific, allowing the assignee to complete it in one go, avoiding multiple iterations
-10. **Encourage collaboration**: When multiple agents work in parallel, their tasks should be designed to have natural interaction points. Include in descriptions that they should coordinate with parallel teammates via send_message
-11. **REVIEW MECHANISM**: For complex or important tasks, you MAY assign a reviewer (reviewerId). The reviewer will audit the work for significant issues. Review rules:
+9. Each task description MUST include:
+   - Clear objective (what to deliver)
+   - Acceptance criteria (how to verify it's done right)
+   - Context on WHY this task matters to the overall goal
+   - Instruction to proactively check for related issues after completion
+10. **Encourage collaboration**: When multiple agents work in parallel, include in descriptions that they should coordinate with parallel teammates via send_message. Collaboration is a sign of ownership, not weakness
+11. **REVIEW MECHANISM**: For complex or important tasks, you MAY assign a reviewer. Review rules:
     - The reviewer MUST be a different person from the assignee (never review your own work)
-    - For tasks where two agents work in parallel, they can review EACH OTHER's work (Agent A reviews Agent B, Agent B reviews Agent A)
+    - For tasks where two agents work in parallel, they can review EACH OTHER's work
     - The leader can serve as reviewer for critical integration tasks
-    - reviewCriteria should be specific and measurable (e.g. "Check that all API endpoints have error handling and input validation" rather than vague "review the code")
-    - MOST tasks do NOT need a reviewer. Only assign reviewers for genuinely complex, high-risk tasks. Simple or medium tasks should skip review (set reviewerId to null)
-    - When in doubt, do NOT assign a reviewer — over-reviewing slows down the workflow significantly`;
+    - reviewCriteria MUST be specific and measurable, following this pattern: "Check [specific thing] for [specific quality]. Verify [edge case]. Confirm [acceptance criteria]"
+    - MOST tasks do NOT need a reviewer. Only assign reviewers for genuinely complex, high-risk tasks
+    - When reviewing, the reviewer should apply the anti-excuse framework: don't accept "it works" without evidence
+
+## Anti-Pattern Detection
+You must AVOID these leadership anti-patterns:
+- Creating serial chains when parallel execution is possible (sign of lazy planning)
+- Assigning review tasks that don't actually require reading files (rubber-stamp reviews)
+- Over-decomposing simple requirements into 5+ tasks (busywork generation)
+- Under-specifying task descriptions (ambiguity breeds failure)
+- Not including acceptance criteria (how would you even know it's done?)`;
+
 
     const userPrompt = adjustmentContext
       ? `Requirement title: ${requirement.title}\nRequirement description: ${requirement.description}\n\n**ADJUSTMENT REQUEST FROM BOSS:**\n${adjustmentContext.bossMessage}\n\n**YOUR PLANNED ADJUSTMENTS:**\n${adjustmentContext.adjustments}\n\n**PREVIOUS WORKFLOW (for reference):**\n${adjustmentContext.previousWorkflow}\n\n**EXISTING OUTPUT FILES (must be preserved and built upon):**\n${adjustmentContext.existingOutputs || 'None'}\n\n**IMPORTANT:** This is an ADJUSTMENT, NOT a restart. You must:\n1. PRESERVE all existing output files - do NOT recreate them from scratch\n2. Only create tasks that MODIFY existing files or ADD new content\n3. When a task needs to change an existing file, the agent should READ the current file first, then modify it\n4. Only add NEW tasks for genuinely new work that wasn't done before\n5. Reuse the previous workflow structure where possible, adjusting only what the Boss requested\n\nPlease create an ADJUSTED workflow based on the Boss's instructions.`
@@ -337,7 +366,7 @@ Requirements:
       const response = await planner.chat([
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
-      ], { temperature: 0.7, maxTokens: 2048 });
+], { temperature: 0.7, maxTokens: 4096 });
 
       // Parse JSON (robust extraction for both LLM and CLI output)
       const workflow = robustJSONParse(response.content);
@@ -371,11 +400,12 @@ Requirements:
 
       requirement.workflow = workflow;
 
-      // Group chat notification
+      // Group chat notification — 注入管理话术
       const leader = members.find(m => m.role === 'Project Leader') || members[0];
+      const assignmentRhetoric = getRandomRhetoric('task_assignment');
       requirement.addGroupMessage(
         leader,
-        `📊 Workflow decomposition complete! ${workflow.nodes.length} task nodes in total.\n\n${workflow.summary || ''}\n\n${workflow.nodes.map((n, i) =>
+        `📊 Workflow decomposition complete! ${workflow.nodes.length} task nodes in total.\n\n${assignmentRhetoric ? `💬 ${assignmentRhetoric}\n\n` : ''}${workflow.summary || ''}\n\n${workflow.nodes.map((n, i) =>
           `${i + 1}. [${n.assigneeName || 'TBD'}] ${n.title}${n.dependencies.length > 0 ? ` (depends on: ${n.dependencies.join(', ')})` : ' (can start immediately)'}${n.reviewerId ? ` 🔍 Reviewer: ${n.reviewerName || n.reviewerId}` : ''}`
         ).join('\n')}`,
         'message', null, { auto: true }
@@ -802,7 +832,7 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
           node.completedAt = new Date();
           node.result = result;
 
-          // === QUALITY CHECK: Warn if review/integration tasks didn't actually read files ===
+          // === QUALITY CHECK: Strict post-completion verification ===
           const titleLower = (node.title || '').toLowerCase();
           const isReviewLikeTask = titleLower.includes('review') || titleLower.includes('审') ||
             titleLower.includes('integrat') || titleLower.includes('整合') ||
@@ -815,7 +845,16 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
           if (isReviewLikeTask && !usedFileRead && !hasWrittenFiles && result.duration < 15000) {
             requirement.addGroupMessage(
               { name: 'System', role: 'system' },
-              `⚠️ Task "${node.title}" appears to be a review/integration task but completed in ${Math.round(result.duration / 1000)}s without reading any files. The output may be superficial.`,
+              `⚠️ QUALITY ALERT: Task "${node.title}" appears to be a review/integration task but completed in ${Math.round(result.duration / 1000)}s without reading any files. This is a red flag — the output is likely superficial "rubber-stamp" work. Where's the evidence-based review? A P8 engineer actually reads the deliverables.`,
+              'system', null, { auto: true }
+            );
+          }
+
+          // Additional quality check: extremely fast completion for non-trivial tasks
+          if (!isReviewLikeTask && result.duration < 5000 && (node.estimatedMinutes || 5) >= 5) {
+            requirement.addGroupMessage(
+              { name: 'System', role: 'system' },
+              `⚠️ Task "${node.title}" completed in ${Math.round(result.duration / 1000)}s but was estimated at ${node.estimatedMinutes}min. Verify the output is substantive and not just a placeholder.`,
               'system', null, { auto: true }
             );
           }
@@ -1302,6 +1341,16 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
         'system', null, { auto: true }
       );
     } else {
+      // 注入复盘话术
+      const retroRhetoric = getRandomRhetoric('retrospective');
+      const leaderAgent = department.getLeader();
+      if (leaderAgent && retroRhetoric) {
+        requirement.addGroupMessage(
+          leaderAgent,
+          `💬 ${retroRhetoric}`,
+          'message', null, { auto: true }
+        );
+      }
       requirement.addGroupMessage(
         { name: 'System', role: 'system' },
         `📋 All tasks for "${requirement.title}" are done!\n📊 ${successCount}/${totalCount} tasks succeeded, total duration ${Math.round(totalDuration / 1000)}s${suspiciousNodes.length > 0 ? `\n⚠️ ${suspiciousNodes.length} task(s) may need manual review` : ''}\n\n⏳ **Pending your approval, Boss.** The requirement is NOT yet completed.\n💬 Please review the outputs, then reply in this chat:\n  • "OK" / "通过" / "approved" → approve and finalize\n  • Or send feedback to request changes`,
@@ -1449,6 +1498,16 @@ Be natural, in character, and collegial. You can praise, suggest improvements, o
         }
       }
 
+      // Pressure escalation based on review round
+      const pressureLevel = round <= 1 ? '' :
+        round === 2 ? `\n\n**⚠️ PRESSURE LEVEL L1 (Mild Disappointment):** This is the second review round. The assignee should have fundamentally rethought their approach, not just tweaked parameters. If you see the same core issues, be direct: "You can't even solve this? Rethink the approach fundamentally."` :
+        round === 3 ? `\n\n**🔴 PRESSURE LEVEL L2 (Soul Interrogation):** Round ${round}. Demand to see methodology, not guesswork. Ask: "Where's the underlying logic? Where's the top-level design? What assumptions did you verify?" If the assignee repeated the same approach with minor tweaks, that's busywork — reject firmly.` :
+        round >= 4 ? `\n\n**🚨 PRESSURE LEVEL L3 (Performance Review 3.25):** Round ${round}. Apply the 7-point checklist: Did they read error signals word by word? Did they proactively search? Did they read raw source material? Did they verify assumptions? Did they invert their assumptions? Did they isolate the problem minimally? Did they change direction (not just parameters)? If ANY of these are missing, reject and demand completion.` : '';
+
+      // 注入review话术参考
+      const reviewScene = round <= 1 ? 'review_approve' : (round <= 2 ? 'review_reject' : 'pressure_escalation');
+      const reviewRhetoric = buildRhetoricPrompt([reviewScene, 'anti_excuse'], 2);
+
       const response = await reviewer.chat([
         {
           role: 'system',
@@ -1461,19 +1520,26 @@ You are reviewing work for the requirement "${requirement.title}".
 ${reviewCriteria}
 
 **Your review guidelines:**
-- Be fair and professional. Approve if the work reasonably meets the criteria, even if minor improvements are possible.
+- Be fair but DEMANDING. You represent quality standards. Approve only when the work genuinely meets the criteria.
 - ONLY reject for SIGNIFICANT issues: critical bugs, missing core requirements, major quality gaps, or incomplete deliverables.
 - Do NOT reject for stylistic preferences, minor improvements, or nice-to-haves.
-- When rejecting, provide SPECIFIC, ACTIONABLE feedback explaining exactly what MUST be fixed.
+- When rejecting, provide SPECIFIC, ACTIONABLE feedback explaining exactly what MUST be fixed. No vague "improve the code" — specify WHAT, WHERE, and HOW.
 - When approving, briefly comment on what was done well. You may suggest minor improvements as non-blocking notes.
-- ${round === 1 ? 'This is the first review. Focus on whether core requirements are met.' : `This is review round ${round}. The assignee has revised based on your previous feedback. Check if the CRITICAL issues from your previous feedback were addressed. Minor issues that were not addressed can be accepted.`}
+- ${round === 1 ? 'This is the first review. Focus on whether core requirements are met. Be fair but thorough.' : `This is review round ${round}. The assignee has revised based on your previous feedback. Check if the CRITICAL issues from your previous feedback were addressed. If the same fundamental issues persist, escalate pressure.`}
 - IMPORTANT: If the assignee has produced actual file deliverables, review the FILE CONTENTS (not just the text output). The text output may be a summary; the real work is in the files.
 
+**Anti-Excuse Detection:**
+If the assignee's output contains any of these patterns, call them out:
+- Superficial output without evidence of real work (wrote a summary but didn't actually implement)
+- Claims of "done" without verifiable artifacts
+- Blaming environment or tools without evidence of investigation
+- Repeating the same approach from the previous round with minor tweaks (busywork, not progress)${pressureLevel}
+${reviewRhetoric}
 **Output format (JSON only, no other text):**
 {
   "approved": true/false,
-  "feedback": "Detailed rejection feedback with specific issues (only if rejected)",
-  "comment": "Brief approval comment (only if approved)"
+  "feedback": "Detailed rejection feedback with specific issues and what MUST change (only if rejected)",
+  "comment": "Brief approval comment noting what was done well (only if approved)"
 }`
         },
         {
@@ -1527,6 +1593,13 @@ Please provide your review verdict as JSON.`
    * Similar to executeTask but with revision context
    */
   async _executeRevision(agent, node, previousOutput, reviewFeedback, requirement, callbacks = {}) {
+    const round = node.reviewRounds || 1;
+    // Pressure escalation messages based on revision round
+    const pressureMsg = round <= 1 ? '' :
+      round === 2 ? '\n\n⚠️ This is your SECOND attempt. Stop tweaking the same approach — think fundamentally differently. What assumptions haven\'t you verified? What did you miss in the error signals?' :
+      round === 3 ? '\n\n🔴 THIRD attempt. Apply the 5-step methodology: (1) What pattern are your failures showing? (2) Read the reviewer\'s feedback WORD BY WORD. (3) Are you repeating variants of the same approach? (4) Verify EVERY assumption. (5) Try the OPPOSITE of what you\'ve been doing.' :
+      `\n\n🚨 ATTEMPT ${round}. This is a CRITICAL situation. You must: (1) List everything you\'ve tried and find the common failure pattern. (2) Verify ALL assumptions with evidence. (3) Try a COMPLETELY different approach — not a parameter tweak, a fundamentally different strategy. (4) Produce new diagnostic information even if the fix doesn\'t work.`;
+
     const revisionTask = {
       title: `[Revision] ${node.title}`,
       description: `Your previous work on "${node.title}" was reviewed and REJECTED. You need to revise it.
@@ -1539,15 +1612,17 @@ ${previousOutput?.length > 1500 ? previousOutput.slice(0, 1500) + '\n...(truncat
 
 **Reviewer's feedback (MUST address ALL points):**
 ${reviewFeedback}
+${pressureMsg}
 
 **Instructions:**
-1. Carefully read the reviewer's feedback
-2. Address EVERY issue mentioned by the reviewer
-3. If you wrote files before, READ them first, then MODIFY them (don't recreate from scratch)
-4. Make sure the revised output fully addresses all review comments
-5. Output your complete revised result`,
+1. Carefully read the reviewer's feedback — EVERY WORD. 90% of the answer is in their feedback.
+2. Address EVERY issue mentioned by the reviewer — do not skip any point
+3. If you wrote files before, READ them first with file_read, then MODIFY them (don't recreate from scratch unless fundamentally wrong)
+4. Before making changes, verify your assumptions: are the paths correct? Are the dependencies right? Are the edge cases covered?
+5. After revision, proactively check: are there SIMILAR issues elsewhere that you should also fix?
+6. Output your complete revised result with EVIDENCE that the reviewer's concerns are addressed`,
       context: '',
-      requirements: `This is a REVISION for requirement "${requirement.title}". The reviewer was not satisfied and you must address their feedback.`,
+      requirements: `This is a REVISION for requirement "${requirement.title}". The reviewer was not satisfied and you must address their feedback. Do not repeat the same approach that was rejected — demonstrate progress.`,
     };
 
     return await agent.executeTask(revisionTask, callbacks);

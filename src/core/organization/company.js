@@ -26,6 +26,7 @@ import { auditLogger, AuditCategory, AuditLevel } from '../system/audit.js';
 import { chatStore } from '../agent/chat-store.js';
 import { cliBackendRegistry } from '../agent/cli-agent/backends/index.js';
 import { groupChatLoop } from './group-chat-loop.js';
+import { buildRhetoricPrompt } from './workforce/management-rhetoric.js';
 
 // Expand short-form file references: [[file:path]] → [[file:deptId:path|name]]
 // Also fix incomplete references: [[file:deptId:path]] → [[file:deptId:path|name]]
@@ -2006,6 +2007,8 @@ const dept = this.findDepartment(departmentId);
       }).join('\n') || 'No workflow yet';
 
       const p = leader.personality || {};
+      // 注入管理话术参考
+      const rhetoricRef = buildRhetoricPrompt(['respond_to_boss', 'risk_warning'], 2);
       const response = await leader.chat([
         {
           role: 'system',
@@ -2019,7 +2022,7 @@ ${workflowStatus}
 
 Recent group chat:
 ${recentChat}
-
+${rhetoricRef}
 The Boss (your employer) just sent a message in the group chat. You need to:
 1. Carefully analyze the Boss's intent
 2. Decide what action to take
