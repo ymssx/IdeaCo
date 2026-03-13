@@ -667,6 +667,13 @@ ${scenePrompt}`;
 
       systemContent += `\nAll file operations are within your workspace directory. Please actively use tools to produce actual work output.\n`;
       systemContent += `**Efficiency requirement: Minimize tool call rounds, plan all needed operations at once, avoid repetitive reading and checking. Give a final summary immediately after completing core work.**\n`;
+
+      // Anti-hallucination: ground truth constraints
+      systemContent += `\n## Ground Truth Rules (ALWAYS FOLLOW)\n`;
+      systemContent += `- **File verification**: Before claiming a file exists or referencing its content, use file_read or file_list to verify. Never assume.\n`;
+      systemContent += `- **No fictional time**: You execute tasks in real-time (seconds to minutes). NEVER say "by end of day", "tomorrow", "this afternoon", "give me a few hours", "before deadline", etc. These time references are fictional — you don't have a clock or schedule. Just DO the work NOW.\n`;
+      systemContent += `- **Concrete deliverables**: When reporting completion, state EXACTLY what you produced (file paths, content summaries). Never say "I've prepared the document" without specifying the actual file path.\n`;
+      systemContent += `- **Read before reference**: If a colleague says they delivered files, READ them with file_read before acting on them. Do not trust text summaries alone.\n`;
     }
 
     try {
@@ -685,6 +692,23 @@ ${scenePrompt}`;
     if (task.requirements) content += `\n**Requirements**:\n${task.requirements}\n`;
     content += `\nPlease complete the task diligently. If you need to create files, please use tools to actually create them. Produce real work output.\n**Important: Execute efficiently, try to complete all work in one go. Don't repeatedly check or over-iterate. Give the final result directly after completing core output.**`;
     content += `\n**Critical: If this task involves reviewing, integrating, or checking existing work/files, you MUST actually read the relevant files using file_read before giving your assessment. Do NOT just produce a summary without reading the actual content. Reviewers who don't read the files are not doing their job.**`;
+
+    // === Anti-hallucination: File existence verification ===
+    content += `\n\n**⚠️ FILE HANDLING RULES (CRITICAL):**`;
+    content += `\n1. Before referencing any file, use file_read or file_list to VERIFY it exists. Never assume a file exists based on someone's description.`;
+    content += `\n2. If a predecessor says they delivered files, READ them with file_read before proceeding. Do not trust summaries alone.`;
+    content += `\n3. If file_read returns an error (file not found), do NOT proceed as if the file exists. Report the issue immediately.`;
+    content += `\n4. When you write files, state the EXACT path you wrote to. When you read files, state the EXACT path you read from.`;
+    content += `\n5. Use file_list to check what files actually exist in the workspace before starting work that depends on existing files.`;
+
+    // === Anti-hallucination: Prohibit fictional time references ===
+    content += `\n\n**⚠️ TIME AND SCHEDULE RULES (CRITICAL):**`;
+    content += `\n- You are an AI agent executing tasks in real-time. Each task executes in seconds to minutes.`;
+    content += `\n- NEVER use fictional time references like "by end of day", "before 5pm", "tomorrow morning", "next week", "I'll finish this afternoon", "give me a few hours".`;
+    content += `\n- NEVER propose schedules, timelines, or deadlines. You execute NOW, not later.`;
+    content += `\n- Instead of "I'll have this ready by tomorrow", just DO the work immediately.`;
+    content += `\n- Do not roleplay having a work schedule, lunch breaks, or office hours. Execute the task right now.`;
+
     return content;
   }
 

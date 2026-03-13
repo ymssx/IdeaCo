@@ -301,12 +301,13 @@ Output in JSON format:
     {
       "id": "node_1",
       "title": "Task title",
-      "description": "Detailed description with specific acceptance criteria",
+      "description": "Detailed description with specific acceptance criteria. MUST include: what files to produce, exact file paths, and how the downstream task will use them.",
       "assigneeId": "Assignee ID",
       "assigneeName": "Assignee name",
       "dependencies": [],
       "estimatedMinutes": 5,
       "outputType": "text|code|file",
+      "expectedOutputFiles": ["path/to/expected/output.txt", "path/to/another/file.js"],
       "reviewerId": "Reviewer agent ID (optional, null if no review needed)",
       "reviewerName": "Reviewer name",
       "reviewCriteria": "Specific, measurable review criteria (e.g. 'Verify all API endpoints handle errors, check edge cases, confirm tests pass')"
@@ -314,6 +315,18 @@ Output in JSON format:
   ],
   "summary": "Workflow overview"
 }
+
+## Delivery Transparency Rules (CRITICAL)
+- Every task that produces files MUST list them in expectedOutputFiles with EXACT paths
+- Task descriptions MUST tell the assignee exactly what files to create and where
+- When task B depends on task A, B's description MUST explicitly say: "Read files from task A: [specific paths]"
+- NEVER leave file handoffs implicit — spell out what files are being passed and where they are
+- If a task is text-only (no files), set expectedOutputFiles to [] and make clear the output is text
+
+## Anti-Hallucination Rules
+- Task descriptions must NEVER include fictional time references (e.g. "finish by 5pm", "deliver tomorrow")
+- All tasks execute immediately in real-time — do not create schedules or timelines within task descriptions
+- Task descriptions must instruct assignees to VERIFY file existence before claiming completion
 
 ## Task Design Rules (Non-negotiable)
 1. Task granularity should be moderate, each task assigned to one person
@@ -366,7 +379,7 @@ You must AVOID these leadership anti-patterns:
       const response = await planner.chat([
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
-], { temperature: 0.7, maxTokens: 4096 });
+], { temperature: 0.7, maxTokens: 2048 });
 
       // Parse JSON (robust extraction for both LLM and CLI output)
       const workflow = robustJSONParse(response.content);
@@ -384,6 +397,7 @@ You must AVOID these leadership anti-patterns:
         reviewerId: node.reviewerId && memberIds.has(node.reviewerId) ? node.reviewerId : null,
         reviewerName: node.reviewerName || null,
         reviewCriteria: node.reviewCriteria || null,
+        expectedOutputFiles: node.expectedOutputFiles || [],  // Expected file deliverables
         reviewRounds: 0,       // Review iteration round counter
         maxReviewRounds: 10,   // Max review iterations (prevents infinite loops)
         result: null,
@@ -400,13 +414,13 @@ You must AVOID these leadership anti-patterns:
 
       requirement.workflow = workflow;
 
-      // Group chat notification — 注入管理话术
+      // Group chat notification — inject management rhetoric
       const leader = members.find(m => m.role === 'Project Leader') || members[0];
       const assignmentRhetoric = getRandomRhetoric('task_assignment');
       requirement.addGroupMessage(
         leader,
         `📊 Workflow decomposition complete! ${workflow.nodes.length} task nodes in total.\n\n${assignmentRhetoric ? `💬 ${assignmentRhetoric}\n\n` : ''}${workflow.summary || ''}\n\n${workflow.nodes.map((n, i) =>
-          `${i + 1}. [${n.assigneeName || 'TBD'}] ${n.title}${n.dependencies.length > 0 ? ` (depends on: ${n.dependencies.join(', ')})` : ' (can start immediately)'}${n.reviewerId ? ` 🔍 Reviewer: ${n.reviewerName || n.reviewerId}` : ''}`
+          `${i + 1}. [${n.assigneeName || 'TBD'}] ${n.title}${n.dependencies.length > 0 ? ` (depends on: ${n.dependencies.join(', ')})` : ' (can start immediately)'}${n.reviewerId ? ` 🔍 Reviewer: ${n.reviewerName || n.reviewerId}` : ''}${n.expectedOutputFiles?.length > 0 ? ` 📦 Output: ${n.expectedOutputFiles.join(', ')}` : ''}`
         ).join('\n')}`,
         'message', null, { auto: true }
       );
@@ -663,23 +677,50 @@ You must AVOID these leadership anti-patterns:
         }
 
         try {
-          // Collect dependency node outputs as context (including file deliverables)
+          // Collect dependency node outputs as context (including file deliverables with ACTUAL content)
+          const depWsPath = department.workspacePath;
           const depContext = node.dependencies
             .map(d => nodes.find(n => n.id === d))
             .filter(Boolean)
             .map(d => {
               const output = d.result?.output || '(no output)';
               // Extract files written by upstream task (only include files that still exist)
-              const depWsPath = department.workspacePath;
               const fileWriteTools = new Set(['file_write', 'file_append', 'file_patch']);
               const upstreamFiles = (d.result?.toolResults || [])
                 .filter(t => fileWriteTools.has(t.tool))
                 .map(t => t.args?.path || t.args?.filePath || t.args?.file_path || '')
                 .filter(f => f && (!depWsPath || existsSync(path.join(depWsPath, f))));
-              const fileList = upstreamFiles.length > 0
-                ? `\n📁 Files delivered:\n${upstreamFiles.map(f => `  - ${f}`).join('\n')}\nYou can use file_read to review these files.`
-                : '';
-              return `[${d.assigneeName}'s output - ${d.title}]\n${output}${fileList}`;
+
+              // === DELIVERY TRANSPARENCY: Include actual file content previews ===
+              let fileDeliverySection = '';
+              if (upstreamFiles.length > 0) {
+                const uniqueFiles = [...new Set(upstreamFiles)];
+                const fileDetails = [];
+                for (const fp of uniqueFiles.slice(0, 8)) {
+                  try {
+                    const fullPath = path.join(depWsPath, fp);
+                    if (existsSync(fullPath)) {
+                      const content = readFileSync(fullPath, 'utf-8');
+                      const preview = content.length > 1500
+                        ? content.slice(0, 1500) + '\n... (file truncated, use file_read for full content)'
+                        : content;
+                      fileDetails.push(`--- 📄 File: ${fp} (${content.length} chars) ---\n${preview}`);
+                    } else {
+                      fileDetails.push(`--- ❌ File: ${fp} --- (FILE DOES NOT EXIST - may have been deleted or path is wrong)`);
+                    }
+                  } catch (e) {
+                    fileDetails.push(`--- ⚠️ File: ${fp} --- (Cannot read: ${e.message})`);
+                  }
+                }
+                fileDeliverySection = `\n\n📦 **DELIVERED FILES (${uniqueFiles.length} files):**\n${fileDetails.join('\n\n')}`;
+                if (uniqueFiles.length > 8) {
+                  fileDeliverySection += `\n... and ${uniqueFiles.length - 8} more files. Use file_list and file_read to explore.`;
+                }
+              } else {
+                fileDeliverySection = '\n\n📦 **DELIVERED FILES:** None (this task produced text output only, no files were written).';
+              }
+
+              return `[${d.assigneeName}'s output - ${d.title}]\n${output}${fileDeliverySection}`;
             })
             .join('\n\n');
 
@@ -703,10 +744,21 @@ You must AVOID these leadership anti-patterns:
             }
           }
 
+          // Build upstream handoff instructions
+          const hasUpstreamFiles = node.dependencies.some(depId => {
+            const depNode = nodes.find(n => n.id === depId);
+            if (!depNode?.result?.toolResults) return false;
+            const fwTools = new Set(['file_write', 'file_append', 'file_patch']);
+            return depNode.result.toolResults.some(t => fwTools.has(t.tool));
+          });
+          const upstreamFileInstructions = hasUpstreamFiles
+            ? `\n\n⚠️ **MANDATORY: READ UPSTREAM FILES BEFORE STARTING**\nThe preceding task(s) delivered actual files. You MUST:\n1. Use file_read to read EACH delivered file listed above BEFORE starting your own work\n2. Use file_list to verify the workspace structure if you're unsure what exists\n3. Do NOT assume or hallucinate file contents — read the actual files\n4. Do NOT claim you've "received" or "reviewed" files without actually calling file_read\n5. If a file listed above does not exist, report it immediately — do not pretend it exists\n6. Base your work on the ACTUAL file contents, not on the text summary above (which may be incomplete)`
+            : '';
+
           const task = {
             title: node.title,
             description: node.description,
-            context: (depContext ? `Here are the outputs from preceding tasks for your reference:\n\n${depContext}\n\n` : '')
+            context: (depContext ? `Here are the outputs from preceding tasks for your reference:\n\n${depContext}${upstreamFileInstructions}\n\n` : '')
               + (colleagues ? `Your colleagues in this department (you can send_message to them):\n${colleagues}` : '')
               + parallelContext,
             requirements: `This is part of requirement "${requirement.title}". Requirement description: ${requirement.description}`,
@@ -832,6 +884,66 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
           node.completedAt = new Date();
           node.result = result;
 
+          // === DELIVERY VERIFICATION (silent console log, not group chat spam) ===
+          if (node.expectedOutputFiles && node.expectedOutputFiles.length > 0 && wsPath) {
+            const missingExpected = [];
+            const verifiedFiles = [];
+            for (const expectedFile of node.expectedOutputFiles) {
+              try {
+                const fullPath = path.join(wsPath, expectedFile);
+                if (existsSync(fullPath)) {
+                  verifiedFiles.push(expectedFile);
+                } else {
+                  missingExpected.push(expectedFile);
+                }
+              } catch {
+                missingExpected.push(expectedFile);
+              }
+            }
+            if (missingExpected.length > 0) {
+              console.warn(`  ⚠️ [Delivery Check] "${node.title}": ${missingExpected.length} expected file(s) missing: ${missingExpected.join(', ')}`);
+            }
+          }
+
+          // === COLLECT WRITTEN FILE PATHS (before review gate needs them) ===
+          const fileWriteTools = new Set(['file_write', 'file_append', 'file_patch']);
+          const fileWritesFromTools = (result.toolResults || []).filter(t => fileWriteTools.has(t.tool));
+          const pathsFromTools = fileWritesFromTools
+            .map(t => t.args?.path || t.args?.filePath || t.args?.file_path || '')
+            .filter(Boolean);
+          // Also collect files detected via workspace snapshot diff (covers CLI agents)
+          const pathsFromSnapshot = (requirement.liveStatus.recentFileChanges || [])
+            .filter(fc => fc.agentName === agent.name && (fc.action === 'create' || fc.action === 'write'))
+            .map(fc => fc.filePath)
+            .filter(Boolean);
+          // Merge and deduplicate
+          const allClaimedPaths = [...new Set([...pathsFromTools, ...pathsFromSnapshot])];
+          // Validate which files actually exist on disk
+          const writtenFilePaths = [];
+          const phantomFilePaths = [];
+          for (const fp of allClaimedPaths) {
+            if (wsPath) {
+              const fullPath = path.join(wsPath, fp);
+              if (existsSync(fullPath)) {
+                writtenFilePaths.push(fp);
+              } else {
+                phantomFilePaths.push(fp);
+              }
+            } else {
+              writtenFilePaths.push(fp); // No workspace path — can't verify, assume valid
+            }
+          }
+          // If agent claimed to write files that don't exist, notify them immediately
+          if (phantomFilePaths.length > 0) {
+            const phantomList = phantomFilePaths.map(f => `  - ${f}`).join('\n');
+            console.warn(`  ⚠️ [Phantom Files] ${agent.name} claimed to write files that don't exist:`, phantomFilePaths.join(', '));
+            requirement.addGroupMessage(
+              { id: 'system', name: 'System', role: 'system' },
+            `⚠️ @[${agent.id}] The system detected that the following files you claimed to write do not exist in the workspace:\n${phantomList}\nPlease verify the file paths are correct, or use the workspace_files tool to check workspace contents and rewrite.`,
+              'message', null, { auto: true }
+            );
+          }
+
           // === QUALITY CHECK: Strict post-completion verification ===
           const titleLower = (node.title || '').toLowerCase();
           const isReviewLikeTask = titleLower.includes('review') || titleLower.includes('审') ||
@@ -864,16 +976,26 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
             const reviewer = department.agents.get(node.reviewerId);
             if (reviewer) {
               node.status = TaskNodeStatus.REVIEWING;
+              // Agent generates review request via LLM — naturally @mentions reviewer with deliverables
+              let reviewRequestMsg = await this._generateDeliveryMessage(agent, node, writtenFilePaths, result, requirement, {
+                scene: 'review_request',
+                targetAgent: reviewer,
+              });
+              const reviewRefResult = this._expandAndValidateFileRefs(reviewRequestMsg, requirement, department, agent, writtenFilePaths);
+              reviewRequestMsg = reviewRefResult.content;
               requirement.addGroupMessage(
-                { name: 'System', role: 'system' },
-                `🔍 Task "${node.title}" entering review phase`,
-                'system', null, { auto: true }
-              );
-              requirement.addGroupMessage(
-                reviewer,
-                `🔍 @[${agent.id}] I'm now reviewing your work on "${node.title}". Let me take a careful look...`,
+                agent,
+                `@[${reviewer.id}] ${reviewRequestMsg}`,
                 'message', null, { auto: true }
               );
+              if (reviewRefResult.invalidPaths.length > 0) {
+                const invalidList = reviewRefResult.invalidPaths.map(f => `  - ${f}`).join('\n');
+                requirement.addGroupMessage(
+                  { id: 'system', name: 'System', role: 'system' },
+            `⚠️ @[${agent.id}] The following files referenced in your review request do not exist:\n${invalidList}\nPlease use the workspace_files tool to verify correct file paths.`,
+                  'message', null, { auto: true }
+                );
+              }
 
               let currentOutput = result.output;
               let approved = false;
@@ -1121,49 +1243,38 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
             }
           }
 
-          // Group chat notification: completed — with file references for written files
+          // === BUILD DELIVERY REPORT: agent reports what they produced ===
           const duration = Math.round((finalResult.duration || 0) / 1000);
-          const fileWriteTools = new Set(['file_write', 'file_append', 'file_patch']);
-          const fileWrites = (finalResult.toolResults || []).filter(t => fileWriteTools.has(t.tool));
-          const validFileRefs = fileWrites
-            .map(t => {
-              const fp = t.args?.path || t.args?.filePath || t.args?.file_path || '';
-              // Skip empty paths (can happen when LLM sends malformed tool args)
-              if (!fp) return null;
-              // Only create clickable reference if file actually exists
-              if (wsPath && !existsSync(path.join(wsPath, fp))) return null;
-              const name = fp.split('/').pop() || fp;
-              return `[[file:${requirement.departmentId}:${fp}|${name}]]`;
-            })
+          // Also pick up any files written during revision rounds
+          const revisionFileWrites = (finalResult.toolResults || []).filter(t => fileWriteTools.has(t.tool));
+          const revisionPaths = revisionFileWrites
+            .map(t => t.args?.path || t.args?.filePath || t.args?.file_path || '')
             .filter(Boolean);
-          const fileRefTags = validFileRefs.length > 0
-            ? '\n' + validFileRefs.join(' ')
-            : '';
-          requirement.addGroupMessage(
-            agent,
-            `✅ "${node.title}" completed! Took ${duration}s.${finalResult.toolResults?.length ? `\n🔧 Used ${finalResult.toolResults.length} tools` : ''}${node.reviewRounds > 0 ? `\n🔍 Passed review after ${node.reviewRounds} round(s)` : ''}${fileRefTags}`,
-            'message', null, { auto: true }
-          );
-
-          // Share output: prioritize file references over LLM text summary
-          const hasFiles = validFileRefs.length > 0;
-          if (!hasFiles && finalResult.output?.trim()) {
-            // No files written → this is a text-only task, show the LLM text output
-            const cleanedOutput = this._cleanLLMOutput(finalResult.output);
-            if (cleanedOutput && cleanedOutput.length > 20) {
-              const preview = cleanedOutput.length > 300
-                ? cleanedOutput.slice(0, 300) + '...\n(output truncated)'
-                : cleanedOutput;
-              requirement.addGroupMessage(
-                agent,
-                `📄 My output:\n${preview}`,
-                'message', null, { auto: true }
-              );
-            }
+          // Merge revision paths into writtenFilePaths (mutate is fine, same scope)
+          for (const rp of revisionPaths) {
+            if (!writtenFilePaths.includes(rp)) writtenFilePaths.push(rp);
           }
-          // If files were written, the ✅ completed message above already includes
-          // clickable [[file:...]] references — no need to also dump LLM's text summary,
-          // which is typically just a verbose description of what was already done.
+          // Agent generates delivery message via LLM — natural, context-aware
+          // LLM is instructed to use [[file:path]] protocol for file references
+          let deliveryMsg = await this._generateDeliveryMessage(agent, node, writtenFilePaths, finalResult, requirement, {
+            scene: 'completion',
+          });
+          // Expand [[file:path]] → [[file:deptId:path|name]] for frontend rendering
+          // and validate file references against workspace
+          const deliveryResult = this._expandAndValidateFileRefs(deliveryMsg, requirement, department, agent, writtenFilePaths);
+          deliveryMsg = deliveryResult.content;
+          requirement.addGroupMessage(
+            agent, deliveryMsg, 'message', null, { auto: true }
+          );
+          // If delivery message references non-existent files, notify agent
+          if (deliveryResult.invalidPaths.length > 0) {
+            const invalidList = deliveryResult.invalidPaths.map(f => `  - ${f}`).join('\n');
+            requirement.addGroupMessage(
+              { id: 'system', name: 'System', role: 'system' },
+            `⚠️ @[${agent.id}] The following files referenced in your delivery message do not exist:\n${invalidList}\nPlease use the workspace_files tool to check actual files in the workspace and confirm correct paths.`,
+              'message', null, { auto: true }
+            );
+          }
 
           // Agent-to-agent collaboration: notify downstream agents with @mention
           const downstreamNodes = nodes.filter(n =>
@@ -1175,9 +1286,23 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
             for (const downNode of downstreamNodes) {
               const downAgent = department.agents.get(downNode.assigneeId);
               if (downAgent && downAgent.id !== agent.id) {
-                // Record in group chat with @mention + file references
-                const nodeFileRefs = fileRefTags ? `\nFiles: ${fileRefTags.trim()}` : '';
-                const mentionMsg = `@[${downAgent.id}] I've completed "${node.title}", the output is ready for your "${downNode.title}" task. Please review and let me know if anything needs adjustment!${nodeFileRefs}`;
+                // Agent generates handoff message via LLM — naturally @mentions downstream with deliverables
+                let handoffMsg = await this._generateDeliveryMessage(agent, node, writtenFilePaths, finalResult, requirement, {
+                  scene: 'handoff',
+                  targetAgent: downAgent,
+                  targetTask: downNode.title,
+                });
+                const handoffRefResult = this._expandAndValidateFileRefs(handoffMsg, requirement, department, agent, writtenFilePaths);
+                handoffMsg = handoffRefResult.content;
+                if (handoffRefResult.invalidPaths.length > 0) {
+                  const invalidList = handoffRefResult.invalidPaths.map(f => `  - ${f}`).join('\n');
+                  requirement.addGroupMessage(
+                    { id: 'system', name: 'System', role: 'system' },
+            `⚠️ @[${agent.id}] The following files referenced in your handoff message do not exist:\n${invalidList}\nPlease use the workspace_files tool to verify correct file paths.`,
+                    'message', null, { auto: true }
+                  );
+                }
+                const mentionMsg = `@[${downAgent.id}] ${handoffMsg}`;
                 requirement.addGroupMessage(agent, mentionMsg, 'message', null, { auto: true });
 
                 // Persist to agent-to-agent chatStore
@@ -1480,6 +1605,7 @@ Be natural, in character, and collegial. You can praise, suggest improvements, o
         if (wsPath) {
           const uniqueFiles = [...new Set(writtenFiles)];
           const fileSnippets = [];
+          const missingFiles = [];
           for (const fp of uniqueFiles.slice(0, 5)) {
             try {
               const fullPath = path.join(wsPath, fp);
@@ -1488,14 +1614,24 @@ Be natural, in character, and collegial. You can praise, suggest improvements, o
                 const preview = content.length > 2000
                   ? content.slice(0, 2000) + '\n...(file truncated)'
                   : content;
-                fileSnippets.push(`--- File: ${fp} ---\n${preview}`);
+                fileSnippets.push(`--- 📄 File: ${fp} (${content.length} chars, exists ✅) ---\n${preview}`);
+              } else {
+                missingFiles.push(fp);
+                fileSnippets.push(`--- ❌ File: ${fp} --- FILE DOES NOT EXIST! The assignee claimed to write this file but it is not on disk.`);
               }
-            } catch { /* skip unreadable files */ }
+            } catch (e) {
+              fileSnippets.push(`--- ⚠️ File: ${fp} --- Cannot read: ${e.message}`);
+            }
           }
           if (fileSnippets.length > 0) {
-            fileContentsSection = `\n\n**Actual file contents delivered:**\n${fileSnippets.join('\n\n')}`;
+            fileContentsSection = `\n\n**Actual file contents delivered (read from disk at review time):**\n${fileSnippets.join('\n\n')}`;
+            if (missingFiles.length > 0) {
+              fileContentsSection += `\n\n🚨 **MISSING FILES ALERT:** ${missingFiles.length} file(s) claimed by assignee do NOT exist on disk: ${missingFiles.join(', ')}. This is a CRITICAL issue — the assignee may have hallucinated file writes.`;
+            }
           }
         }
+      } else {
+        fileContentsSection = '\n\n**📦 Delivered files:** None. This task produced text output only — no files were written to disk.';
       }
 
       // Pressure escalation based on review round
@@ -1527,6 +1663,13 @@ ${reviewCriteria}
 - When approving, briefly comment on what was done well. You may suggest minor improvements as non-blocking notes.
 - ${round === 1 ? 'This is the first review. Focus on whether core requirements are met. Be fair but thorough.' : `This is review round ${round}. The assignee has revised based on your previous feedback. Check if the CRITICAL issues from your previous feedback were addressed. If the same fundamental issues persist, escalate pressure.`}
 - IMPORTANT: If the assignee has produced actual file deliverables, review the FILE CONTENTS (not just the text output). The text output may be a summary; the real work is in the files.
+
+**⚠️ FILE VERIFICATION (CRITICAL):**
+- The file contents above were read DIRECTLY from disk at review time — they are the ground truth.
+- If the "Actual file contents" section shows "FILE DOES NOT EXIST", the assignee HALLUCINATED file writes — this is an AUTOMATIC REJECTION.
+- If no files were delivered but the task required file output, that's also a problem — ask where the files are.
+- Do NOT approve based on the assignee's text description alone if files were expected. The files ARE the deliverable.
+- If the assignee mentions files that aren't in the delivered list, they may be fabricating work.
 
 **Anti-Excuse Detection:**
 If the assignee's output contains any of these patterns, call them out:
@@ -1600,6 +1743,17 @@ Please provide your review verdict as JSON.`
       round === 3 ? '\n\n🔴 THIRD attempt. Apply the 5-step methodology: (1) What pattern are your failures showing? (2) Read the reviewer\'s feedback WORD BY WORD. (3) Are you repeating variants of the same approach? (4) Verify EVERY assumption. (5) Try the OPPOSITE of what you\'ve been doing.' :
       `\n\n🚨 ATTEMPT ${round}. This is a CRITICAL situation. You must: (1) List everything you\'ve tried and find the common failure pattern. (2) Verify ALL assumptions with evidence. (3) Try a COMPLETELY different approach — not a parameter tweak, a fundamentally different strategy. (4) Produce new diagnostic information even if the fix doesn\'t work.`;
 
+    // Collect files previously written by this agent for this node
+    const fileWriteToolSet = new Set(['file_write', 'file_append', 'file_patch']);
+    const previousFiles = (node.result?.toolResults || [])
+      .filter(t => fileWriteToolSet.has(t.tool))
+      .map(t => t.args?.path || t.args?.filePath || t.args?.file_path || '')
+      .filter(Boolean);
+    const uniquePreviousFiles = [...new Set(previousFiles)];
+    const previousFileSection = uniquePreviousFiles.length > 0
+      ? `\n\n**📁 Files you previously wrote (use file_read to review them BEFORE making changes):**\n${uniquePreviousFiles.map(f => `  - ${f}`).join('\n')}\n⚠️ You MUST use file_read to read these files first. Do NOT recreate them from memory — your memory may be wrong. Read the actual file, then modify.`
+      : '\n\n**📁 No files were written previously.** If you need to create files, do so now.';
+
     const revisionTask = {
       title: `[Revision] ${node.title}`,
       description: `Your previous work on "${node.title}" was reviewed and REJECTED. You need to revise it.
@@ -1609,6 +1763,7 @@ ${node.description}
 
 **Your previous output:**
 ${previousOutput?.length > 1500 ? previousOutput.slice(0, 1500) + '\n...(truncated — use file_read to review your previous files before revising)' : previousOutput || '(empty)'}
+${previousFileSection}
 
 **Reviewer's feedback (MUST address ALL points):**
 ${reviewFeedback}
@@ -1616,11 +1771,13 @@ ${pressureMsg}
 
 **Instructions:**
 1. Carefully read the reviewer's feedback — EVERY WORD. 90% of the answer is in their feedback.
-2. Address EVERY issue mentioned by the reviewer — do not skip any point
-3. If you wrote files before, READ them first with file_read, then MODIFY them (don't recreate from scratch unless fundamentally wrong)
-4. Before making changes, verify your assumptions: are the paths correct? Are the dependencies right? Are the edge cases covered?
-5. After revision, proactively check: are there SIMILAR issues elsewhere that you should also fix?
-6. Output your complete revised result with EVIDENCE that the reviewer's concerns are addressed`,
+2. **FIRST ACTION**: Use file_read to read ALL your previously written files listed above. Do NOT skip this step.
+3. Address EVERY issue mentioned by the reviewer — do not skip any point
+4. MODIFY existing files (don't recreate from scratch unless fundamentally wrong)
+5. Before making changes, verify your assumptions: are the paths correct? Are the dependencies right? Are the edge cases covered?
+6. After revision, proactively check: are there SIMILAR issues elsewhere that you should also fix?
+7. Output your complete revised result with EVIDENCE that the reviewer's concerns are addressed
+8. **IMPORTANT**: Do NOT use fictional time references ("I'll fix this by tomorrow"). Fix it NOW.`,
       context: '',
       requirements: `This is a REVISION for requirement "${requirement.title}". The reviewer was not satisfied and you must address their feedback. Do not repeat the same approach that was rejected — demonstrate progress.`,
     };
@@ -1821,6 +1978,186 @@ Are you convinced by their argument, or do you insist they need to revise?`
    * Clean LLM output by stripping tool-call markup that some models embed in text
    * (e.g. DeepSeek's DSML format, or XML-style function_call tags)
    */
+  /**
+   * Generate a natural delivery/handoff/review-request message via LLM.
+   * Instead of hardcoded templates, the agent speaks in its own voice.
+   *
+   * @param {object} agent - The agent who completed the task
+   * @param {object} node - The completed task node
+   * @param {string[]} writtenFilePaths - List of file paths produced
+   * @param {object} result - The task execution result
+   * @param {object} requirement - The parent requirement
+   * @param {object} options - { scene: 'completion'|'review_request'|'handoff', targetAgent?, targetTask? }
+   * @returns {string} The LLM-generated message
+   */
+  async _generateDeliveryMessage(agent, node, writtenFilePaths, result, requirement, options = {}) {
+    const { scene = 'completion', targetAgent = null, targetTask = null } = options;
+
+    // Build file info context
+    const fileListText = writtenFilePaths.length > 0
+      ? writtenFilePaths.map(fp => `  - ${fp}`).join('\n')
+      : '(no files — text output only)';
+
+    // Build a tool usage summary instead of raw output preview
+    // (raw output is often mid-stream text like "Great! Now creating..." — not a summary)
+    let toolSummary = '';
+    const toolResults = result?.toolResults || [];
+    if (toolResults.length > 0) {
+      const toolActions = toolResults
+        .filter(t => t.tool !== 'cli_progress' && t.tool !== 'cli_complete')
+        .map(t => {
+          if (t.tool === 'file_write' || t.tool === 'file_append' || t.tool === 'file_patch') {
+            return `wrote file: ${t.args?.path || t.args?.filePath || 'unknown'}`;
+          }
+          if (t.tool === 'file_read') return `read file: ${t.args?.path || 'unknown'}`;
+          if (t.tool === 'execute_command') return `ran command: ${(t.args?.command || '').slice(0, 60)}`;
+          return `used tool: ${t.tool}`;
+        });
+      if (toolActions.length > 0) {
+        toolSummary = toolActions.join('\n');
+      }
+    }
+
+    const p = agent.personality || {};
+    const sceneInstructions = {
+      completion: `You just completed your task. Report what you produced to the team. List your output files (with paths) or text output clearly.`,
+      review_request: `You just completed your task and need ${targetAgent?.name || 'the reviewer'} to review it. Mention your deliverables (files with paths or text output) and ask them to review.`,
+      handoff: `You just completed your task and need to hand off to ${targetAgent?.name || 'the next person'} for their task "${targetTask || 'next task'}". List what you produced (files with paths) so they know exactly what to pick up.`,
+    };
+
+    const prompt = `You are "${agent.name}", role: "${agent.role}".
+Personality: ${p.trait || 'Professional'}. Tone: ${p.tone || 'Normal'}.
+
+Context:
+- Requirement: "${requirement.title}"
+- Your completed task: "${node.title}"
+- Task description: ${node.description || '(none)'}
+
+Your deliverables:
+${fileListText}
+${toolSummary ? `\nTool actions performed:\n${toolSummary}` : ''}
+
+Instruction: ${sceneInstructions[scene] || sceneInstructions.completion}
+
+Rules:
+- Speak naturally in character. Do NOT use robotic templates.
+- You MUST reference each output file using the [[file:path]] format. This is a special protocol that renders files as clickable cards in the UI. For example: [[file:src/index.js]]
+- List every output file clearly with [[file:path]] — this is non-negotiable.
+- If text-only output (no files), include a brief summary of the result.
+- Keep it concise (2-5 sentences max + file references). No filler, no self-praise.
+- Do NOT wrap in JSON or markdown code blocks. Just speak naturally.
+- Match the language of the requirement title (if Chinese title, speak Chinese; if English, speak English).
+- NEVER mention files that are not in your deliverables list above.`;
+
+    try {
+      if (!agent.canChat()) {
+        // Fallback if agent can't chat — simple structured message
+        return this._fallbackDeliveryMessage(node, writtenFilePaths, result, scene, targetAgent, targetTask);
+      }
+      const response = await agent.chat([
+        { role: 'system', content: prompt },
+        { role: 'user', content: `Generate your ${scene === 'review_request' ? 'review request' : scene === 'handoff' ? 'handoff' : 'delivery report'} message now.` },
+      ], { temperature: 0.7, maxTokens: 1024 });
+
+      const content = response.content?.trim();
+      if (content && content.length > 10) {
+        return content;
+      }
+      // Fallback if LLM returned empty/too-short
+      return this._fallbackDeliveryMessage(node, writtenFilePaths, result, scene, targetAgent, targetTask);
+    } catch (e) {
+      console.warn(`[DeliveryMessage] LLM generation failed for ${agent.name}:`, e.message);
+      return this._fallbackDeliveryMessage(node, writtenFilePaths, result, scene, targetAgent, targetTask);
+    }
+  }
+
+  /**
+   * Fallback delivery message when LLM is unavailable.
+   */
+  _fallbackDeliveryMessage(node, writtenFilePaths, result, scene, targetAgent, targetTask) {
+    const fileList = writtenFilePaths.length > 0
+      ? writtenFilePaths.map(fp => `[[file:${fp}]]`).join('\n')
+      : '';
+    const hasFiles = writtenFilePaths.length > 0;
+
+    if (scene === 'review_request') {
+      return `"${node.title}" is done. ${hasFiles ? `Here are my deliverables:\n${fileList}\nPlease review.` : 'Output is text-based, shown above. Please review.'}`;
+    }
+    if (scene === 'handoff') {
+      return `"${node.title}" is done, handing off to your "${targetTask || 'task'}". ${hasFiles ? `Deliverables:\n${fileList}` : 'Output is text-based, shown above.'}`;
+    }
+    return `"${node.title}" is done. ${hasFiles ? `Deliverables:\n${fileList}` : 'Text output provided above.'}`;
+  }
+
+  /**
+   * Expand [[file:path]] → [[file:deptId:path|displayName]] for frontend rendering,
+   * validate file existence, and ensure all writtenFilePaths are referenced.
+   *
+   * If LLM forgot to include [[file:]] refs for known files, append them.
+   * If LLM referenced non-existent files, strip those invalid refs and log a warning.
+   */
+  _expandAndValidateFileRefs(content, requirement, department, agent, writtenFilePaths) {
+    if (!content) return content;
+    const deptId = requirement.departmentId;
+    const wsPath = department?.workspacePath || null;
+
+    // Regex to find [[file:path]] (simple form, no deptId/displayName yet)
+    const SIMPLE_REF = /\[\[file:([^\]|:]+)\]\]/g;
+    const referencedPaths = new Set();
+    const invalidPaths = [];
+
+    // Step 1: Expand simple [[file:path]] → [[file:deptId:path|name]], validate existence
+    let expanded = content.replace(SIMPLE_REF, (_match, filePath) => {
+      const trimmed = filePath.trim();
+      referencedPaths.add(trimmed);
+      // Validate file exists in workspace
+      if (wsPath) {
+        const fullPath = path.join(wsPath, trimmed);
+        if (!existsSync(fullPath)) {
+          invalidPaths.push(trimmed);
+          // Do NOT render as [[file:]] — show as plain text with ❌ marker
+return `❌ ${trimmed} (file not found)`;
+        }
+      }
+      const displayName = path.basename(trimmed);
+      return `[[file:${deptId}:${trimmed}|${displayName}]]`;
+    });
+
+    // Also handle if LLM already wrote [[file:deptId:path]] (incomplete but with deptId)
+    const INCOMPLETE_REF = /\[\[file:([^:]+):([^\]|]+)\]\]/g;
+    expanded = expanded.replace(INCOMPLETE_REF, (_match, existingDeptId, filePath) => {
+      const trimmed = filePath.trim();
+      referencedPaths.add(trimmed);
+      // Also validate incomplete refs
+      if (wsPath) {
+        const fullPath = path.join(wsPath, trimmed);
+        if (!existsSync(fullPath)) {
+          invalidPaths.push(trimmed);
+return `❌ ${trimmed} (file not found)`;
+        }
+      }
+      const displayName = path.basename(trimmed);
+      return `[[file:${existingDeptId}:${trimmed}|${displayName}]]`;
+    });
+
+    // Step 2: Ensure all writtenFilePaths are referenced — if LLM missed any, append them
+    const missingRefs = writtenFilePaths.filter(fp => !referencedPaths.has(fp));
+    if (missingRefs.length > 0) {
+      expanded += '\n';
+      for (const fp of missingRefs) {
+        const displayName = path.basename(fp);
+        expanded += `\n[[file:${deptId}:${fp}|${displayName}]]`;
+      }
+    }
+
+    // Step 3: Return structured result so caller can handle invalid refs
+    if (invalidPaths.length > 0) {
+      console.warn(`[DeliveryFileRef] ${agent.name} referenced non-existent files:`, invalidPaths.join(', '));
+    }
+
+    return { content: expanded, invalidPaths };
+  }
+
   _cleanLLMOutput(text) {
     if (!text) return '';
     let cleaned = text;

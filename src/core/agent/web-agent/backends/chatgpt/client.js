@@ -65,7 +65,7 @@ export class ChatGPTBackend extends BaseWebBackend {
   }
 
   /**
-   * 设置选择器文件路径（由 Electron 层调用）
+   * Set selectors file path (called by Electron layer)
    */
   setSelectorsFilePath(filePath) {
     setSelectorsFilePath(filePath);

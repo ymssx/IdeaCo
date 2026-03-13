@@ -9,11 +9,11 @@
 import fs from 'fs';
 import path from 'path';
 
-// 选择器持久化文件路径（运行时由 Electron 层注入）
+// Selectors persistence file path (injected at runtime by Electron layer)
 let _selectorsFilePath = null;
 
 /**
- * 设置选择器持久化文件路径（由 Electron 主进程调用）
+ * Set selectors persistence file path (called by Electron main process)
  * @param {string} filePath
  */
 export function setSelectorsFilePath(filePath) {

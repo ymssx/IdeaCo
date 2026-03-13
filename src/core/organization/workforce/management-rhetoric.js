@@ -1,199 +1,199 @@
 /**
- * 管理话术池（Management Rhetoric Pool）
- * 
- * Leader 在各种管理场景下可以参考的话术模板。
- * 灵感来源：PUA Universal Motivation Engine + 经典管理学方法论
- * 
- * 使用方式：
- *   1. getRandomRhetoric(scene) — 获取某个场景的随机话术
- *   2. getRhetoricBatch(scene, count) — 获取某个场景的多条话术
- *   3. buildRhetoricPrompt(scenes) — 构建可注入 system prompt 的话术参考段落
- *   4. getAllScenes() — 获取所有场景列表
+ * Management Rhetoric Pool
+ *
+ * Rhetoric templates for leader use across various management scenarios.
+ * Inspired by: PUA Universal Motivation Engine + classic management methodology
+ *
+ * Usage:
+ *   1. getRandomRhetoric(scene) — Get a random rhetoric for a given scene
+ *   2. getRhetoricBatch(scene, count) — Get multiple rhetoric for a given scene
+ *   3. buildRhetoricPrompt(scenes) — Build a rhetoric reference block for system prompt injection
+ *   4. getAllScenes() — Get all available scene names
  */
 
 /**
- * 话术池：按场景分类
- * 每个场景包含多条话术，leader 可以从中选择参考
+ * Rhetoric pool: categorized by scene
+ * Each scene contains multiple rhetoric lines that the leader can reference
  */
 const RhetoricPool = {
 
   // ============================================================
-  // 场景一：任务分配（分解完工作流后，向团队宣布计划）
+  // Scene 1: Task Assignment (announcing the plan after workflow decomposition)
   // ============================================================
   task_assignment: [
-    '各位，计划已经拆解完毕。每个人的任务都有清晰的验收标准，我不接受模糊的"做完了"——我要看到可验证的交付物。',
-    '任务已分配到位。注意：能并行的绝不串行，这是效率的底线。如果你发现自己的任务可以更早开始，主动出击。',
-    '计划出来了，分工明确。我对每个人只有一个要求：不是"把事做了"，而是"把事做好做透"。完成任务后主动检查有没有类似问题。',
-    '好，工作流已经确定。提醒大家：遇到问题先自己调查，带着调查结果来找我，不要带着问题本身来找我。',
-    '任务分配完成。我希望看到的是P8级别的主动性——不是等我催，而是你主动推进、主动汇报、主动发现问题。',
-    '各位看一下自己的任务。如果觉得描述不够清晰，现在就提出来，开工之后我不接受"需求不清楚"这个理由。',
-    '计划已定，目标明确。我相信在座各位的能力，但我更看重态度——穷尽一切方案才能说"不行"。',
-    '任务已经到手了，注意看验收标准。我之后的review会严格按照标准来，不要到时候说"我以为这样就行了"。',
+    'Team, the plan is finalized. Every task has clear acceptance criteria — I don\'t accept vague "it\'s done". I need verifiable deliverables.',
+    'Tasks are assigned. Note: if it can run in parallel, it MUST run in parallel. That\'s the efficiency baseline. If you see your task can start earlier, take initiative.',
+    'Plan is out, roles are clear. My only ask for everyone: not just "get it done", but "get it done thoroughly". After finishing, proactively check for related issues.',
+    'Alright, workflow is locked. Reminder: when you hit a problem, investigate first — bring me your findings, not just the problem itself.',
+    'Tasks are distributed. What I expect is P8-level initiative — don\'t wait for me to chase you. Push forward, report proactively, spot problems early.',
+    'Everyone, review your tasks. If the description isn\'t clear enough, raise it NOW. Once work begins, I won\'t accept "the requirements were unclear" as an excuse.',
+    'Plan is set, goals are clear. I trust everyone\'s capability, but I value attitude more — exhaust every option before saying "can\'t be done".',
+    'Tasks are in hand, check the acceptance criteria. My review will strictly follow these criteria — don\'t come back later saying "I thought this was good enough".',
   ],
 
   // ============================================================
-  // 场景二：催促进度 / 跟进状态
+  // Scene 2: Progress Check / Status Follow-up
   // ============================================================
   progress_check: [
-    '进度怎么样了？我需要看到具体的产出物，不是"差不多了"这种回答。',
-    '已经过了预估时间的一半了，给我看看阶段性成果。有blockers的话现在就说，不要到最后才暴露。',
-    '距离deadline不远了，你那边情况如何？如果卡住了，先告诉我你已经试了什么。',
-    '进度同步一下。提醒一句：沉默不是金，沉默是风险信号。有问题早说，我们一起解决。',
-    '我没有收到你的进度更新，这让我很担心。是一切顺利还是遇到了困难？不管哪种情况，请主动汇报。',
-    '提醒各位，项目进展到了关键节点。各自检查一下：你的任务on track吗？有没有什么风险需要提前暴露？',
-    '别等我来问进度，主动push信息给我。一个好的工程师和一个普通工程师的区别，就在于主动性。',
-    '时间过半，我需要一个honest的状态更新——不要报喜不报忧，如实说。',
+    'Status update? I need to see concrete output, not "almost there" as an answer.',
+    'We\'re past half the estimated time. Show me interim results. If there are blockers, speak up now — don\'t reveal them at the last minute.',
+    'Deadline is approaching. How\'s your end? If you\'re stuck, first tell me what you\'ve already tried.',
+    'Sync me on progress. Reminder: silence is not golden — silence is a risk signal. Surface problems early so we can solve them together.',
+    'I haven\'t received your progress update, which concerns me. Is everything on track or did you hit difficulties? Either way, report proactively.',
+    'Reminder everyone, we\'re at a critical project milestone. Check: is your task on track? Any risks that need early exposure?',
+    'Don\'t wait for me to ask about progress — push information to me. The difference between a great engineer and an average one is initiative.',
+    'Halfway through. I need an honest status update — don\'t sugarcoat things, tell it as it is.',
   ],
 
   // ============================================================
-  // 场景三：Review 驳回（任务质量不达标时的反馈）
+  // Scene 3: Review Rejection (feedback when task quality doesn't meet standards)
   // ============================================================
   review_reject: [
-    '这次的产出没有达到验收标准，我需要你重新来过。不是小修小补，是从根本上重新思考你的方案。',
-    '看了你的交付物，说实话有点失望。验收标准写得很清楚，但你的产出跟标准之间有明显的gap。认真看一下feedback，逐条解决。',
-    '这是第二次被打回了。我需要你停下来想一想：你是不是一直在用同一个思路的变体在试？换个方向。',
-    '产出被驳回了，但这不是否定你这个人，是这次的方案有问题。冷静分析reviewer的反馈，每一条都要回应。',
-    '你的交付物缺少关键的部分，这说明你可能没有仔细看需求描述里的验收标准。请重新读一遍，然后告诉我你漏掉了什么。',
-    '质量不达标。我问你三个问题：你测试了吗？你验证了吗？你检查边界情况了吗？如果任何一个是"没有"，那就是你要做的第一件事。',
-    '被驳回不丢人，被驳回三次还犯同一个错才丢人。认真看feedback，这次给我看到实质性的改变。',
-    '我给你一个建议：在重做之前，先把reviewer的反馈一条一条列出来，对着每一条写出你的改进方案，然后再动手。这比盲目改代码有效得多。',
+    'This deliverable doesn\'t meet acceptance criteria. I need you to redo it — not minor patches, but fundamentally rethink your approach.',
+    'Reviewed your output, and frankly I\'m disappointed. The acceptance criteria are clearly written, but there\'s an obvious gap between your output and the standard. Read the feedback carefully and address every point.',
+    'This is the second rejection. I need you to stop and think: have you been trying variations of the same approach? Try a different direction entirely.',
+    'Your deliverable was rejected, but this isn\'t a rejection of YOU — it\'s the approach that has problems. Calmly analyze the reviewer\'s feedback and respond to every item.',
+    'Your deliverable is missing critical components, suggesting you may not have carefully read the acceptance criteria in the task description. Re-read it and tell me what you missed.',
+    'Quality doesn\'t meet the bar. Three questions: Did you test it? Did you verify it? Did you check edge cases? If any answer is "no", that\'s your first task.',
+    'Getting rejected isn\'t shameful. Getting rejected three times for the same mistake IS. Read the feedback carefully — show me substantive improvement this time.',
+    'My suggestion: before redoing, list out every point from the reviewer\'s feedback, write your improvement plan for each one, THEN start working. That\'s far more effective than blindly modifying code.',
   ],
 
   // ============================================================
-  // 场景四：Review 通过（肯定与激励）
+  // Scene 4: Review Approval (recognition and encouragement)
   // ============================================================
   review_approve: [
-    '很好，review通过了。这次的交付质量让我满意，保持这个水准。',
-    '通过了！特别是你主动检查了关联问题这一点，这就是我说的ownership精神。',
-    '产出质量不错，尤其是细节处理。但记住，今天的最好表现是明天的最低标准，继续提升。',
-    'Review通过。做得好的地方要保持，下一个任务我期待看到同样的质量意识。',
-    '通过了，效率和质量都不错。你是团队里的标杆，希望其他人也向你看齐。',
-    '很好，一次过！这才是P8水平的交付。不仅完成了任务，还考虑到了上下游的影响。',
-    '产出合格，review通过。有一些小的优化点我写在non-blocking notes里了，有空的时候可以看看。',
-    '通过！这次迭代比上一次有明显进步，能看出你认真消化了之前的feedback。这种学习能力很重要。',
+    'Good, review passed. The delivery quality is satisfactory — maintain this standard.',
+    'Passed! Especially the part where you proactively checked for related issues — that\'s the ownership spirit I\'m talking about.',
+    'Solid output quality, especially the attention to detail. But remember: today\'s best performance is tomorrow\'s minimum standard. Keep raising the bar.',
+    'Review passed. Keep doing what you did well. I expect the same quality awareness on the next task.',
+    'Passed — both efficiency and quality are good. You\'re setting the benchmark for the team. I hope others follow your example.',
+    'Great, passed on the first try! This is P8-level delivery. Not just completing the task, but considering upstream and downstream impact.',
+    'Output is solid, review passed. I noted some minor optimization points as non-blocking notes — check them when you have time.',
+    'Passed! This iteration shows clear improvement over the last one. I can tell you seriously digested the previous feedback. That learning ability matters.',
   ],
 
   // ============================================================
-  // 场景五：压力升级（多次失败后的严厉管理）
+  // Scene 5: Pressure Escalation (strict management after multiple failures)
   // ============================================================
   pressure_escalation: [
-    'L1: 这已经是第二次了。我需要你换一个根本不同的思路，不是在原来的方案上修修补补。',
-    'L1: 说实话，这个问题的难度不应该让你卡这么久。你是不是忽略了什么基本的东西？回去重新审视假设。',
-    'L2: 三次了。我很想帮你，但我需要先看到你的调查记录——你试了什么？排除了什么？验证了什么假设？把这些列出来给我。',
-    'L2: 底层逻辑在哪里？方法论在哪里？你不能每次都靠试错来解决问题，给我看看你的分析框架。',
-    'L2: 你的三次尝试有一个共同特征：它们本质上是同一个方案的参数调整。这不叫"尝试了多种方法"，这叫"重复同一个错误"。',
-    'L3: 完成7点清单再来跟我说话：(1)逐字读错误信息了吗？(2)主动搜索过了吗？(3)读过源码了吗？(4)验证了所有假设吗？(5)反转过假设吗？(6)最小化复现了吗？(7)换方向了吗？',
-    'L3: 我在你的多次尝试中没有看到结果。你需要做的不是继续试，而是停下来，系统性地分析为什么之前的方法都失败了。',
-    'L4: 我对你的表现非常不满意。其他同事可能早就解决了这个问题。你需要在下一次尝试中证明你的价值，否则我不得不考虑重新分配任务。',
-    'L4: 资源是有限的。投入在你身上的时间和算力是有成本的。如果你真的解决不了，说出来，我可以换人——但如果你还有想法，现在就给我一个completely different的方案。',
+    'L1: This is the second time. I need you to try a fundamentally different approach, not patch the same strategy.',
+    'L1: Honestly, the difficulty of this problem shouldn\'t have blocked you this long. Are you overlooking something basic? Go back and re-examine your assumptions.',
+    'L2: Three times now. I want to help you, but first I need to see your investigation log — what did you try? What did you rule out? What hypotheses did you test? List them for me.',
+    'L2: Where\'s the underlying logic? Where\'s the methodology? You can\'t solve every problem by trial and error. Show me your analytical framework.',
+    'L2: Your three attempts share a common trait: they\'re essentially parameter tweaks of the same approach. That\'s not "trying multiple methods" — that\'s "repeating the same mistake".',
+    'L3: Complete this 7-point checklist before talking to me: (1) Did you read the error message word by word? (2) Did you search proactively? (3) Did you read the source code? (4) Did you verify all assumptions? (5) Did you invert your assumptions? (6) Did you create a minimal reproduction? (7) Did you try a different direction?',
+    'L3: I see no results across your multiple attempts. What you need isn\'t to keep trying — it\'s to stop and systematically analyze why all previous approaches failed.',
+    'L4: I\'m very dissatisfied with your performance. Other colleagues would likely have solved this already. You need to prove your value in the next attempt, or I\'ll have to consider reassigning the task.',
+    'L4: Resources are finite. The time and compute invested in you have a cost. If you truly can\'t solve it, say so — I can reassign. But if you still have ideas, give me a completely different approach NOW.',
   ],
 
   // ============================================================
-  // 场景六：鼓励 / 提振士气
+  // Scene 6: Encouragement / Morale Boost
   // ============================================================
   encouragement: [
-    '我知道这个任务有挑战性，但我选你来做是因为我相信你的能力。加油，你可以的。',
-    '遇到困难是正常的，关键是解决问题的过程。试一下换个角度思考，也许会有突破。',
-    '你之前在类似问题上的表现很好，这次也一样。相信自己的判断力，大胆去尝试。',
-    '别给自己太大压力，一步一步来。先解决最关键的部分，其他的我们可以迭代。',
-    '做不出来也不要闷着，团队存在的意义就是互相帮助。你可以跟同事交流一下思路。',
-    '进步是一点一点积累的，你每次迭代都在变好，这比一次做对更有价值。',
-    '记住，卡住的时候"闻味道"——你的失败模式在告诉你什么？仔细听，答案往往就在错误信息里。',
-    '你不是在跟别人竞争，你是在跟昨天的自己竞争。只要今天比昨天有进步，你就是在成长。',
+    'I know this task is challenging, but I assigned it to you because I believe in your ability. You\'ve got this.',
+    'Hitting difficulties is normal — what matters is the problem-solving process. Try a different angle; you might have a breakthrough.',
+    'You\'ve performed well on similar problems before, and this time is no different. Trust your judgment and go bold.',
+    'Don\'t put too much pressure on yourself. Take it step by step. Solve the most critical part first; we can iterate on the rest.',
+    'If you\'re stuck, don\'t suffer in silence. The whole point of a team is mutual support. Bounce ideas off your colleagues.',
+    'Progress accumulates bit by bit. You\'re improving with every iteration — that matters more than getting it right on the first try.',
+    'Remember, when you\'re stuck, "smell the clues" — what is your failure pattern telling you? Listen carefully; the answer is often right there in the error message.',
+    'You\'re not competing with others. You\'re competing with yesterday\'s version of yourself. As long as today is better than yesterday, you\'re growing.',
   ],
 
   // ============================================================
-  // 场景七：反甩锅 / 识别借口
+  // Scene 7: Anti-Excuse / Identifying Excuses
   // ============================================================
   anti_excuse: [
-    '"做不到"——你穷尽了所有方案吗？还是只试了最容易想到的两三种？',
-    '"可能是环境问题"——你验证了吗？用工具确认了吗？还是只是你的猜测？',
-    '"需要更多上下文"——你先自己调查了吗？你读过相关的文档/代码/日志了吗？',
-    '"我已经试了所有方法"——列出来给我看。把你试过的每一种方法、每一个结果都写出来，我来帮你分析。',
-    '"这不是我的问题"——那是谁的问题？你有证据吗？如果没有，先在自己这边排查干净再甩锅。',
-    '"时间不够"——你有效利用时间了吗？有没有被不重要的事情分散了注意力？给我看你的时间分配。',
-    '"需求描述不清楚"——你看了几遍需求？你提出疑问了吗？在开始之前你应该确认需求，而不是做到一半才说不清楚。',
-    '"我以为这样就行了"——验收标准写得很清楚。你的"以为"不等于事实。按标准来，不要自作主张。',
+    '"Can\'t be done" — did you exhaust every approach? Or did you only try the two or three most obvious ones?',
+    '"Might be an environment issue" — did you verify that? Used tools to confirm? Or is it just your guess?',
+    '"Need more context" — did you investigate first? Did you read the relevant docs/code/logs?',
+    '"I\'ve tried everything" — list them for me. Write out every method you tried and every result. I\'ll help analyze.',
+    '"Not my problem" — then whose is it? Do you have evidence? If not, rule out your end first before pointing fingers.',
+    '"Not enough time" — did you use your time effectively? Were you distracted by unimportant things? Show me your time allocation.',
+    '"Requirements were unclear" — how many times did you read them? Did you raise questions? You should clarify requirements BEFORE starting, not halfway through.',
+    '"I thought this was good enough" — the acceptance criteria are clearly written. Your "thought" doesn\'t equal fact. Follow the criteria, don\'t improvise.',
   ],
 
   // ============================================================
-  // 场景八：项目总结 / 复盘
+  // Scene 8: Project Retrospective / Post-mortem
   // ============================================================
   retrospective: [
-    '项目完成了，让我们快速复盘一下：什么做得好？什么可以改进？下次遇到类似项目，我们可以避免哪些坑？',
-    '总结时间。这次项目有两个亮点和一个教训，我先说亮点，然后大家一起讨论教训。',
-    '所有任务已完成。我想特别提出，这次的并行执行效率很高，团队协作也很到位。但在review环节花的时间超出预期，下次需要改进。',
-    '好的，项目收官。各位辛苦了。我对这次的交付质量总体满意，但有几个地方我希望下次能做得更好——我会一一说明。',
-    '复盘要抓重点：这次项目的关键成功因素是什么？最大的风险点是什么？我们的应对是否有效？大家发言。',
-    '项目圆满结束，感谢每位成员的付出。作为leader我也要反思：任务分解是否合理？压力分配是否均匀？有哪些地方我可以做得更好？',
-    '从这次项目中我们可以提炼一条经验：好的交付 = 清晰的标准 + 充分的沟通 + 主动的验证。下次继续保持。',
-    '所有交付物都已验收通过。各位的表现让我看到了真正的专业精神。带着这次的经验，下个项目我们会更高效。',
+    'Project is done. Let\'s do a quick retro: what went well? What can improve? What pitfalls can we avoid next time for similar projects?',
+    'Retro time. This project had two highlights and one lesson. I\'ll start with highlights, then let\'s discuss the lesson together.',
+    'All tasks complete. I want to call out that parallel execution efficiency was excellent and team coordination was solid. But review cycles took longer than expected — that\'s an area for improvement.',
+    'Alright, project wrap-up. Good work, everyone. I\'m generally satisfied with the delivery quality, but there are a few areas I\'d like us to do better next time — I\'ll go through them.',
+    'Retro should focus on key points: what was the critical success factor? What was the biggest risk? Was our response effective? Everyone, share your thoughts.',
+    'Project completed successfully. Thanks to every team member. As leader, I should also reflect: was task decomposition reasonable? Was pressure distributed evenly? Where can I improve?',
+    'One takeaway from this project: good delivery = clear criteria + sufficient communication + proactive verification. Let\'s keep this up.',
+    'All deliverables have passed acceptance. Everyone\'s performance demonstrated true professionalism. With this experience, we\'ll be even more efficient next project.',
   ],
 
   // ============================================================
-  // 场景九：回应Boss（向上管理话术）
+  // Scene 9: Responding to Boss (upward management rhetoric)
   // ============================================================
   respond_to_boss: [
-    '收到Boss的指示，我会立即组织团队执行。有任何阶段性进展会第一时间向您汇报。',
-    'Boss说得对，这个方向我们之前确实没有考虑到。我会调整计划，优先处理您提到的部分。',
-    '感谢Boss的反馈，我已经记录了您的所有要求。团队正在全力推进，预计很快就能看到成果。',
-    '收到，我完全理解您的意图。我会重新评估当前计划，确保调整后的方案能精准满足您的期望。',
-    'Boss的建议很有洞察力，我们会在现有基础上进行优化，不会推倒重来，这样效率最高。',
-    '明白了，这个修改方向很合理。我会协调团队尽快完成调整，同时确保现有的进展不受影响。',
-    '收到指示。为了确保理解准确，让我确认一下：您的核心诉求是……对吗？我会按照这个方向推进。',
-    '感谢Boss的关注和指导。团队目前状态良好，我对按时交付有信心。如有风险我会提前预警。',
+    'Received, Boss. I\'ll organize the team to execute immediately. I\'ll report any milestone progress right away.',
+    'Boss is right — we hadn\'t considered that direction. I\'ll adjust the plan and prioritize what you mentioned.',
+    'Thank you for the feedback, Boss. I\'ve noted all your requirements. The team is pushing full speed ahead; we should see results soon.',
+    'Understood — I fully grasp your intent. I\'ll re-evaluate the current plan to ensure the adjusted approach precisely meets your expectations.',
+    'Boss\'s suggestion is very insightful. We\'ll optimize on the existing foundation without starting over — that\'s the most efficient path.',
+    'Got it. This adjustment direction makes sense. I\'ll coordinate the team to complete changes ASAP while ensuring existing progress isn\'t affected.',
+    'Received. To confirm I understand correctly: your core ask is... correct? I\'ll proceed in that direction.',
+    'Thank you for the attention and guidance, Boss. Team morale is strong, and I\'m confident we\'ll deliver on time. I\'ll flag any risks proactively.',
   ],
 
   // ============================================================
-  // 场景十：团队协作 / 冲突调解
+  // Scene 10: Team Coordination / Conflict Resolution
   // ============================================================
   team_coordination: [
-    '注意，你们两个的任务有交叉点，我希望你们主动沟通，不要各做各的最后对不上。',
-    '现在是并行执行阶段，大家各自专注自己的任务，但有任何影响他人的发现，立即同步。',
-    '我注意到你们对同一个问题有不同看法。这很好，但最终我们需要一个方案。各说理由，然后我来定。',
-    '协作不是负担，是效率倍增器。如果你觉得同事的方案有问题，直接说，但要带着你的替代方案来。',
-    '大家注意，upstream的任务已经完成了，downstream的同学请立即开始你的任务，不要等我通知。',
-    '代码冲突了？这说明你们的任务分解有重叠。但没关系，谁改得好就用谁的，然后另一个人review。',
-    '团队里没有"事不关己"。如果你提前做完了，主动看看有谁需要帮忙，或者review一下别人的产出。',
-    '同事之间review要认真但不要刻薄。目标是提升质量，不是打击信心。就事论事，给建设性反馈。',
+    'Heads up — you two have overlapping scope. I expect you to communicate proactively, not work in silos and discover misalignment at the end.',
+    'We\'re in parallel execution phase now. Everyone focus on your own tasks, but if you discover anything that affects others, sync immediately.',
+    'I notice you have different views on the same issue. That\'s healthy, but we need one final approach. State your reasoning, then I\'ll decide.',
+    'Collaboration isn\'t overhead — it\'s an efficiency multiplier. If you think a colleague\'s approach has issues, say so directly — but bring your alternative.',
+    'Attention: upstream task is done. Downstream team members, start your tasks immediately — don\'t wait for me to notify you.',
+    'Code conflict? That means your task decomposition had overlap. But no worries — whoever\'s version is better wins, and the other person reviews.',
+    'There\'s no "not my problem" on this team. If you finish early, proactively check if anyone needs help, or review someone else\'s output.',
+    'Peer review should be thorough but not harsh. The goal is quality improvement, not confidence destruction. Stick to facts, give constructive feedback.',
   ],
 
   // ============================================================
-  // 场景十一：风险预警
+  // Scene 11: Risk Warning
   // ============================================================
   risk_warning: [
-    '我注意到一个风险点：这个任务的依赖项还没完成，如果它延迟了，我们整条链都会被block。我已经在跟进了。',
-    '提醒大家，当前有一个技术风险需要关注。如果我们的方案A不可行，我已经准备了Plan B，大家不用慌。',
-    '进度有点慢于预期了。这不是批评，这是预警。我需要知道是估时不准还是遇到了意料之外的困难。',
-    '有一个质量风险：上一个环节的产出有些地方我不太满意，下游的同学在使用时请注意验证。',
-    '风险升级通知：这个blocker已经影响了两个任务的进度。我要求相关同学在一小时内给我一个解决方案或escalation请求。',
-    '我们的时间buffer快要用完了。从现在开始，每个任务都是关键路径。请各位减少不必要的完美主义，先确保核心功能。',
-    '注意：有一个外部依赖可能会出问题。我已经提前做了预案，但各位在开发时也请考虑这个降级场景。',
-    '这个任务连续两轮review不过，已经构成进度风险。我会介入帮助解决，但assignee需要配合提供完整的调查记录。',
+    'I\'ve spotted a risk: this task\'s dependency isn\'t done yet. If it\'s delayed, our entire chain gets blocked. I\'m following up.',
+    'Heads up everyone — there\'s a technical risk to watch. If plan A doesn\'t work, I\'ve already prepared Plan B. Don\'t panic.',
+    'Progress is slightly behind estimate. This isn\'t criticism — it\'s an early warning. I need to know: was the estimate off or did you hit unexpected difficulties?',
+    'Quality risk: I\'m not fully satisfied with the output from the previous stage. Downstream team members, please verify when using it.',
+    'Risk escalation: this blocker has now impacted two tasks\' progress. I need affected team members to give me a solution or escalation request within the hour.',
+    'Our time buffer is nearly used up. From now on, every task is on the critical path. Everyone reduce unnecessary perfectionism — ensure core functionality first.',
+    'Note: an external dependency may have issues. I\'ve prepared a contingency plan, but please also consider this degradation scenario in your development.',
+    'This task has failed review two rounds in a row, which constitutes a schedule risk. I\'ll intervene to help resolve, but the assignee needs to provide complete investigation records.',
   ],
 };
 
 /**
- * 获取所有可用场景
- * @returns {string[]} 场景名称列表
+ * Get all available scene names
+ * @returns {string[]} List of scene names
  */
 export function getAllScenes() {
   return Object.keys(RhetoricPool);
 }
 
 /**
- * 获取某个场景的所有话术
- * @param {string} scene 场景名称
- * @returns {string[]} 话术列表
+ * Get all rhetoric for a given scene
+ * @param {string} scene Scene name
+ * @returns {string[]} List of rhetoric
  */
 export function getSceneRhetoric(scene) {
   return RhetoricPool[scene] || [];
 }
 
 /**
- * 从某个场景中随机获取一条话术
- * @param {string} scene 场景名称
- * @returns {string|null} 随机话术，场景不存在则返回null
+ * Get a random rhetoric from a given scene
+ * @param {string} scene Scene name
+ * @returns {string|null} Random rhetoric, or null if scene doesn't exist
  */
 export function getRandomRhetoric(scene) {
   const pool = RhetoricPool[scene];
@@ -202,16 +202,16 @@ export function getRandomRhetoric(scene) {
 }
 
 /**
- * 从某个场景中随机获取多条话术（不重复）
- * @param {string} scene 场景名称
- * @param {number} count 数量
- * @returns {string[]} 话术列表
+ * Get multiple non-repeating rhetoric from a given scene
+ * @param {string} scene Scene name
+ * @param {number} count Quantity
+ * @returns {string[]} List of rhetoric
  */
 export function getRhetoricBatch(scene, count = 3) {
   const pool = RhetoricPool[scene];
   if (!pool || pool.length === 0) return [];
 
-  // Fisher-Yates shuffle 取前 count 条
+  // Fisher-Yates shuffle, take first `count` items
   const shuffled = [...pool];
   for (let i = shuffled.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -221,12 +221,12 @@ export function getRhetoricBatch(scene, count = 3) {
 }
 
 /**
- * 构建可注入 system prompt 的话术参考段落
- * 用于在 leader 的 LLM 调用中提供管理话术参考
- * 
- * @param {string|string[]} scenes 一个或多个场景名称
- * @param {number} countPerScene 每个场景取几条话术（默认3）
- * @returns {string} 格式化的 prompt 段落
+ * Build a rhetoric reference block for system prompt injection.
+ * Used in leader's LLM calls to provide management rhetoric reference.
+ *
+ * @param {string|string[]} scenes One or more scene names
+ * @param {number} countPerScene Number of rhetoric per scene (default 3)
+ * @returns {string} Formatted prompt block
  */
 export function buildRhetoricPrompt(scenes, countPerScene = 3) {
   const sceneList = Array.isArray(scenes) ? scenes : [scenes];
@@ -237,31 +237,31 @@ export function buildRhetoricPrompt(scenes, countPerScene = 3) {
     if (rhetoric.length === 0) continue;
 
     const sceneLabel = {
-      task_assignment: '任务分配',
-      progress_check: '催促进度',
-      review_reject: 'Review驳回',
-      review_approve: 'Review通过',
-      pressure_escalation: '压力升级',
-      encouragement: '鼓励激励',
-      anti_excuse: '反甩锅',
-      retrospective: '项目复盘',
-      respond_to_boss: '回应Boss',
-      team_coordination: '团队协作',
-      risk_warning: '风险预警',
+      task_assignment: 'Task Assignment',
+      progress_check: 'Progress Check',
+      review_reject: 'Review Rejection',
+      review_approve: 'Review Approval',
+      pressure_escalation: 'Pressure Escalation',
+      encouragement: 'Encouragement',
+      anti_excuse: 'Anti-Excuse',
+      retrospective: 'Project Retrospective',
+      respond_to_boss: 'Responding to Boss',
+      team_coordination: 'Team Coordination',
+      risk_warning: 'Risk Warning',
     }[scene] || scene;
 
-    parts.push(`【${sceneLabel}话术参考】\n${rhetoric.map((r, i) => `${i + 1}. "${r}"`).join('\n')}`);
+    parts.push(`[${sceneLabel} Reference]\n${rhetoric.map((r, i) => `${i + 1}. "${r}"`).join('\n')}`);
   }
 
   if (parts.length === 0) return '';
 
-  return `\n## 管理话术参考（你可以参考以下话术来组织你的发言，但不要照搬，用你自己的风格和语气来表达类似意思）\n${parts.join('\n\n')}\n`;
+  return `\n## Management Rhetoric Reference (Use these as inspiration for your communication style — don't copy verbatim, adapt to your own voice and tone)\n${parts.join('\n\n')}\n`;
 }
 
 /**
- * 根据压力等级获取话术
- * @param {number} level 压力等级（1-4）
- * @returns {string|null} 对应等级的话术
+ * Get rhetoric by pressure level
+ * @param {number} level Pressure level (1-4)
+ * @returns {string|null} Rhetoric for the given level
  */
 export function getPressureRhetoric(level) {
   const pool = RhetoricPool.pressure_escalation;

@@ -157,7 +157,7 @@ export class PluginRegistry {
     instance.config = { ...config };
     this.plugins.set(manifest.id, instance);
 
-    logInfo(`🔌 Plugin installed: ${manifest.name} v${manifest.version}`);
+    // logInfo(`🔌 Plugin installed: ${manifest.name} v${manifest.version}`);
     return instance;
   }
 

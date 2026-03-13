@@ -524,14 +524,22 @@ export class EmployeeLifecycle {
           );
           monologue.addThought(`[Sent to group] ${expandedContent}`);
 
-          // Auto-feedback: notify agent about invalid file references
+          // Auto-feedback: force agent to correct invalid file references
           if (invalidRefs.length > 0) {
             const invalidList = invalidRefs.map(f => `  - ${f}`).join('\n');
             chatTarget.addGroupMessage(
               { id: 'system', name: 'System', role: 'system' },
-              `⚠️ @[${agent.id}] File reference error: the following files do not exist in workspace:\n${invalidList}\nPlease use workspace_files or file_search tool to check available files before referencing them.`,
+              `⚠️ @[${agent.id}] The following files you referenced do not exist in the workspace:\n${invalidList}\nYou MUST use the workspace_files or file_search tool to check available files, then resend with correct paths. This is mandatory and cannot be ignored.`,
               'message', null, { auto: true }
             );
+            // Force agent to re-think immediately to address the invalid refs
+            const { groupChatLoop } = await import('./group-chat-loop.js');
+            setTimeout(() => {
+              groupChatLoop.triggerImmediate(agent.id, groupId, {
+                content: `[System] You MUST fix invalid file references: ${invalidRefs.join(', ')}. Use workspace_files tool to find correct paths.`,
+                from: { id: 'system', name: 'System' },
+              }).catch(() => {});
+            }, 1000);
           }
           this._lastGroupActivity.set(groupId, new Date());
           this._recordSpeak(groupId);
@@ -608,7 +616,7 @@ export class EmployeeLifecycle {
     const formatMsg = (msg) => {
       const senderName = msg.from?.name || 'Unknown';
       const senderId = msg.from?.id || 'unknown';
-      const time = new Date(msg.time).toLocaleTimeString('zh', { hour: '2-digit', minute: '2-digit' });
+      const time = new Date(msg.time).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' });
       if (msg.type === 'system') return `[System] ${msg.content}`;
       const selfMark = msg.from?.id === agent.id ? ' (you)' : '';
       return `[${time}] ${senderName}(${senderId})${selfMark}: ${msg.content}`;
