@@ -21,13 +21,23 @@ const REQ_GROUP_PREFIX = 'req-';
  */
 function resolveWorkspaceFilePath(wsPath, filePath) {
   if (!filePath) return path.join(wsPath, filePath);
-  // Strip common container-style absolute prefixes that agents may use
   let normalized = filePath;
+  const hadLeadingSlash = /^\//.test(normalized);
   // Remove leading slash to force relative resolution
   normalized = normalized.replace(/^\/+/, '');
-  // Strip well-known container prefixes (e.g. "project/", "workspace/")
-  normalized = normalized.replace(/^(project|workspace|home|app)\//i, '');
-  return path.join(wsPath, normalized);
+  // Only strip well-known container prefixes when the path was absolute-style
+  // (e.g. "/project/foo.md"). If it was already relative (e.g. "project/foo.md"),
+  // "project/" might be a real directory in the workspace — don't strip it blindly.
+  if (hadLeadingSlash) {
+    normalized = normalized.replace(/^(project|workspace|home|app)\//i, '');
+  }
+  const resolved = path.join(wsPath, normalized);
+  // Fallback: if resolved path doesn't exist but the un-stripped relative path does, use that
+  if (!hadLeadingSlash && !existsSync(resolved)) {
+    const fallback = path.join(wsPath, filePath.replace(/^\/+/, ''));
+    if (existsSync(fallback)) return fallback;
+  }
+  return resolved;
 }
 
 /**
