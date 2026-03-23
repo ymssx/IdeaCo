@@ -9,6 +9,7 @@
  * - multi_patch: Apply multiple replacements to a file in one call
  * - file_list: List directory contents
  * - file_delete: Delete files
+ * - mkdir: Create directories (with recursive parent creation)
  * - file_stats: Get file metadata without reading content
  * - file_search: Search for files by name
  * - grep_search: Search file contents for text/regex patterns
@@ -125,6 +126,25 @@ export class AgentToolKit {
               path: { type: 'string', description: 'Path of the file to delete' },
             },
             required: ['path'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'mkdir',
+          description: 'Create one or more directories (with parent directories created automatically). Use this to set up project folder structures. You can pass a single path string or an array of paths to create multiple directories at once. Path is relative to workspace.',
+          parameters: {
+            type: 'object',
+            properties: {
+              path: { type: 'string', description: 'Directory path to create (relative to workspace). For multiple directories, separate with commas: "backend,frontend,shared"' },
+              paths: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Array of directory paths to create (alternative to single path)',
+              },
+            },
+            required: [],
           },
         },
       },
@@ -344,6 +364,19 @@ export class AgentToolKit {
         result = await this._fileDelete(filePath);
         break;
       }
+      case 'mkdir': {
+        // Support both single path (string, possibly comma-separated) and array of paths
+        let dirs = [];
+        if (args.paths && Array.isArray(args.paths)) {
+          dirs = args.paths;
+        } else {
+          const p = resolvePath(args) || args.dir || args.directory || '';
+          if (!p) throw new Error('Missing required parameter: path or paths');
+          dirs = p.split(',').map(s => s.trim()).filter(Boolean);
+        }
+        result = await this._mkdir(dirs);
+        break;
+      }
       case 'shell_exec': {
         const command = args.command || args.cmd || null;
         if (!command) throw new Error(`Missing required parameter: command (received args: ${JSON.stringify(Object.keys(args))})`);
@@ -480,6 +513,35 @@ export class AgentToolKit {
 
     await fs.writeFile(fullPath, content, { encoding: 'utf-8', mode: 0o644 });
     return `File written: ${filePath} (${content.length} chars)`;
+  }
+
+  /**
+   * Create directories (with recursive parent creation)
+   */
+  async _mkdir(dirs) {
+    const created = [];
+    const alreadyExist = [];
+    const errors = [];
+
+    for (const dir of dirs) {
+      try {
+        const fullPath = this._safePath(dir);
+        if (existsSync(fullPath)) {
+          alreadyExist.push(dir);
+        } else {
+          mkdirSync(fullPath, { recursive: true });
+          created.push(dir);
+        }
+      } catch (error) {
+        errors.push(`${dir}: ${error.message}`);
+      }
+    }
+
+    const parts = [];
+    if (created.length > 0) parts.push(`Created: ${created.join(', ')}`);
+    if (alreadyExist.length > 0) parts.push(`Already exist: ${alreadyExist.join(', ')}`);
+    if (errors.length > 0) parts.push(`Errors: ${errors.join('; ')}`);
+    return parts.join('\n') || 'No directories specified.';
   }
 
   /**
