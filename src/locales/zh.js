@@ -151,6 +151,8 @@ const zh = {
     creatingDept: '🏗️ 正在创建部门: {dept}',
     planningHiring: '⚙️ 规划招聘中...',
     deptCreated: '🎉 部门「{dept}」已创建',
+    viewDepartmentBtn: '👀 查看部门 →',
+    viewRequirementBtn: '📋 查看需求 →',
   },
   mailbox: {
     title: '💬 消息',

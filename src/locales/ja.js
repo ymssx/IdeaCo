@@ -88,6 +88,7 @@ stats: { departments: '部門', workers: '社員', requirements: '要件' },
     taskAssigned: '📋 割り当て先: {dept}', running: '⚙️ 実行中...',
     needNewDept: '💡 新部門の設立を提案', progressReport: '📊 進捗報告完了',
     creatingDept: '🏗️ 部門作成中: {dept}', planningHiring: '⚙️ 計画・採用中...', deptCreated: '🎉 部門「{dept}」が作成されました',
+    viewDepartmentBtn: '👀 部門を見る →', viewRequirementBtn: '📋 要件を見る →',
   },
   mailbox: {
     title: '💬 メッセージ', markAllRead: '全て既読にする',

@@ -91,6 +91,7 @@ stats: { departments: 'Abt.', workers: 'Arbeiter', requirements: 'Anforderungen'
     taskAssigned: '📋 Zugewiesen an: {dept}', running: '⚙️ Läuft...',
     needNewDept: '💡 Neue Abteilung vorgeschlagen', progressReport: '📊 Fortschrittsbericht fertig',
     creatingDept: '🏗️ Abteilung wird erstellt: {dept}', planningHiring: '⚙️ Planung & Einstellung...', deptCreated: '🎉 Abteilung "{dept}" erstellt',
+    viewDepartmentBtn: '👀 Abteilung ansehen →', viewRequirementBtn: '📋 Anforderung ansehen →',
   },
   mailbox: {
     title: '💬 Nachrichten', markAllRead: 'Alle als gelesen markieren',

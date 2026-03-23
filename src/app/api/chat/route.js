@@ -116,6 +116,17 @@ export async function POST(request) {
           runningTasks.set(taskId, { status: 'completed', summary, completedAt: Date.now() });
           console.log(`✅ Task execution complete: ${summary.successTasks}/${summary.totalTasks}`);
 
+          // Push completion message to chat history
+          const completionMsg = {
+            role: 'secretary',
+            content: `✅ Task "${summary.title || 'Task'}" completed! ${summary.successTasks}/${summary.totalTasks} subtasks succeeded.`,
+            action: { type: 'task_completed', taskId, requirementId: summary.requirementId, departmentId: dept.id },
+            time: new Date(),
+          };
+          company.chatHistory.push(completionMsg);
+          chatStore.appendMessage(company.chatSessionId, completionMsg);
+          company.save();
+
           setTimeout(() => runningTasks.delete(taskId), 30 * 60 * 1000);
         } catch (err) {
           console.error(`❌ Create department and assign task failed:`, err.message);
@@ -203,6 +214,18 @@ export async function POST(request) {
         .then(summary => {
           runningTasks.set(taskId, { status: 'completed', summary, completedAt: Date.now() });
           console.log(`✅ Task [${taskId}] completed: ${summary.successTasks}/${summary.totalTasks} succeeded`);
+
+          // Push completion message to chat history for frontend navigation
+          const completionMsg = {
+            role: 'secretary',
+            content: `✅ Task "${summary.title || taskTitle || 'Task'}" completed! ${summary.successTasks}/${summary.totalTasks} subtasks succeeded.`,
+            action: { type: 'task_completed', taskId, requirementId: summary.requirementId, departmentId },
+            time: new Date(),
+          };
+          company.chatHistory.push(completionMsg);
+          chatStore.appendMessage(company.chatSessionId, completionMsg);
+          company.save();
+
           // Clean up after 30 minutes
           setTimeout(() => runningTasks.delete(taskId), 30 * 60 * 1000);
         })

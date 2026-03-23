@@ -458,6 +458,7 @@ chatPanelWidth: 380,
 
   _pollTaskStatus: (taskId) => {
     set({ runningTaskId: taskId, taskResult: null });
+    let unknownCount = 0;
 
     const poll = async () => {
       try {
@@ -472,6 +473,15 @@ chatPanelWidth: 380,
         } else if (state.status === 'failed') {
           set({ taskResult: { error: state.error }, runningTaskId: null });
           return; // Stop polling
+        } else if (state.status === 'unknown') {
+          unknownCount++;
+          // Task not found — may have been cleaned up; stop after a few retries
+          if (unknownCount >= 3) {
+            // Task disappeared, treat as completed (result already in chat history)
+            set({ runningTaskId: null });
+            await get().fetchCompany();
+            return;
+          }
         }
 
         // Still running, continue polling

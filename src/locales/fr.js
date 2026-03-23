@@ -91,6 +91,7 @@ stats: { departments: 'Dpts', workers: 'Ouvriers', requirements: 'Exigences' },
     taskAssigned: '📋 Assigné à : {dept}', running: '⚙️ En cours...',
     needNewDept: '💡 Suggère un nouveau dpt.', progressReport: '📊 Rapport de progrès terminé',
     creatingDept: '🏗️ Création du département : {dept}', planningHiring: '⚙️ Planification du recrutement...', deptCreated: '🎉 Département "{dept}" créé',
+    viewDepartmentBtn: '👀 Voir le département →', viewRequirementBtn: '📋 Voir l\'exigence →',
   },
   mailbox: {
     title: '💬 Messages', markAllRead: 'Tout marquer comme lu',

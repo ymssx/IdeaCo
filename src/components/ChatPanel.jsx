@@ -12,6 +12,7 @@ export default function ChatPanel() {
     company, chatWithSecretary,
     chatOpen, setChatOpen,
     chatPanelWidth, setChatPanelWidth,
+    navigateToDepartment, navigateToRequirement,
   } = useStore();
   const { t } = useI18n();
   const [message, setMessage] = useState('');
@@ -197,6 +198,8 @@ export default function ChatPanel() {
             agentId={null}
             onClickAvatar={null}
             bossAvatar={company?.bossAvatar}
+            onViewDepartment={navigateToDepartment}
+            onViewRequirement={navigateToRequirement}
           />
         ))}
 

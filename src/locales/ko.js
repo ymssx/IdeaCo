@@ -98,6 +98,7 @@ stats: { departments: '부서', workers: '직원', requirements: '요구사항' 
     taskAssigned: '📋 할당 대상: {dept}', running: '⚙️ 실행 중...',
     needNewDept: '💡 새 부서 설립 제안', progressReport: '📊 진행 보고 완료',
     creatingDept: '🏗️ 부서 생성 중: {dept}', planningHiring: '⚙️ 계획 및 채용 중...', deptCreated: '🎉 부서 "{dept}" 생성 완료',
+    viewDepartmentBtn: '👀 부서 보기 →', viewRequirementBtn: '📋 요구사항 보기 →',
   },
   mailbox: {
     title: '💬 메시지', markAllRead: '모두 읽음',

@@ -204,6 +204,8 @@ When the boss communicates with you, you need to:
     creatingDept: '🏗️ Creating department: {dept}',
     planningHiring: '⚙️ Planning & hiring...',
     deptCreated: '🎉 Department "{dept}" created',
+    viewDepartmentBtn: '👀 View Department →',
+    viewRequirementBtn: '📋 View Requirement →',
   },
 
   // === Mailbox / IM ===

@@ -74,7 +74,7 @@ export function formatTime(time, t = (k) => k) {
  * 共享消息气泡组件
  * 支持 Markdown 渲染、文件引用、action 标签
  */
-export function MessageBubble({ isMe, avatar, name, content, time, action, subject, agentId, onClickAvatar, bossAvatar }) {
+export function MessageBubble({ isMe, avatar, name, content, time, action, subject, agentId, onClickAvatar, bossAvatar, onViewDepartment, onViewRequirement }) {
   const { t } = useI18n();
   const { cleanContent, fileRefs } = parseFileReferences(content);
   return (
@@ -142,8 +142,41 @@ export function MessageBubble({ isMe, avatar, name, content, time, action, subje
                 {action.taskStatus === 'running' && <span className="ml-1 animate-pulse">{t('chat.planningHiring')}</span>}
               </>
             )}
-            {action.type === 'department_created' && t('chat.deptCreated', { dept: action.departmentName })}
+            {action.type === 'department_created' && (
+              <>
+                {t('chat.deptCreated', { dept: action.departmentName })}
+                {action.departmentId && onViewDepartment && (
+                  <button
+                    onClick={() => onViewDepartment(action.departmentId)}
+                    className="ml-2 text-blue-300 hover:text-blue-200 underline transition-colors"
+                  >
+                    {t('chat.viewDepartmentBtn')}
+                  </button>
+                )}
+              </>
+            )}
+            {action.type === 'secretary_task_completed' && action.requirementId && onViewRequirement && (
+              <button
+                onClick={() => onViewRequirement(action.requirementId)}
+                className="text-blue-300 hover:text-blue-200 underline transition-colors"
+              >
+                {t('chat.viewRequirementBtn')}
+              </button>
+            )}
             {action.type === 'progress_report' && t('chat.progressReport')}
+            {action.type === 'task_completed' && (
+              <>
+                {t('chat.progressReport')}
+                {action.requirementId && onViewRequirement && (
+                  <button
+                    onClick={() => onViewRequirement(action.requirementId)}
+                    className="ml-2 text-blue-300 hover:text-blue-200 underline transition-colors"
+                  >
+                    {t('chat.viewRequirementBtn')}
+                  </button>
+                )}
+              </>
+            )}
           </div>
         )}
       </div>
@@ -196,7 +229,7 @@ export function ChatInput({ value, onChange, onSend, onKeyDown, sending, placeho
  */
 export function TaskStatusPanel() {
   const { t } = useI18n();
-  const { runningTaskId, taskResult, clearTaskResult } = useStore();
+  const { runningTaskId, taskResult, clearTaskResult, navigateToDepartment, navigateToRequirement } = useStore();
 
   if (!runningTaskId && !taskResult) return null;
 
@@ -238,15 +271,36 @@ export function TaskStatusPanel() {
               {taskResult.error}
             </div>
           ) : (
-            <div className="text-xs text-[var(--foreground)] bg-white/5 rounded-lg px-3 py-2 border border-white/10 max-h-32 overflow-auto">
-              {typeof taskResult === 'string' ? (
-                <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
-                  p: ({ children }) => <p className="mb-1 last:mb-0">{children}</p>,
-                }}>{taskResult}</ReactMarkdown>
-              ) : (
-                <pre className="whitespace-pre-wrap text-[10px]">{JSON.stringify(taskResult, null, 2)}</pre>
-              )}
-            </div>
+            <>
+              <div className="text-xs text-[var(--foreground)] bg-white/5 rounded-lg px-3 py-2 border border-white/10 max-h-32 overflow-auto">
+                {typeof taskResult === 'string' ? (
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
+                    p: ({ children }) => <p className="mb-1 last:mb-0">{children}</p>,
+                  }}>{taskResult}</ReactMarkdown>
+                ) : (
+                  <pre className="whitespace-pre-wrap text-[10px]">{JSON.stringify(taskResult, null, 2)}</pre>
+                )}
+              </div>
+              {/* Quick navigation buttons */}
+              <div className="flex gap-2 mt-2">
+                {taskResult.departmentId && (
+                  <button
+                    onClick={() => { navigateToDepartment(taskResult.departmentId); clearTaskResult(); }}
+                    className="text-[10px] text-blue-300 hover:text-blue-200 bg-blue-900/30 hover:bg-blue-900/50 px-2.5 py-1 rounded-md border border-blue-500/20 transition-all"
+                  >
+                    {t('chat.viewDepartmentBtn')}
+                  </button>
+                )}
+                {taskResult.requirementId && (
+                  <button
+                    onClick={() => { navigateToRequirement(taskResult.requirementId); clearTaskResult(); }}
+                    className="text-[10px] text-blue-300 hover:text-blue-200 bg-blue-900/30 hover:bg-blue-900/50 px-2.5 py-1 rounded-md border border-blue-500/20 transition-all"
+                  >
+                    {t('chat.viewRequirementBtn')}
+                  </button>
+                )}
+              </div>
+            </>
           )}
         </div>
       )}
