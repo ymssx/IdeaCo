@@ -52,6 +52,13 @@ export async function POST(request) {
             completedAt: Date.now(),
           });
 
+          // Update the original create_department message status
+          const originalCreateMsg = company.chatHistory.find(m => m.action?.taskId === taskId && m.action?.type === 'create_department');
+          if (originalCreateMsg) {
+            originalCreateMsg.action.taskStatus = 'completed';
+            originalCreateMsg.action.departmentId = dept.id;
+          }
+
           // Append a secretary message to notify the boss
           const notifyMsg = {
             role: 'secretary',
@@ -67,6 +74,12 @@ export async function POST(request) {
         } catch (err) {
           console.error(`❌ Department creation failed:`, err.message);
           runningTasks.set(taskId, { status: 'failed', error: err.message, failedAt: Date.now() });
+
+          // Update the original create_department message status
+          const originalCreateFail = company.chatHistory.find(m => m.action?.taskId === taskId && m.action?.type === 'create_department');
+          if (originalCreateFail) {
+            originalCreateFail.action.taskStatus = 'failed';
+          }
 
           const errMsg1 = {
             role: 'secretary',
@@ -118,6 +131,14 @@ export async function POST(request) {
           runningTasks.set(taskId, { status: 'completed', summary, completedAt: Date.now() });
           console.log(`✅ Task execution complete: ${summary.successTasks}/${summary.totalTasks}`);
 
+          // Update the original need_new_department message status
+          const originalNeedMsg = company.chatHistory.find(m => m.action?.taskId === taskId && m.action?.type === 'need_new_department');
+          if (originalNeedMsg) {
+            originalNeedMsg.action.taskStatus = 'completed';
+            originalNeedMsg.action.requirementId = summary.requirementId;
+            originalNeedMsg.action.departmentId = dept.id;
+          }
+
           // Push completion message to chat history
           const completionMsg = {
             role: 'secretary',
@@ -133,6 +154,12 @@ export async function POST(request) {
         } catch (err) {
           console.error(`❌ Create department and assign task failed:`, err.message);
           runningTasks.set(taskId, { status: 'failed', error: err.message, failedAt: Date.now() });
+
+          // Update the original need_new_department message status
+          const originalNeedFail = company.chatHistory.find(m => m.action?.taskId === taskId && m.action?.type === 'need_new_department');
+          if (originalNeedFail) {
+            originalNeedFail.action.taskStatus = 'failed';
+          }
 
           const errMsg2 = {
             role: 'secretary',
@@ -217,6 +244,14 @@ export async function POST(request) {
           runningTasks.set(taskId, { status: 'completed', summary, completedAt: Date.now() });
           console.log(`✅ Task [${taskId}] completed: ${summary.successTasks}/${summary.totalTasks} succeeded`);
 
+          // Update the original task_assigned message in chatHistory so the bubble reflects completion
+          const originalMsg = company.chatHistory.find(m => m.action?.taskId === taskId && m.action?.type === 'task_assigned');
+          if (originalMsg) {
+            originalMsg.action.taskStatus = 'completed';
+            originalMsg.action.requirementId = summary.requirementId;
+            originalMsg.action.departmentId = departmentId;
+          }
+
           // Push completion message to chat history for frontend navigation
           const completionMsg = {
             role: 'secretary',
@@ -234,6 +269,12 @@ export async function POST(request) {
         .catch(err => {
           console.error(`❌ Task [${taskId}] failed:`, err.message);
           runningTasks.set(taskId, { status: 'failed', error: err.message, failedAt: Date.now() });
+
+          // Update the original task_assigned message to reflect failure
+          const originalMsg = company.chatHistory.find(m => m.action?.taskId === taskId && m.action?.type === 'task_assigned');
+          if (originalMsg) {
+            originalMsg.action.taskStatus = 'failed';
+          }
 
           // Append secretary message to notify boss of task failure
           const taskFailMsg = {

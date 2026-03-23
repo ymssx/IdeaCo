@@ -97,7 +97,9 @@ export async function PUT(request, { params }) {
         if ('providerId' in body && body.providerId) {
           const newProvider = company.providerRegistry.getById(body.providerId);
           if (newProvider && newProvider.enabled) {
+            const oldProviderName = agent.getProviderDisplayInfo()?.name || 'unknown';
             agent.switchProvider(newProvider);
+            console.log(`[${agent.name}] Provider switched: ${oldProviderName} → ${newProvider.name} (id: ${newProvider.id})`);
             // Re-onboard in background (non-blocking): regenerate signature/personalityBio with new model
             // Don't await — return the response immediately so the save doesn't time out
             const bgDeptName = dept.name || 'the company';
@@ -109,6 +111,8 @@ export async function PUT(request, { params }) {
               .catch(e => {
                 console.error(`[${agent.name}] Re-onboard after provider switch failed:`, e.message);
               });
+          } else {
+            console.warn(`[${agent.name}] Provider switch failed: provider "${body.providerId}" ${!newProvider ? 'not found' : 'is disabled'}`);
           }
         }
 

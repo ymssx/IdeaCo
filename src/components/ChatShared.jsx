@@ -133,6 +133,28 @@ export function MessageBubble({ isMe, avatar, name, content, time, action, subje
               <>
                 {t('chat.taskAssigned', { dept: action.departmentName })}
                 {action.taskStatus === 'running' && <span className="ml-1 animate-pulse">{t('chat.running')}</span>}
+                {action.taskStatus === 'completed' && (
+                  <>
+                    <span className="ml-1">✅</span>
+                    {action.requirementId && onViewRequirement && (
+                      <button
+                        onClick={() => onViewRequirement(action.requirementId)}
+                        className="ml-2 text-blue-300 hover:text-blue-200 underline transition-colors"
+                      >
+                        {t('chat.viewRequirementBtn')}
+                      </button>
+                    )}
+                    {action.departmentId && onViewDepartment && (
+                      <button
+                        onClick={() => onViewDepartment(action.departmentId)}
+                        className="ml-2 text-blue-300 hover:text-blue-200 underline transition-colors"
+                      >
+                        {t('chat.viewDepartmentBtn')}
+                      </button>
+                    )}
+                  </>
+                )}
+                {action.taskStatus === 'failed' && <span className="ml-1">❌</span>}
               </>
             )}
             {action.type === 'need_new_department' && t('chat.needNewDept')}
@@ -140,6 +162,20 @@ export function MessageBubble({ isMe, avatar, name, content, time, action, subje
               <>
                 {t('chat.creatingDept', { dept: action.departmentName })}
                 {action.taskStatus === 'running' && <span className="ml-1 animate-pulse">{t('chat.planningHiring')}</span>}
+                {action.taskStatus === 'completed' && (
+                  <>
+                    <span className="ml-1">✅</span>
+                    {action.departmentId && onViewDepartment && (
+                      <button
+                        onClick={() => onViewDepartment(action.departmentId)}
+                        className="ml-2 text-blue-300 hover:text-blue-200 underline transition-colors"
+                      >
+                        {t('chat.viewDepartmentBtn')}
+                      </button>
+                    )}
+                  </>
+                )}
+                {action.taskStatus === 'failed' && <span className="ml-1">❌</span>}
               </>
             )}
             {action.type === 'department_created' && (

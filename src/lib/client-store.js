@@ -362,6 +362,9 @@ chatPanelWidth: 380,
         method: 'PUT',
         body: JSON.stringify(updates),
       });
+      // Refresh global company store so the main dashboard reflects changes
+      // (e.g. updated provider name on agent cards)
+      get().fetchCompany().catch(() => {});
       return data.data;
     } catch (e) {
       set({ error: e.message });

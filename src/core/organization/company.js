@@ -1534,6 +1534,23 @@ const dept = this.findDepartment(departmentId);
     this.save();
     console.log(`📝 Requirement created: ${requirement.id} - ${title}`);
 
+    // Create per-requirement workspace subdirectory to isolate files from other requirements
+    const originalWorkspacePath = dept.workspacePath;
+    if (originalWorkspacePath) {
+      const safeName = title.replace(/[^a-zA-Z0-9\u4e00-\u9fff_-]/g, '_').slice(0, 40);
+      const reqDirName = `${safeName}_${requirement.id.slice(0, 8)}`;
+      const reqWorkspacePath = path.join(originalWorkspacePath, reqDirName);
+      if (!existsSync(reqWorkspacePath)) {
+        mkdirSync(reqWorkspacePath, { recursive: true });
+      }
+      // Switch all agents' toolKits to use the requirement-specific subdirectory
+      dept.workspacePath = reqWorkspacePath;
+      for (const agent of members) {
+        agent.initToolKit(reqWorkspacePath, this.messageBus);
+      }
+      console.log(`📁 Requirement workspace: ${reqWorkspacePath}`);
+    }
+
     // 2. Leader decomposes workflow
     const leader = dept.getLeader() || members[0];
 
@@ -1575,6 +1592,13 @@ const dept = this.findDepartment(departmentId);
         `❌ Requirement execution failed: ${e.message}`,
         'system', null, { auto: true }
       );
+      // Restore original workspace path on failure
+      if (originalWorkspacePath && dept.workspacePath !== originalWorkspacePath) {
+        dept.workspacePath = originalWorkspacePath;
+        for (const agent of members) {
+          agent.initToolKit(originalWorkspacePath, this.messageBus);
+        }
+      }
       this.save();
       summary = requirement.summary;
     }
@@ -1615,6 +1639,15 @@ const dept = this.findDepartment(departmentId);
     });
 
     this._log('Task completed', `"${dept.name}" completed task: "${title}", ${summary.successTasks}/${summary.totalTasks} succeeded`);
+
+    // Restore original department workspace path so next requirement gets its own subdirectory
+    if (originalWorkspacePath && dept.workspacePath !== originalWorkspacePath) {
+      dept.workspacePath = originalWorkspacePath;
+      for (const agent of members) {
+        agent.initToolKit(originalWorkspacePath, this.messageBus);
+      }
+    }
+
     this.save();
 
     // Return summary with requirement ID

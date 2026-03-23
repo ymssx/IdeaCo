@@ -146,7 +146,9 @@ export async function POST(request) {
       return NextResponse.json({ error: t('api.deptNotFound') }, { status: 404 });
     }
 
-    // If custom workspaceDir provided, override department workspace
+    // If custom workspaceDir provided, temporarily override department workspace for this requirement only
+    // assignTaskToDepartment will create a per-requirement subdirectory under it, and restore afterward
+    const originalDeptWorkspace = dept.workspacePath;
     if (workspaceDir) {
       const path = await import('path');
       const { existsSync, mkdirSync } = await import('fs');
@@ -160,9 +162,16 @@ export async function POST(request) {
     // Async task execution, return immediately
     const taskTitle = title;
     const taskDescription = description || title;
-    company.assignTaskToDepartment(departmentId, taskDescription, taskTitle).catch(e => {
-      console.error('Create requirement execution failed:', e.message);
-    });
+    company.assignTaskToDepartment(departmentId, taskDescription, taskTitle)
+      .catch(e => {
+        console.error('Create requirement execution failed:', e.message);
+      })
+      .finally(() => {
+        // Ensure department workspace is restored even if assignTaskToDepartment didn't restore it
+        if (workspaceDir && originalDeptWorkspace) {
+          dept.workspacePath = originalDeptWorkspace;
+        }
+      });
 
     // Brief wait for requirement creation
     await new Promise(resolve => setTimeout(resolve, 500));
