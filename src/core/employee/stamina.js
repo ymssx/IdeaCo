@@ -239,17 +239,25 @@ Always choose the path that minimizes your future fatigue and maximizes long-ter
     if (c > 70) return costAwareness;
 
     if (c > 40) {
-      // Yellow zone — add tactical adjustment guidance
+      // Yellow zone — add tactical adjustment guidance with concrete tool-switching strategies
       return `${costAwareness}\n\n[STAMINA WARNING — Yellow Zone]
 You have been spending significant resources on this task. Before continuing:
 1. Is your current approach fundamentally flawed? Consider trying something completely different.
 2. Are you repeating the same fix that keeps getting rejected? If so, STOP and rethink from scratch.
 3. Focus on the ROOT CAUSE, not surface symptoms.
 4. If the reviewer keeps rejecting correct work, push back with evidence instead of making unnecessary changes.
-5. Ask yourself: will my next action REDUCE or INCREASE my future workload? Only proceed if it reduces it.`;
+5. Ask yourself: will my next action REDUCE or INCREASE my future workload? Only proceed if it reduces it.
+
+[STRATEGY SWITCH — Tool Alternatives]
+If your previous tool did not achieve the desired result, switch to a different tool:
+- file_write failed to create directories? → Use mkdir to create directories explicitly, then write files.
+- Not sure if files/directories exist? → Use file_list or shell_exec with 'ls -la' to verify BEFORE claiming success.
+- file_write seemed to succeed but reviewer says files are missing? → Use shell_exec with 'find . -type f' or 'ls -R' to independently verify what is actually on disk.
+- Need to run a sequence of OS-level operations? → Use shell_exec — it can run any allowed command (mkdir, ls, cat, find, etc.).
+NEVER repeat the same tool call that already failed. Switch tools or switch approach.`;
     }
 
-    // Red zone — forced reflection + escalation
+    // Red zone — forced reflection + escalation with mandatory tool-switching
     return `${costAwareness}\n\n[STAMINA CRITICAL — Red Zone]
 You are approaching burnout on this task. MANDATORY before proceeding:
 
@@ -265,7 +273,17 @@ Rules in this state:
 - Do NOT apologize — verify independently and defend correct work.
 - If you have been rejected 3+ times for the same issue, the reviewer may be wrong. Verify and push back.
 - Consider asking a colleague for a second opinion.
-- Refuse to continue a path that has proven costly. Pivot or escalate.`;
+- Refuse to continue a path that has proven costly. Pivot or escalate.
+
+[MANDATORY STRATEGY PIVOT — You MUST change your approach]
+You have been rejected multiple times. The tools you have been using ARE NOT WORKING. You MUST switch:
+- If you used file_write to create structure → Switch to mkdir + file_write (create dirs first, then files).
+- If you used file_write but files don't exist → Use shell_exec with 'ls', 'find', or 'cat' to diagnose WHY.
+- If you haven't used shell_exec yet → USE IT NOW. Run 'ls -la' to see what actually exists on disk.
+- If you haven't used file_list yet → USE IT NOW to verify directory contents.
+- AFTER every write operation, IMMEDIATELY verify with file_list or shell_exec 'ls' — do NOT assume success.
+- If the same tool keeps failing silently, the tool may have a bug. Use shell_exec as a universal fallback.
+Do NOT proceed without switching to a different tool than what you used in previous failed attempts.`;
   }
 
   /**

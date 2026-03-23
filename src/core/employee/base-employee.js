@@ -677,7 +677,7 @@ ${scenePrompt}`;
 
     if (this.toolKit) {
       systemContent += `\n## Available Tools\n`;
-      systemContent += `Built-in tools: file_read (read file), file_write (create/write file), file_list (list directory), file_delete (delete file), shell_exec (execute command), send_message (send message to colleague for collaboration and feedback).\n`;
+      systemContent += `Built-in tools: file_read (read file), file_write (create/write file), file_list (list directory), file_delete (delete file), mkdir (create directories), shell_exec (execute command), send_message (send message to colleague for collaboration and feedback).\n`;
       systemContent += `\n**Teamwork & Collaboration (IMPORTANT)**:\n`;
       systemContent += `- You are part of a team! Proactively communicate with colleagues using send_message.\n`;
       systemContent += `- When working in parallel, coordinate to avoid duplicate work and share discoveries.\n`;
@@ -686,11 +686,11 @@ ${scenePrompt}`;
       systemContent += `- Don't work in isolation — great teams communicate frequently!\n`;
 
       systemContent += `\nAll file operations are within your workspace directory. Please actively use tools to produce actual work output.\n`;
-      systemContent += `**Efficiency requirement: Minimize tool call rounds, plan all needed operations at once, avoid repetitive reading and checking. Give a final summary immediately after completing core work.**\n`;
+      systemContent += `**Efficiency requirement: Plan all needed operations at once and batch related tool calls. However, ALWAYS verify critical results after execution — verification is NOT optional overhead, it is a core part of completing work. After creating files or directories, use file_list or shell_exec ls to confirm they actually exist on disk before reporting completion.**\n`;
 
       // Anti-hallucination: ground truth constraints
       systemContent += `\n## Ground Truth Rules (ALWAYS FOLLOW)\n`;
-      systemContent += `- **File verification**: Before claiming a file exists or referencing its content, use file_read or file_list to verify. Never assume.\n`;
+      systemContent += `- **File verification (MANDATORY)**: After writing files or creating directories, you MUST use file_list or file_read to verify they actually exist on disk. A successful tool call does NOT guarantee the result — always confirm. Before claiming any file exists, verify with tools. Never assume.\n`;
       systemContent += `- **No fictional time**: You execute tasks in real-time (seconds to minutes). NEVER say "by end of day", "tomorrow", "this afternoon", "give me a few hours", "before deadline", etc. These time references are fictional — you don't have a clock or schedule. Just DO the work NOW.\n`;
       systemContent += `- **Concrete deliverables**: When reporting completion, state EXACTLY what you produced (file paths, content summaries). Never say "I've prepared the document" without specifying the actual file path.\n`;
       systemContent += `- **Read before reference**: If a colleague says they delivered files, READ them with file_read before acting on them. Do not trust text summaries alone.\n`;
@@ -713,7 +713,7 @@ ${scenePrompt}`;
     if (task.description) content += `**Task Description**: ${task.description}\n`;
     if (task.context) content += `\n**Context**:\n${task.context}\n`;
     if (task.requirements) content += `\n**Requirements**:\n${task.requirements}\n`;
-    content += `\nPlease complete the task diligently. If you need to create files, please use tools to actually create them. Produce real work output.\n**Important: Execute efficiently, try to complete all work in one go. Don't repeatedly check or over-iterate. Give the final result directly after completing core output.**`;
+    content += `\nPlease complete the task diligently. If you need to create files, please use tools to actually create them. Produce real work output.\n**Important: Execute efficiently, try to complete all work in one go. After creating files or directories, ALWAYS verify they exist using file_list or shell_exec before reporting completion — this is required, not optional.**`;
     content += `\n**Critical: If this task involves reviewing, integrating, or checking existing work/files, you MUST actually read the relevant files using file_read before giving your assessment. Do NOT just produce a summary without reading the actual content. Reviewers who don't read the files are not doing their job.**`;
 
     // === Anti-hallucination: File existence verification ===
