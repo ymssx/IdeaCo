@@ -81,7 +81,8 @@ export default function Home() {
   return (
     <div className="flex h-screen">
       <Sidebar />
-      <main className="flex-1 overflow-auto relative">
+      <ChatPanel />
+      <main className="flex-1 overflow-auto relative min-w-0">
         {error && (
           <div className="bg-red-900/30 border border-red-500/50 text-red-300 px-4 py-3 m-4 rounded-lg flex justify-between items-center animate-fade-in">
             <span>💀 {error}</span>
@@ -90,7 +91,6 @@ export default function Home() {
         )}
         {renderContent()}
       </main>
-      <ChatPanel />
       {showOnboarding && <OnboardingGuide onComplete={handleOnboardingComplete} />}
     </div>
   );

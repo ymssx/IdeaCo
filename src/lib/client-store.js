@@ -124,6 +124,7 @@ export const useStore = create((set, get) => ({
 activeTab: 'overview',
 chatOpen: true,
 chatMinimized: false,
+chatPanelWidth: 380,
 
   // === Recruitment Plan ===
   pendingPlan: null, // Current pending recruitment plan
@@ -131,6 +132,7 @@ chatMinimized: false,
   setActiveTab: (tab) => set({ activeTab: tab }),
   setChatOpen: (open) => set({ chatOpen: open, chatMinimized: false }),
   setChatMinimized: (minimized) => set({ chatMinimized: minimized }),
+  setChatPanelWidth: (width) => set({ chatPanelWidth: Math.max(300, Math.min(600, width)) }),
   setError: (error) => set({ error }),
   clearError: () => set({ error: null }),
   setPendingPlan: (plan) => set({ pendingPlan: plan }),

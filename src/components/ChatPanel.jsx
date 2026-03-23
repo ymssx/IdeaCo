@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useStore } from '@/lib/client-store';
 import { getAvatarUrl } from '@/lib/avatar';
 import { useI18n } from '@/lib/i18n';
@@ -8,13 +8,19 @@ import { MessageBubble, ChatInput, TaskStatusPanel } from './ChatShared';
 import ProvidersBoard from './ProvidersBoard';
 
 export default function ChatPanel() {
-  const { company, chatWithSecretary, chatOpen, setChatOpen, chatMinimized, setChatMinimized } = useStore();
+  const {
+    company, chatWithSecretary,
+    chatOpen, setChatOpen,
+    chatPanelWidth, setChatPanelWidth,
+  } = useStore();
   const { t } = useI18n();
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [localHistory, setLocalHistory] = useState([]);
   const [showProviders, setShowProviders] = useState(false);
   const messagesEndRef = useRef(null);
+  const panelRef = useRef(null);
+  const isResizingRef = useRef(false);
 
   // Check if any provider is enabled across all categories
   const hasAnyProvider = useMemo(() => {
@@ -30,12 +36,39 @@ export default function ChatPanel() {
   }, [company?.chatHistory]);
 
   useEffect(() => {
-    if (chatOpen && !chatMinimized) {
+    if (chatOpen) {
       setTimeout(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
       }, 50);
     }
-  }, [localHistory, chatOpen, chatMinimized]);
+  }, [localHistory, chatOpen]);
+
+  // Drag-to-resize logic
+  const handleMouseDown = useCallback((e) => {
+    e.preventDefault();
+    isResizingRef.current = true;
+    const startX = e.clientX;
+    const startWidth = chatPanelWidth;
+
+    const handleMouseMove = (e) => {
+      if (!isResizingRef.current) return;
+      const delta = e.clientX - startX;
+      setChatPanelWidth(startWidth + delta);
+    };
+
+    const handleMouseUp = () => {
+      isResizingRef.current = false;
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  }, [chatPanelWidth, setChatPanelWidth]);
 
   if (!company || !chatOpen) return null;
 
@@ -68,27 +101,17 @@ export default function ChatPanel() {
     }
   };
 
-  if (chatMinimized) {
-    return (
-      <button
-        onClick={() => setChatMinimized(false)}
-        className="fixed bottom-6 right-6 w-14 h-14 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 shadow-2xl flex items-center justify-center z-[70] hover:scale-110 transition-all animate-fade-in group"
-        title={t('chat.openChat', { name: secretary?.name || t('setup.defaultSecretary') })}
-      >
-        <img
-          src={secretary?.avatar || getAvatarUrl('secretary')}
-          alt={t('chat.secretary')}
-          className="w-11 h-11 rounded-full border-2 border-white/20"
-        />
-        <span className="absolute -top-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-[#0d0d0d] animate-pulse" />
-      </button>
-    );
-  }
-
   return (
-    <div className="fixed bottom-6 right-6 w-[440px] h-[600px] bg-[var(--card)] border border-[var(--border)] rounded-2xl shadow-2xl flex flex-col z-[70] animate-fade-in overflow-hidden">
+    <div
+      ref={panelRef}
+      className="h-screen bg-[var(--card)] border-r border-[var(--border)] flex flex-col shrink-0 relative"
+      style={{ width: chatPanelWidth }}
+    >
       {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border)] bg-gradient-to-r from-blue-900/30 to-purple-900/30 shrink-0">
+      <div
+        className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border)] bg-gradient-to-r from-blue-900/30 to-purple-900/30 shrink-0"
+        style={{ paddingTop: 'calc(0.75rem + var(--titlebar-height))' }}
+      >
         <img
           src={secretary?.avatar || getAvatarUrl('secretary')}
           alt={t('chat.secretary')}
@@ -105,21 +128,13 @@ export default function ChatPanel() {
             <div className="text-[10px] text-[var(--muted)]">{t('chat.online')}</div>
           )}
         </div>
-        <div className="flex items-center gap-1">
-          <button
-            onClick={() => setChatMinimized(true)}
-            className="text-[var(--muted)] hover:text-white text-lg w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white/10 transition-all"
-            title={t('common.minimize')}
-          >
-            ▾
-          </button>
-          <button
-            onClick={() => setChatOpen(false)}
-            className="text-[var(--muted)] hover:text-white text-lg w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white/10 transition-all"
-          >
-            ✕
-          </button>
-        </div>
+        <button
+          onClick={() => setChatOpen(false)}
+          className="text-[var(--muted)] hover:text-white text-lg w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white/10 transition-all"
+          title={t('common.close')}
+        >
+          ✕
+        </button>
       </div>
 
       {/* No provider configured — block chat and show setup prompt */}
@@ -148,7 +163,7 @@ export default function ChatPanel() {
           )}
         </div>
       ) : (<>
-      {/* Messages area - reuse MessageBubble from ChatShared */}
+      {/* Messages area */}
       <div className="flex-1 overflow-auto p-3 space-y-3">
         {localHistory.length === 0 && (
           <div className="text-center py-8">
@@ -201,10 +216,10 @@ export default function ChatPanel() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Task status panel - shared component */}
+      {/* Task status panel */}
       <TaskStatusPanel />
 
-      {/* Input area - reuse ChatInput from ChatShared */}
+      {/* Input area */}
       <ChatInput
         value={message}
         onChange={setMessage}
@@ -214,6 +229,12 @@ export default function ChatPanel() {
         placeholder={t('chat.inputPlaceholder', { name: secretary?.name || t('setup.defaultSecretary') })}
       />
       </>)}
+
+      {/* Resize handle on the right edge */}
+      <div
+        className="absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-[var(--accent)]/40 active:bg-[var(--accent)]/60 transition-colors z-10"
+        onMouseDown={handleMouseDown}
+      />
     </div>
   );
 }
