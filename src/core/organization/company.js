@@ -28,6 +28,7 @@ import { chatStore } from '../agent/chat-store.js';
 import { cliBackendRegistry } from '../agent/cli-agent/backends/index.js';
 import { groupChatLoop } from './group-chat-loop.js';
 import { buildRhetoricPrompt } from './workforce/management-rhetoric.js';
+import { getAppLanguageName } from '../utils/app-language.js';
 
 // Expand short-form file references: [[file:path]] → [[file:deptId:path|name]]
 // Also fix incomplete references: [[file:deptId:path]] → [[file:deptId:path|name]]
@@ -78,6 +79,7 @@ export class Company {
     this.name = companyName;
     this.bossName = bossName;
     this.bossAvatar = null; // Boss avatar URL
+    this.language = 'en'; // Current UI language (synced from frontend on each API call)
     this.departments = new Map();
     this.providerRegistry = new ProviderRegistry();
     // Sync CLI backends into provider registry so they appear in Brain Providers
@@ -241,6 +243,7 @@ Rules:
 - If boss gives a simple task you can handle alone → secretary_handle
 - If boss gives a task but no department matches → need_new_department
 - Casual chat → null
+- You MUST write ALL your "content" text in ${getAppLanguageName()}
 - ALWAYS return valid JSON only, no markdown fences`;
 
         const cliResult = await cliBackendRegistry.executeTask(

@@ -1,13 +1,15 @@
 import { NextResponse } from 'next/server';
 import { getCompany } from '@/lib/store';
 import { chatStore } from '@/core/agent/chat-store.js';
-import { getApiT } from '@/lib/api-i18n';
+import { getApiT, getLanguageFromRequest } from '@/lib/api-i18n';
+import { setAppLanguage } from '@/core/utils/app-language.js';
 
 // Store running task states
 const runningTasks = new Map();
 
 export async function POST(request) {
   const t = getApiT(request);
+  setAppLanguage(getLanguageFromRequest(request));
   const company = getCompany();
   if (!company) {
     return NextResponse.json({ error: t('api.noCompany') }, { status: 400 });

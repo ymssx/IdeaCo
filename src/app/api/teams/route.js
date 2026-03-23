@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getCompany } from '@/lib/store';
-import { getApiT } from '@/lib/api-i18n';
+import { getApiT, getLanguageFromRequest } from '@/lib/api-i18n';
+import { setAppLanguage } from '@/core/utils/app-language.js';
 
 /**
  * Teams Management API
@@ -156,6 +157,7 @@ export async function DELETE(request) {
  */
 export async function POST(request) {
   const t = getApiT(request);
+  setAppLanguage(getLanguageFromRequest(request));
   try {
   const company = getCompany();
   if (!company) {

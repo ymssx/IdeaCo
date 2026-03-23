@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from 'fs';
 import { chatStore } from './agent/chat-store.js';
 import { WorkspaceManager } from './workspace.js';
 import { robustJSONParse } from './utils/json-parse.js';
+import { getAppLanguageName } from './utils/app-language.js';
 import { buildRhetoricPrompt, getRandomRhetoric } from './organization/workforce/management-rhetoric.js';
 
 /** Group chat prefix for requirement group chats in chatStore */
@@ -381,6 +382,7 @@ Output in JSON format:
     - reviewCriteria MUST be specific and measurable, following this pattern: "Check [specific thing] for [specific quality]. Verify [edge case]. Confirm [acceptance criteria]"
     - MOST tasks do NOT need a reviewer. Only assign reviewers for genuinely complex, high-risk tasks
     - When reviewing, the reviewer should apply the anti-excuse framework: don't accept "it works" without evidence
+12. **Response Language**: All task titles, descriptions, summaries, and review criteria MUST be written in ${getAppLanguageName()}
 
 ## Anti-Pattern Detection
 You must AVOID these leadership anti-patterns:
@@ -2121,6 +2123,7 @@ Rules:
 - Keep it concise (2-5 sentences max + file references). No filler, no self-praise.
 - Do NOT wrap in JSON or markdown code blocks. Just speak naturally.
 - Match the language of the requirement title (if Chinese title, speak Chinese; if English, speak English).
+- You MUST write your message in ${getAppLanguageName()}.
 - NEVER mention files that are not in your deliverables list above.`;
 
     try {

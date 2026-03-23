@@ -6,6 +6,7 @@ import { chatStore } from '../agent/chat-store.js';
 import { cliBackendRegistry } from '../agent/cli-agent/backends/index.js';
 import { JobTemplates } from '../organization/workforce/hr.js';
 import { robustJSONParse } from '../utils/json-parse.js';
+import { getAppLanguageName, buildLanguageInstruction } from '../utils/app-language.js';
 
 
 /**
@@ -397,7 +398,8 @@ When the boss asks about progress/status/reports, return progress_report
 6. **Critical - Consistency Principle**: Your content and action MUST be consistent! If content says "assigning to XX department", then action's departmentId/departmentName must point to that same department. If content mentions one department but action is need_new_department, that's a serious error!
 7. **Critical - Structured Output**: You MUST always return valid JSON. Do NOT wrap it in markdown code fences. Do NOT add any text outside the JSON object. The response must start with { and end with }.
 8. **Critical - Action Required for Tasks**: If the boss's message expresses ANY intent to get work done (in any language), you MUST return an action. Analyze the semantic meaning, not just keywords. For example: "help me build a website", "write a report", "analyze the data" — ALL of these require an action, regardless of what language they are expressed in.
-9. **Critical - Language Agnostic**: The boss may speak in any language (Chinese, English, Japanese, etc.). You must understand the intent regardless of language and return the correct structured action.`;
+9. **Critical - Language Agnostic**: The boss may speak in any language (Chinese, English, Japanese, etc.). You must understand the intent regardless of language and return the correct structured action.
+10. **Critical - Response Language**: You MUST write ALL your "content" text in ${getAppLanguageName()}. The boss expects replies in ${getAppLanguageName()}.`;
     const messages = [
       { role: 'system', content: systemPrompt },
       ...recentHistory,
@@ -574,7 +576,7 @@ ${memoryContext}
 ## Guidelines:
 1. Deliver a complete, ready-to-use result (not just a plan or outline)
 2. Be thorough but concise — quality over quantity
-3. Match the language of the task description (if the boss asked in Chinese, reply in Chinese)
+3. You MUST write your response in ${getAppLanguageName()}
 4. Format the output nicely with markdown if appropriate
 5. If the task involves writing, produce the actual writing (not meta-commentary about it)
 6. Sign off naturally as a secretary would`;

@@ -11,6 +11,7 @@ import { createAgent, deserializeAgent } from '../agent/index.js';
 import { EmployeeLifecycle } from './lifecycle.js';
 import { StaminaSystem } from './stamina.js';
 import { safeJSONParse } from '../utils/json-parse.js';
+import { buildLanguageInstruction, getAppLanguageName } from '../utils/app-language.js';
 
 // Placeholder signature
 const DEFAULT_SIGNATURE = 'Just arrived, still thinking of what to say...';
@@ -700,6 +701,9 @@ ${scenePrompt}`;
       if (kbPrompt) systemContent += kbPrompt;
     } catch {}
 
+    // Enforce response language based on current UI language
+    systemContent += buildLanguageInstruction();
+
     return systemContent;
   }
 
@@ -786,6 +790,7 @@ Rules:
 - The greeting should feel like a real person talking, NOT a corporate template
 - Include your quirks naturally
 - Match your age and gender characteristics
+- You MUST write ALL content (signature, personalityBio, greeting, broadcast) in ${getAppLanguageName()}
 - Return ONLY valid JSON, no markdown fences` },
           { role: 'user', content: 'It\'s your first day at work. Introduce yourself!' },
         ], { temperature: 1.0, maxTokens: 512 });
