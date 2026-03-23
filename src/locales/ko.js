@@ -245,9 +245,10 @@ stats: { departments: '부서', workers: '직원', requirements: '요구사항' 
   },
   agent: {
     notFound: '직원 정보를 찾을 수 없습니다',
-    tabs: { info: '📋 기본 정보', memory: '🧠 메모리', performance: '📊 성과', tasks: '📝 작업 이력', usage: '💰 소비' },
+    tabs: { info: '📋 기본 정보', soul: '👻 영혼', work: '📊 업무', usage: '💰 소비', performanceSection: '성과 평가', taskSection: '작업 이력' },
+    soulSections: { memory: '🧠 메모리', stamina: '🔋 체력', config: '⚙️ 설정' },
     memorySubTabs: { personal: '💭 개인', social: '👥 대인관계' },
-    avgPerformance: '평균 성과 {score}', rolePrompt: '역할 프롬프트', skills: '스킬',
+    avgPerformance: '평균 성과 {score}', rolePrompt: '역할 프롬프트', personalityBio: '성격 프로필', skills: '스킬',
     shortTermMemory: '⚡ 단기 메모리 ({n})', longTermMemory: '💾 장기 메모리 ({n})',
     noShortTerm: '단기 메모리 없음', noLongTerm: '장기 메모리 없음',
     noRelationships: '대인관계 기억 없음',
@@ -265,7 +266,7 @@ stats: { departments: '부서', workers: '직원', requirements: '요구사항' 
     score: '{score}점 {level}',
     highPerformer: '고성과자',
     // Config tab
-    configTab: '⚙️ 설정',
+    // Config (now inside Soul tab)
     providerLabel: '모델 공급자',
     providerHint: '이 직원을 구동하는 AI 두뇌를 전환합니다',
     promptLabel: '역할 프롬프트',
@@ -278,6 +279,19 @@ stats: { departments: '부서', workers: '직원', requirements: '요구사항' 
     configSaved: '설정이 저장되었습니다!',
     configSaveFailed: '저장에 실패했습니다',
     noProviders: '사용 가능한 공급자가 없습니다',
+    stamina: {
+      noData: '체력 데이터 없음',
+      comfort: '켌포트',
+      patience: '인내력',
+      fatigue: '피로',
+      stress: '스트레스',
+      zone_green: '정상 — 전력 가동 중',
+      zone_yellow: '주의 — 전략 조정 중, 에너지 부족',
+      zone_red: '위험 — 휴식 또는 방법 변경 필요',
+      formula: '켌포트 = 인내력 - (피로 × 0.4 + 스트레스 × 0.6)',
+      recentEvents: '최근 이벤트',
+      noEvents: '체력 이벤트 없음',
+    },
   },
   orgTree: {
     title: '🌳 지휘 체계', subtitle: '누가 누구를 지휘하는지 한눈에. 노드를 클릭하면 상세를 볼 수 있습니다.',

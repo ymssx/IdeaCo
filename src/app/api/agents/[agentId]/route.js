@@ -22,6 +22,7 @@ export async function GET(request, { params }) {
             gender: agent.gender,
             age: agent.age,
             personality: agent.personality,
+            personalityBio: agent.personalityBio || '',
             signature: agent.signature,
             prompt: agent.prompt,
             skills: agent.skills,
@@ -37,6 +38,7 @@ export async function GET(request, { params }) {
               .getByCategory(agent.agent.provider?.category || 'general')
               .map(p => ({ id: p.id, name: p.name, provider: p.provider, model: p.model })),
             memory: agent.memory.getSummary(),
+            stamina: agent.stamina ? agent.stamina.getSummary() : null,
             performanceHistory: agent.performanceHistory,
             reviews: reviews.map(r => r.getSummary()),
             taskHistory: agent.taskHistory.map(t => ({
@@ -96,6 +98,14 @@ export async function PUT(request, { params }) {
           const newProvider = company.providerRegistry.getById(body.providerId);
           if (newProvider && newProvider.enabled) {
             agent.switchProvider(newProvider);
+            // Re-onboard: regenerate signature/personalityBio with the new model
+            try {
+              const dept = [...company.departments.values()].find(d => d.agents.has(agentId));
+              const deptName = dept?.name || 'the company';
+              await agent.onboard({ departmentName: deptName, bossName: company.bossName || 'Boss' });
+            } catch (e) {
+              console.error(`[${agent.name}] Re-onboard after provider switch failed:`, e.message);
+            }
           }
         }
 
@@ -120,6 +130,8 @@ export async function PUT(request, { params }) {
             provider: agent.getProviderDisplayInfo(),
             prompt: agent.prompt,
             customPrompt: agent.customPrompt || '',
+            signature: agent.signature,
+            personalityBio: agent.personalityBio || '',
             message: t('api.agentConfigUpdated'),
           },
         });

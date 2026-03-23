@@ -15,6 +15,7 @@ import { llmClient } from '../agent/llm-agent/client.js';
 import { webClientRegistry } from '../agent/web-agent/web-client.js';
 import { loadAgentMemory, saveAgentMemory } from '../employee/memory/store.js';
 import { Memory } from '../employee/memory/index.js';
+import { StaminaSystem } from '../employee/stamina.js';
 import { RequirementManager, RequirementStatus } from '../requirement.js';
 import { TeamManager, SprintStatus } from './team.js';
 import { hookRegistry, HookEvent } from '../../lib/hooks.js';
@@ -2115,6 +2116,7 @@ Reply in the same language the Boss used. Be concise but warm.`
         reportsTo: a.reportsTo,
         subordinates: a.subordinates,
         memory: a.memory.getSummary(),
+        stamina: a.stamina ? { comfort: a.stamina.comfort, zone: a.stamina.zone } : null,
         performanceHistory: a.performanceHistory,
         avgScore: a.performanceHistory.length > 0
           ? Math.round(a.performanceHistory.reduce((s, p) => s + p.score, 0) / a.performanceHistory.length)
@@ -2503,6 +2505,10 @@ const dept = this.findDepartment(departmentId);
         const externalMemory = loadAgentMemory(agentData.id);
         if (externalMemory) {
           agentData.memory = externalMemory;
+          // Restore stamina from external memory file if available
+          if (externalMemory.stamina) {
+            agentData.stamina = externalMemory.stamina;
+          }
         }
         const agent = deserializeEmployee(agentData, company.providerRegistry);
         dept.addAgent(agent);

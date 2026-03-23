@@ -658,6 +658,9 @@ You must AVOID these leadership anti-patterns:
           return null;
         }
 
+        // ── Stamina: new task assigned ──
+        if (agent.stamina) agent.stamina.onTaskAssigned(node.title);
+
         // Update live status
         requirement.updateLiveStatus({
           currentNodeId: node.id,
@@ -905,6 +908,9 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
           node.completedAt = new Date();
           node.result = result;
 
+          // ── Stamina: task completed (no review) ──
+          if (agent.stamina) agent.stamina.onTaskComplete(node.title);
+
           // === DELIVERY VERIFICATION (silent console log, not group chat spam) ===
           if (node.expectedOutputFiles && node.expectedOutputFiles.length > 0 && wsPath) {
             const missingExpected = [];
@@ -1039,6 +1045,11 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
 
                 if (reviewResult.approved) {
                   approved = true;
+                  // ── Stamina: review passed ──
+                  if (agent.stamina) {
+                    agent.stamina.onReviewPass(node.title);
+                    agent.stamina.clearRepetition(node.id);
+                  }
                   requirement.addGroupMessage(
                     reviewer,
                     `✅ @[${agent.id}] Review APPROVED for "${node.title}"${node.reviewRounds > 1 ? ` (after ${node.reviewRounds} rounds)` : ''}! ${reviewResult.comment || 'Good work!'}`,
@@ -1054,6 +1065,9 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
                     'message', null, { auto: true }
                   );
                   this._recordAgentChat(reviewer, agent, `❌ Review REJECTED (round ${node.reviewRounds}): ${reviewResult.feedback}`);
+
+                  // ── Stamina: review rejected (escalating impact) ──
+                  if (agent.stamina) agent.stamina.onReviewReject(node.reviewRounds, node.title);
 
                   if (node.reviewRounds >= maxRounds) {
                     // Max rounds reached, force approve with warning
@@ -1137,6 +1151,11 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
                       if (reEvalResult.convinced) {
                         // Reviewer was persuaded!
                         approved = true;
+                        // ── Stamina: rebuttal accepted ──
+                        if (agent.stamina) {
+                          agent.stamina.onRebuttalAccepted();
+                          agent.stamina.clearRepetition(node.id);
+                        }
                         requirement.addGroupMessage(
                           reviewer,
                           `✅ @[${agent.id}] ${reEvalResult.message || `Fair point! I'll approve "${node.title}".`}`,
@@ -1145,6 +1164,8 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
                         this._recordAgentChat(reviewer, agent, `✅ Convinced by rebuttal, approved: ${reEvalResult.message}`);
                       } else {
                         // Reviewer stands firm
+                        // ── Stamina: rebuttal rejected ──
+                        if (agent.stamina) agent.stamina.onRebuttalRejected();
                         requirement.addGroupMessage(
                           reviewer,
                           `🤔 @[${agent.id}] ${reEvalResult.message || `I understand your point, but I still think the issues need to be addressed.`}`,
@@ -1224,6 +1245,8 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
               // Final status
               node.status = TaskNodeStatus.COMPLETED;
               node.completedAt = new Date();
+              // ── Stamina: task completed (after review) ──
+              if (agent.stamina) agent.stamina.onTaskComplete(node.title);
             }
           }
           // === END REVIEW GATE ===
@@ -1375,6 +1398,9 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
           node.completedAt = new Date();
           node.result = { error: err.message, success: false };
           failed.add(node.id);
+
+          // ── Stamina: task failed ──
+          if (agent.stamina) agent.stamina.onTaskFail(node.title);
 
           requirement.addGroupMessage(
             agent,
@@ -1764,6 +1790,12 @@ Please provide your review verdict as JSON.`
       round === 3 ? '\n\n🔴 THIRD attempt. STOP. You may be in a loop. Ask yourself: (1) Am I making the SAME change the reviewer keeps rejecting? If so, maybe the REVIEWER is wrong — verify independently. (2) Am I apologizing for things that aren\'t actually broken? STOP apologizing — verify first. (3) Read the reviewer\'s feedback WORD BY WORD and use file_read/workspace_files to check every factual claim. (4) If your work IS correct, push back with evidence instead of making unnecessary changes.' :
       `\n\n🚨 ATTEMPT ${round}. CRITICAL: You are likely stuck in a rejection loop. This means either: (A) You keep making the same mistake — identify the ROOT CAUSE, not symptoms. Or (B) The reviewer keeps making the same wrong claim — VERIFY independently and PUSH BACK with hard evidence. Do NOT keep apologizing and redoing correct work. Trust your own verification over the reviewer's claims. Break the loop.`;
 
+    // ── Stamina: inject zone-aware guidance and track repetition ──
+    const staminaInjection = agent.stamina ? agent.stamina.getPromptInjection() : '';
+    if (agent.stamina) {
+      agent.stamina.trackRevision(node.id, reviewFeedback, previousOutput?.slice(0, 200) || '');
+    }
+
     // Collect files previously written by this agent for this node
     const fileWriteToolSet = new Set(['file_write', 'file_append', 'file_patch']);
     const previousFiles = (node.result?.toolResults || [])
@@ -1788,7 +1820,7 @@ ${previousFileSection}
 
 **Reviewer's feedback (MUST address ALL points):**
 ${reviewFeedback}
-${pressureMsg}
+${pressureMsg}${staminaInjection}
 
 **Instructions:**
 1. Carefully read the reviewer's feedback — EVERY WORD. 90% of the answer is in their feedback.

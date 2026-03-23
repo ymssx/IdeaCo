@@ -530,14 +530,17 @@ When the boss communicates with you, you need to:
     notFound: 'Employee info not found',
     tabs: {
       info: '📋 Basic Info',
-      memory: '🧠 Memory',
-      performance: '📊 Performance',
-      tasks: '📝 Task History',
+      soul: '👻 Soul',
+      work: '📊 Work',
       usage: '💰 Usage',
+      performanceSection: 'Performance Reviews',
+      taskSection: 'Task History',
     },
+    soulSections: { memory: '🧠 Memory', stamina: '🔋 Stamina', config: '⚙️ Config' },
     memorySubTabs: { personal: '💭 Personal', social: '👥 Social' },
     avgPerformance: 'Avg Performance {score}',
     rolePrompt: 'Role Prompt',
+    personalityBio: 'Personality Profile',
     skills: 'Skills',
     shortTermMemory: '⚡ Short-term Memory ({n})',
     longTermMemory: '💾 Long-term Memory ({n})',
@@ -575,8 +578,7 @@ When the boss communicates with you, you need to:
     spyLoading: 'Decrypting communications...',
     spyReadonly: 'Read-only surveillance mode — your agents don\'t know you\'re watching',
     highPerformer: 'High Performer',
-    // Config tab
-    configTab: '⚙️ Config',
+    // Config (now inside Soul tab)
     providerLabel: 'Model Provider',
     providerHint: 'Switch the AI brain powering this employee',
     promptLabel: 'Role Prompt',
@@ -589,6 +591,20 @@ When the boss communicates with you, you need to:
     configSaved: 'Configuration saved!',
     configSaveFailed: 'Failed to save',
     noProviders: 'No available providers',
+    // Stamina tab
+    stamina: {
+      noData: 'No stamina data available',
+      comfort: 'Comfort',
+      patience: 'Patience',
+      fatigue: 'Fatigue',
+      stress: 'Stress',
+      zone_green: 'Normal — operating at full capacity',
+      zone_yellow: 'Cautious — adjusting strategy, energy running low',
+      zone_red: 'Critical — needs rest or change of approach',
+      formula: 'Comfort = Patience - (Fatigue × 0.4 + Stress × 0.6)',
+      recentEvents: 'Recent Events',
+      noEvents: 'No stamina events recorded yet',
+    },
   },
 
   // === Org Tree ===

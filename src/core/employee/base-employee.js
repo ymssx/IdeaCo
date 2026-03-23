@@ -9,6 +9,7 @@ import { sessionManager } from '../agent/session.js';
 import { cliBackendRegistry } from '../agent/cli-agent/backends/index.js';
 import { createAgent, deserializeAgent } from '../agent/index.js';
 import { EmployeeLifecycle } from './lifecycle.js';
+import { StaminaSystem } from './stamina.js';
 import { safeJSONParse } from '../utils/json-parse.js';
 
 // Placeholder signature
@@ -101,6 +102,9 @@ export class Employee {
     // Personality
     this.personality = config.personality || this._assignPersonality();
 
+    // Personality bio — a ~100-word self-description generated during onboarding
+    this.personalityBio = config.personalityBio || '';
+
     // Signature
     this.signature = config.signature || DEFAULT_SIGNATURE;
     this.hasIntroduced = !!config.signature;
@@ -148,6 +152,9 @@ export class Employee {
     this._sessionMessageCount = 0; // Track total messages in current web session (for auto-refresh)
     this._maxSessionMessages = 50; // Max messages before forcing a new web session
 
+    // Stamina system — tracks patience, fatigue, stress, and comfort
+    this.stamina = new StaminaSystem();
+
     // Lifecycle — manages poll cycle, flow state, anti-spam, etc.
     this.lifecycle = new EmployeeLifecycle(this);
   }
@@ -174,7 +181,13 @@ export class Employee {
   getFallbackProviderName() { return this.agent.getFallbackProviderName(); }
 
   /** Switch the agent's provider. */
-  switchProvider(newProvider) { this.agent.switchProvider(newProvider); }
+  switchProvider(newProvider) {
+    this.agent.switchProvider(newProvider);
+    // Reset introduction flag so the employee re-onboards with the new model
+    this.hasIntroduced = false;
+    this.signature = DEFAULT_SIGNATURE;
+    this.personalityBio = '';
+  }
 
   /** CLI backend ID (null for LLM agents). */
   get cliBackend() { return this.agent.cliBackend || null; }
@@ -657,6 +670,9 @@ ${scenePrompt}`;
     systemContent += `- Position: ${this.role}\n`;
     systemContent += `- Skills: ${this.skills.join(', ')}\n`;
     systemContent += `- Signature: ${this.signature}\n`;
+    if (this.personalityBio) {
+      systemContent += `\n## Your Personality Profile\n${this.personalityBio}\n`;
+    }
 
     if (this.toolKit) {
       systemContent += `\n## Available Tools\n`;
@@ -760,6 +776,7 @@ ${scenePrompt}`;
 It's your first day! Generate the following in JSON format:
 {
   "signature": "Your personal motto/signature (10-30 words, fully reflects your personality, speaking style, age, and gender)",
+  "personalityBio": "A vivid ~100-word self-portrait describing who you really are — your temperament, work habits, communication style, quirks, values, and how you relate to others. Write in third person (e.g. 'He/She is...'). Make it feel like a character profile, not a resume. Reflect your age, gender, and personality archetype naturally.",
   "greeting": "A personal message to your boss ${bossName} (50-150 words). Introduce yourself naturally — who you are, what you do, your personality. Be genuine, speak in YOUR voice. This is a private 1-on-1 message.",
   "broadcast": "A short message to all colleagues (30-80 words). Say hi, introduce yourself briefly. Keep your personality."
 }
@@ -775,6 +792,7 @@ Rules:
 
         const result = this._parseOnboardResponse(response.content);
         this.signature = result.signature || this._generateFallbackSignature();
+        if (result.personalityBio) this.personalityBio = result.personalityBio;
         this.hasIntroduced = true;
         return result;
       } catch (e) {
@@ -1046,6 +1064,7 @@ Do not use any code, tool calls, or technical instructions — reply in natural 
       age: this.age,
       signature: this.signature,
       hasIntroduced: this.hasIntroduced,
+      personalityBio: this.personalityBio || '',
       customPrompt: this.customPrompt || '',
       personality: { ...this.personality },
       // Full memory is persisted in separate files (data/memories/{id}.json);
@@ -1060,6 +1079,7 @@ Do not use any code, tool calls, or technical instructions — reply in natural 
         success: h.result?.success,
       })),
       performanceHistory: [...this.performanceHistory],
+      stamina: this.stamina.serialize(),
       createdAt: this.createdAt,
     };
   }
@@ -1079,6 +1099,7 @@ Do not use any code, tool calls, or technical instructions — reply in natural 
       result: { success: h.success },
     }));
     this.performanceHistory = data.performanceHistory || [];
+    this.stamina = StaminaSystem.deserialize(data.stamina);
     this.createdAt = data.createdAt ? new Date(data.createdAt) : new Date();
 
     if (!this.templateId && this.role) {

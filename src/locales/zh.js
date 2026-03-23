@@ -398,9 +398,10 @@ const zh = {
 
   agent: {
     notFound: '员工信息未找到',
-    tabs: { info: '📋 基本信息', memory: '🧠 记忆', performance: '📊 绩效', tasks: '📝 任务历史', usage: '💰 消耗' },
+    tabs: { info: '📋 基本信息', soul: '👻 灵魂', work: '📊 工作', usage: '💰 消耗', performanceSection: '绩效评价', taskSection: '任务历史' },
+    soulSections: { memory: '🧠 记忆', stamina: '🔋 体力', config: '⚙️ 配置' },
     memorySubTabs: { personal: '💭 个人记忆', social: '👥 社交记忆' },
-    avgPerformance: '平均绩效 {score}', rolePrompt: '角色 Prompt', skills: '技能',
+    avgPerformance: '平均绩效 {score}', rolePrompt: '角色 Prompt', personalityBio: '性格档案', skills: '技能',
     shortTermMemory: '⚡ 短期记忆 ({n})', longTermMemory: '💾 长期记忆 ({n})',
     noShortTerm: '暂无短期记忆', noLongTerm: '暂无长期记忆',
     noRelationships: '暂无社交记忆',
@@ -431,7 +432,7 @@ const zh = {
     spyReadonly: '只读监控模式 — 你的员工不知道你在看',
     highPerformer: '高绩效员工',
     // Config tab
-    configTab: '⚙️ 配置',
+    // Config (now inside Soul tab)
     providerLabel: '模型供应商',
     providerHint: '切换驱动该员工的 AI 大脑',
     promptLabel: '角色 Prompt',
@@ -444,6 +445,19 @@ const zh = {
     configSaved: '配置已保存！',
     configSaveFailed: '保存失败',
     noProviders: '没有可用的供应商',
+    stamina: {
+      noData: '暂无体力数据',
+      comfort: '舒适度',
+      patience: '耐心',
+      fatigue: '疲劳',
+      stress: '压力',
+      zone_green: '正常——全力运转中',
+      zone_yellow: '谨慎——正在调整策略，精力不足',
+      zone_red: '危急——需要休息或改变方式',
+      formula: '舒适度 = 耐心 - (疲劳 × 0.4 + 压力 × 0.6)',
+      recentEvents: '最近事件',
+      noEvents: '暂无体力事件记录',
+    },
   },
   orgTree: {
     title: '🌳 压迫链', subtitle: '谁压迫谁，一目了然。点击任意节点查看详情。',

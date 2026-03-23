@@ -216,9 +216,10 @@ stats: { departments: 'Abt.', workers: 'Arbeiter', requirements: 'Anforderungen'
   },
   agent: {
     notFound: 'Mitarbeiter nicht gefunden',
-    tabs: { info: '📋 Info', memory: '🧠 Speicher', performance: '📊 Leistung', tasks: '📝 Verlauf', usage: '💰 Verbrauch' },
+    tabs: { info: '📋 Info', soul: '👻 Seele', work: '📊 Arbeit', usage: '💰 Verbrauch', performanceSection: 'Leistungsbewertungen', taskSection: 'Aufgabenverlauf' },
+    soulSections: { memory: '🧠 Speicher', stamina: '🔋 Ausdauer', config: '⚙️ Konfiguration' },
     memorySubTabs: { personal: '💭 Persönlich', social: '👥 Beziehungen' },
-    avgPerformance: 'Durchschn. Leistung {score}', rolePrompt: 'Rollen-Prompt', skills: 'Fähigkeiten',
+    avgPerformance: 'Durchschn. Leistung {score}', rolePrompt: 'Rollen-Prompt', personalityBio: 'Persönlichkeitsprofil', skills: 'Fähigkeiten',
     shortTermMemory: '⚡ Kurzzeitspeicher ({n})', longTermMemory: '💾 Langzeitspeicher ({n})',
     noShortTerm: 'Kein Kurzzeitspeicher', noLongTerm: 'Kein Langzeitspeicher',
     noRelationships: 'Keine sozialen Erinnerungen',
@@ -236,7 +237,7 @@ stats: { departments: 'Abt.', workers: 'Arbeiter', requirements: 'Anforderungen'
     score: '{score} Pkt. {level}',
     highPerformer: 'Hochleister',
     // Config tab
-    configTab: '⚙️ Konfiguration',
+    // Config (now inside Soul tab)
     providerLabel: 'Modellanbieter',
     providerHint: 'Wechseln Sie das KI-Gehirn dieses Mitarbeiters',
     promptLabel: 'Rollen-Prompt',
@@ -249,6 +250,19 @@ stats: { departments: 'Abt.', workers: 'Arbeiter', requirements: 'Anforderungen'
     configSaved: 'Konfiguration gespeichert!',
     configSaveFailed: 'Speichern fehlgeschlagen',
     noProviders: 'Keine verfügbaren Anbieter',
+    stamina: {
+      noData: 'Keine Ausdauerdaten verfügbar',
+      comfort: 'Komfort',
+      patience: 'Geduld',
+      fatigue: 'Ermüdung',
+      stress: 'Stress',
+      zone_green: 'Normal — volle Kapazität',
+      zone_yellow: 'Vorsicht — Strategieanpassung, Energie sinkt',
+      zone_red: 'Kritisch — Ruhe oder Methodenwechsel nötig',
+      formula: 'Komfort = Geduld - (Ermüdung × 0,4 + Stress × 0,6)',
+      recentEvents: 'Letzte Ereignisse',
+      noEvents: 'Keine Ausdauerereignisse erfasst',
+    },
   },
   orgTree: {
     title: '🌳 Befehlskette', subtitle: 'Wer befiehlt wem — auf einen Blick. Klicken Sie für Details.',

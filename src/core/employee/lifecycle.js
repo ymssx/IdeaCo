@@ -689,6 +689,9 @@ export class EmployeeLifecycle {
         { role: 'user', content: userPrompt },
       ], { temperature: 0.95, maxTokens: 1024 });
 
+      // ── Stamina: track LLM call ──
+      if (agent.stamina) agent.stamina.onLLMCall();
+
       const rawContent = response.content || '';
       const result = robustJSONParse(rawContent);
 
@@ -712,8 +715,32 @@ export class EmployeeLifecycle {
       }
       // 3. Relationship impressions: AI updates its personal views of colleagues
       if (result.relationshipOps && Array.isArray(result.relationshipOps) && result.relationshipOps.length > 0) {
+        // Capture old affinity values before processing
+        const oldAffinities = new Map();
+        for (const op of result.relationshipOps) {
+          if (op.employeeId) {
+            const existing = agent.memory.relationships.get(op.employeeId);
+            oldAffinities.set(op.employeeId, existing?.affinity || 50);
+          }
+        }
         const relResult = agent.memory.processRelationshipOps(result.relationshipOps);
         console.log(`  👥 [Lifecycle] ${agent.name} relationship updates: ${relResult.updated}`);
+
+        // ── Stamina: detect chat sentiment from affinity changes ──
+        if (agent.stamina && relResult.updated > 0) {
+          let totalDelta = 0;
+          for (const op of result.relationshipOps) {
+            if (!op.employeeId) continue;
+            const oldAff = oldAffinities.get(op.employeeId) || 50;
+            const newRel = agent.memory.relationships.get(op.employeeId);
+            if (newRel) totalDelta += (newRel.affinity - oldAff);
+          }
+          const sentiment = totalDelta > 5 ? 'positive' : totalDelta < -5 ? 'negative' : 'neutral';
+          if (sentiment !== 'neutral') {
+            agent.stamina.onChatSentiment(sentiment, { affinityDelta: totalDelta });
+            console.log(`  🎭 [Stamina] ${agent.name} chat sentiment: ${sentiment} (delta=${totalDelta}, comfort=${agent.stamina.comfort})`);
+          }
+        }
       }
 
       // Anti-spam gate

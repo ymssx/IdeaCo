@@ -27,7 +27,7 @@ export function saveState(company) {
         agentMemories.push({
           agentId: agent.id,
           memoryData: agent.memory.serialize(),
-          meta: { name: agent.name, role: agent.role, department: dept.name },
+          meta: { name: agent.name, role: agent.role, department: dept.name, stamina: agent.stamina?.serialize() || null },
         });
       });
     });
@@ -36,7 +36,7 @@ export function saveState(company) {
       agentMemories.push({
         agentId: company.secretary.id,
         memoryData: company.secretary.memory.serialize(),
-        meta: { name: company.secretary.name, role: 'Personal Secretary', department: 'HQ' },
+        meta: { name: company.secretary.name, role: 'Personal Secretary', department: 'HQ', stamina: company.secretary.stamina?.serialize() || null },
       });
     }
     saveAllAgentMemories(agentMemories);

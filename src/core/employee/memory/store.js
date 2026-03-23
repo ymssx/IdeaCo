@@ -37,6 +37,7 @@ export function saveAgentMemory(agentId, memoryData, meta = {}) {
       longTerm: memoryData.longTerm || [],
       historySummary: memoryData.historySummary || {},
       relationships: memoryData.relationships || {},
+      stamina: meta.stamina || null,
       savedAt: new Date().toISOString(),
     };
     fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
@@ -62,6 +63,7 @@ export function loadAgentMemory(agentId) {
       longTerm: data.longTerm || [],
       historySummary: data.historySummary || {},
       relationships: data.relationships || {},
+      stamina: data.stamina || null,
     };
   } catch (e) {
     console.error(`❌ Failed to load memory [${agentId}]:`, e.message);
