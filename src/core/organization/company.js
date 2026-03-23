@@ -1559,7 +1559,7 @@ const dept = this.findDepartment(departmentId);
       currentAgent: leader.name,
       currentAgentId: leader.id,
       currentAgentAvatar: leader.avatar,
-      currentAction: `${leader.name} is analyzing and decomposing the requirement...`,
+      currentAction: { key: 'reqDetail.action.analyzingRequirement', params: { name: leader.name } },
     });
     this.save();
 
@@ -1717,7 +1717,7 @@ const dept = this.findDepartment(departmentId);
       currentAgent: leader.name,
       currentAgentId: leader.id,
       currentAgentAvatar: leader.avatar,
-      currentAction: `${leader.name} is analyzing and decomposing the sprint plan...`,
+      currentAction: { key: 'reqDetail.action.analyzingSprint', params: { name: leader.name } },
     });
     this.save();
 
@@ -1846,7 +1846,7 @@ const dept = this.findDepartment(departmentId);
       requirement.status = 'failed';
       requirement.completedAt = new Date();
       requirement.updateLiveStatus({
-        currentAction: 'Boss requested stop, project halted',
+      currentAction: { key: 'reqDetail.action.bossStop' },
         currentAgent: null,
       });
       requirement.addGroupMessage(
@@ -1897,7 +1897,7 @@ const dept = this.findDepartment(departmentId);
         currentAgent: leader.name,
         currentAgentId: leader.id,
         currentAgentAvatar: leader.avatar,
-        currentAction: `${leader.name} is re-planning the workflow based on Boss's instructions...`,
+      currentAction: { key: 'reqDetail.action.rePlanning', params: { name: leader.name } },
         toolCallsInProgress: [],
         recentFileChanges: [],
       });
@@ -1952,7 +1952,7 @@ const dept = this.findDepartment(departmentId);
       requirement.status = RequirementStatus.COMPLETED;
       requirement.completedAt = new Date();
       requirement.updateLiveStatus({
-        currentAction: 'Boss approved — requirement completed',
+      currentAction: { key: 'reqDetail.action.bossApproved' },
         currentAgent: null,
       });
       requirement.addGroupMessage(

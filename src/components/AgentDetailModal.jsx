@@ -372,11 +372,33 @@ export default function AgentDetailModal({ agentId, onClose }) {
                         onChange={e => setConfigProviderId(e.target.value)}
                         className="w-full bg-[var(--background)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--accent)] transition-colors"
                       >
-                        {agent.availableProviders.map(p => (
-                          <option key={p.id} value={p.id}>
-                            {p.name} ({p.provider} · {p.model})
-                          </option>
-                        ))}
+                        {(() => {
+                          // Group providers by category for clearer display
+                          const groups = {};
+                          (agent.availableProviders || []).forEach(p => {
+                            const cat = p.category || 'general';
+                            if (!groups[cat]) groups[cat] = [];
+                            groups[cat].push(p);
+                          });
+                          const categoryKeys = Object.keys(groups);
+                          // If only one category, render flat list; otherwise use optgroup
+                          if (categoryKeys.length <= 1) {
+                            return (agent.availableProviders || []).map(p => (
+                              <option key={p.id} value={p.id}>
+                                {p.name} ({p.provider} · {p.model})
+                              </option>
+                            ));
+                          }
+                          return categoryKeys.map(cat => (
+                            <optgroup key={cat} label={cat.charAt(0).toUpperCase() + cat.slice(1)}>
+                              {groups[cat].map(p => (
+                                <option key={p.id} value={p.id}>
+                                  {p.name} ({p.provider} · {p.model})
+                                </option>
+                              ))}
+                            </optgroup>
+                          ));
+                        })()}
                       </select>
                     ) : (
                       <p className="text-xs text-[var(--muted)] italic">{t('agent.noProviders')}</p>

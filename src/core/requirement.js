@@ -580,7 +580,7 @@ You must AVOID these leadership anti-patterns:
     requirement.status = RequirementStatus.IN_PROGRESS;
     requirement.startedAt = new Date();
     requirement.updateLiveStatus({
-      currentAction: 'Workflow execution started',
+      currentAction: { key: 'reqDetail.action.executionStarted' },
       toolCallsInProgress: [],
       recentFileChanges: [],
     });
@@ -680,7 +680,7 @@ You must AVOID these leadership anti-patterns:
           currentNodeId: node.id,
           currentNodeTitle: node.title,
           currentAgent: agent.name,
-          currentAction: `${agent.name} is preparing to execute "${node.title}"`,
+          currentAction: { key: 'reqDetail.action.preparing', params: { name: agent.name, title: node.title } },
           toolCallsInProgress: [],
         });
 
@@ -804,7 +804,7 @@ You must AVOID these leadership anti-patterns:
 
           // Update live status: starting LLM call
           requirement.updateLiveStatus({
-currentAction: `${agent.name} is typing..."${node.title}"`,
+currentAction: { key: 'reqDetail.action.typing', params: { name: agent.name, title: node.title } },
           });
           requirement.addGroupMessage(
             agent,
@@ -832,14 +832,14 @@ currentAction: `${agent.name} is typing..."${node.title}"`,
                   const elapsed = args?.elapsed || 0;
                   const backend = args?.backend || 'CLI';
                   requirement.updateLiveStatus({
-                    currentAction: `${agent.name} is working via ${backend}... (${elapsed}s elapsed)`,
+                    currentAction: { key: 'reqDetail.action.workingViaCli', params: { name: agent.name, backend, elapsed } },
                   });
                   requirement.addGroupMessage(agent, `🖥️ Still working via ${backend}... (${elapsed}s elapsed)`, 'tool_call');
                   return;
                 }
 
                 requirement.updateLiveStatus({
-                  currentAction: `${agent.name} is calling tool ${tool}`,
+                  currentAction: { key: 'reqDetail.action.callingTool', params: { name: agent.name, tool } },
                   toolCallsInProgress: [...(requirement.liveStatus.toolCallsInProgress || []), tool],
                 });
                 // Real-time group chat: calling tool
@@ -870,7 +870,7 @@ currentAction: `${agent.name} is typing..."${node.title}"`,
                   const backend = args?.backend || 'CLI';
                   const exitCode = args?.exitCode;
                   requirement.updateLiveStatus({
-                    currentAction: `${agent.name} completed work via ${backend} (exit: ${exitCode})`,
+                    currentAction: { key: 'reqDetail.action.cliCompleted', params: { name: agent.name, backend, exitCode } },
                     toolCallsInProgress: [],
                   });
                   requirement.addGroupMessage(agent, `✅ ${backend} execution completed (exit code: ${exitCode})`, 'tool_call');
@@ -878,7 +878,7 @@ currentAction: `${agent.name} is typing..."${node.title}"`,
                 }
 
                 requirement.updateLiveStatus({
-                  currentAction: `${agent.name} completed tool call ${tool}`,
+                  currentAction: { key: 'reqDetail.action.toolCompleted', params: { name: agent.name, tool } },
                   toolCallsInProgress: (requirement.liveStatus.toolCallsInProgress || []).filter(t => t !== tool),
                 });
               } else if (status === 'error') {
@@ -890,7 +890,7 @@ currentAction: `${agent.name} is typing..."${node.title}"`,
             },
             onLLMCall: ({ iteration, maxIterations }) => {
               requirement.updateLiveStatus({
-currentAction: `${agent.name} is typing... (round ${iteration})`,
+currentAction: { key: 'reqDetail.action.typingRound', params: { name: agent.name, iteration } },
               });
               if (iteration > 1) {
                 requirement.addGroupMessage(agent, `🧠 Continuing to think and execute... (round ${iteration})`, 'tool_call');
@@ -1050,7 +1050,7 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
                   currentNodeId: node.id,
                   currentNodeTitle: `Review: ${node.title}`,
                   currentAgent: reviewer.name,
-                  currentAction: `${reviewer.name} is reviewing "${node.title}" (round ${node.reviewRounds})`,
+                  currentAction: { key: 'reqDetail.action.reviewing', params: { name: reviewer.name, title: node.title, rounds: node.reviewRounds } },
                 });
 
                 const reviewResult = await this._strictReview(
@@ -1104,7 +1104,7 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
                         currentNodeId: node.id,
                         currentNodeTitle: `Revision: ${node.title}`,
                         currentAgent: agent.name,
-                        currentAction: `${agent.name} is revising "${node.title}" based on review feedback (round ${node.reviewRounds})`,
+                        currentAction: { key: 'reqDetail.action.revising', params: { name: agent.name, title: node.title, rounds: node.reviewRounds } },
                       });
                       requirement.addGroupMessage(
                         agent,
@@ -1118,7 +1118,7 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
                             onToolCall: ({ tool, args, status, success, error: toolErr }) => {
                               if (status === 'start') {
                                 requirement.updateLiveStatus({
-                                  currentAction: `${agent.name} (revision) calling ${tool}`,
+                                  currentAction: { key: 'reqDetail.action.revisionCallingTool', params: { name: agent.name, tool } },
                                   toolCallsInProgress: [...(requirement.liveStatus.toolCallsInProgress || []), tool],
                                 });
                                 if (tool === 'file_write' || tool === 'file_append' || tool === 'file_patch') {
@@ -1134,7 +1134,7 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
                             },
                             onLLMCall: ({ iteration }) => {
                               requirement.updateLiveStatus({
-                                currentAction: `${agent.name} is revising... (iteration ${iteration})`,
+                                currentAction: { key: 'reqDetail.action.revisingIteration', params: { name: agent.name, iteration } },
                               });
                             },
                           }
@@ -1193,7 +1193,7 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
                           currentNodeId: node.id,
                           currentNodeTitle: `Revision: ${node.title}`,
                           currentAgent: agent.name,
-                          currentAction: `${agent.name} is revising "${node.title}" after discussion (round ${node.reviewRounds})`,
+                          currentAction: { key: 'reqDetail.action.revisingAfterDiscussion', params: { name: agent.name, title: node.title, rounds: node.reviewRounds } },
                         });
                         requirement.addGroupMessage(
                           agent,
@@ -1207,7 +1207,7 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
                               onToolCall: ({ tool, args, status }) => {
                                 if (status === 'start') {
                                   requirement.updateLiveStatus({
-                                    currentAction: `${agent.name} (revision) calling ${tool}`,
+                                    currentAction: { key: 'reqDetail.action.revisionCallingTool', params: { name: agent.name, tool } },
                                     toolCallsInProgress: [...(requirement.liveStatus.toolCallsInProgress || []), tool],
                                   });
                                   if (tool === 'file_write' || tool === 'file_append' || tool === 'file_patch') {
@@ -1223,7 +1223,7 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
                               },
                               onLLMCall: ({ iteration }) => {
                                 requirement.updateLiveStatus({
-                                  currentAction: `${agent.name} is revising after discussion... (iteration ${iteration})`,
+                                  currentAction: { key: 'reqDetail.action.revisingAfterDiscussionIteration', params: { name: agent.name, iteration } },
                                 });
                               },
                             }
@@ -1498,7 +1498,7 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
       requirement.completedAt = new Date();
       requirement.updateLiveStatus({
         currentNodeId: null, currentNodeTitle: null, currentAgent: null,
-        currentAction: 'Execution finished (all tasks failed)',
+        currentAction: { key: 'reqDetail.action.allFailed' },
         toolCallsInProgress: [],
       });
     } else {
@@ -1506,7 +1506,7 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
       requirement.status = RequirementStatus.PENDING_APPROVAL;
       requirement.updateLiveStatus({
         currentNodeId: null, currentNodeTitle: null, currentAgent: null,
-        currentAction: 'All tasks done — awaiting Boss approval',
+        currentAction: { key: 'reqDetail.action.awaitingApproval' },
         toolCallsInProgress: [],
       });
     }
