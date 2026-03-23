@@ -121,7 +121,7 @@ export const useStore = create((set, get) => ({
   initialized: false,
   loading: false,
   error: null,
-activeTab: 'overview',
+activeTab: 'requirements',
 chatOpen: true,
 chatMinimized: false,
 chatPanelWidth: 380,
