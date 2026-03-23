@@ -814,7 +814,7 @@ ${pt.shouldNotSpeak(spamInfo.recentCount, spamInfo.isOnCooldown, isMentioned)}
 ${pt.topicSaturation}
 
 ${pt.outputFormat}
-
+${agent.customPrompt ? `\n## Boss's Special Instructions For You\n${agent.customPrompt}\n` : ''}
 ${pt.antiAIWarning(agent.age)}`;
   }
 

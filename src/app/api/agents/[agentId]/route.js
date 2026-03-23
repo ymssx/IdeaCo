@@ -29,8 +29,13 @@ export async function GET(request, { params }) {
             provider: agent.getProviderDisplayInfo(),
             cliBackend: agent.cliBackend || null,
             fallbackProvider: agent.getFallbackProviderName(),
+            customPrompt: agent.customPrompt || '',
             department: dept.name,
             departmentId: dept.id,
+            // Available providers for frontend dropdown (same category as current agent)
+            availableProviders: company.providerRegistry
+              .getByCategory(agent.agent.provider?.category || 'general')
+              .map(p => ({ id: p.id, name: p.name, provider: p.provider, model: p.model })),
             memory: agent.memory.getSummary(),
             performanceHistory: agent.performanceHistory,
             reviews: reviews.map(r => r.getSummary()),
@@ -86,6 +91,24 @@ export async function PUT(request, { params }) {
           agent.agent.cliBackend = body.cliBackend || null;
         }
 
+        // Switch provider (by provider ID)
+        if ('providerId' in body && body.providerId) {
+          const newProvider = company.providerRegistry.getById(body.providerId);
+          if (newProvider && newProvider.enabled) {
+            agent.switchProvider(newProvider);
+          }
+        }
+
+        // Update role prompt
+        if ('prompt' in body && typeof body.prompt === 'string') {
+          agent.prompt = body.prompt;
+        }
+
+        // Update custom prompt (boss's special instructions)
+        if ('customPrompt' in body && typeof body.customPrompt === 'string') {
+          agent.customPrompt = body.customPrompt;
+        }
+
         // Persist
         company.save();
 
@@ -94,6 +117,9 @@ export async function PUT(request, { params }) {
             id: agent.id,
             name: agent.name,
             cliBackend: agent.cliBackend,
+            provider: agent.getProviderDisplayInfo(),
+            prompt: agent.prompt,
+            customPrompt: agent.customPrompt || '',
             message: t('api.agentConfigUpdated'),
           },
         });

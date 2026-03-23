@@ -105,6 +105,9 @@ export class Employee {
     this.signature = config.signature || DEFAULT_SIGNATURE;
     this.hasIntroduced = !!config.signature;
 
+    // Custom prompt override — boss can add extra instructions per employee
+    this.customPrompt = config.customPrompt || '';
+
     // Org structure
     this.department = config.department;
     this.reportsTo = config.reportsTo || null;
@@ -1043,6 +1046,7 @@ Do not use any code, tool calls, or technical instructions — reply in natural 
       age: this.age,
       signature: this.signature,
       hasIntroduced: this.hasIntroduced,
+      customPrompt: this.customPrompt || '',
       personality: { ...this.personality },
       // Full memory is persisted in separate files (data/memories/{id}.json);
       // only store counts here to avoid bloating company-state.json.
@@ -1116,6 +1120,7 @@ Do not use any code, tool calls, or technical instructions — reply in natural 
       avatarParams: data.avatarParams,
       personality: data.personality || undefined,
       templateId: data.templateId || null,
+      customPrompt: data.customPrompt || '',
     });
 
     // Restore the agent from serialized data (with proper provider resolution)

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useStore } from '@/lib/client-store';
 import { useI18n } from '@/lib/i18n';
 import AgentChatModal from './AgentChatModal';
@@ -10,7 +10,7 @@ import CachedAvatar from './CachedAvatar';
 
 export default function AgentDetailModal({ agentId, onClose }) {
   const { t } = useI18n();
-  const { fetchAgentDetail } = useStore();
+  const { fetchAgentDetail, updateAgent } = useStore();
   const [agent, setAgent] = useState(null);
   const [activeTab, setActiveTab] = useState('info');
   const [memorySubTab, setMemorySubTab] = useState('personal');
@@ -18,17 +18,64 @@ export default function AgentDetailModal({ agentId, onClose }) {
   const [showChat, setShowChat] = useState(false);
   const [showSpy, setShowSpy] = useState(false);
 
+  // Config tab state
+  const [configProviderId, setConfigProviderId] = useState('');
+  const [configPrompt, setConfigPrompt] = useState('');
+  const [configCustomPrompt, setConfigCustomPrompt] = useState('');
+  const [configSaving, setConfigSaving] = useState(false);
+  const [configMsg, setConfigMsg] = useState(null); // { type: 'ok' | 'err', text }
+
   useEffect(() => {
     (async () => {
       setLoadingDetail(true);
       try {
         const data = await fetchAgentDetail(agentId);
         setAgent(data);
+        // Initialize config form from fetched data
+        setConfigProviderId(data.provider?.id || '');
+        setConfigPrompt(data.prompt || '');
+        setConfigCustomPrompt(data.customPrompt || '');
       } catch (e) { /* handled */ }
       setLoadingDetail(false);
     })();
   }, [agentId, fetchAgentDetail]);
 
+
+
+  const handleSaveConfig = useCallback(async () => {
+    if (!agent) return;
+    setConfigSaving(true);
+    setConfigMsg(null);
+    try {
+      const updates = {};
+      if (configProviderId && configProviderId !== agent.provider?.id) {
+        updates.providerId = configProviderId;
+      }
+      if (configPrompt !== agent.prompt) {
+        updates.prompt = configPrompt;
+      }
+      if (configCustomPrompt !== (agent.customPrompt || '')) {
+        updates.customPrompt = configCustomPrompt;
+      }
+      if (Object.keys(updates).length === 0) {
+        setConfigSaving(false);
+        return;
+      }
+      const result = await updateAgent(agent.id, updates);
+      // Update local state to reflect changes
+      setAgent(prev => ({
+        ...prev,
+        provider: result.provider || prev.provider,
+        prompt: result.prompt ?? prev.prompt,
+        customPrompt: result.customPrompt ?? prev.customPrompt,
+      }));
+      setConfigMsg({ type: 'ok', text: t('agent.configSaved') });
+      setTimeout(() => setConfigMsg(null), 3000);
+    } catch (e) {
+      setConfigMsg({ type: 'err', text: t('agent.configSaveFailed') });
+    }
+    setConfigSaving(false);
+  }, [agent, configProviderId, configPrompt, configCustomPrompt, updateAgent, t]);
 
 
   if (loadingDetail) {
@@ -59,6 +106,7 @@ export default function AgentDetailModal({ agentId, onClose }) {
     { id: 'performance', label: t('agent.tabs.performance') },
     { id: 'tasks', label: t('agent.tabs.tasks') },
     { id: 'usage', label: t('agent.tabs.usage') },
+    { id: 'config', label: t('agent.configTab') },
   ];
 
   return (
@@ -367,6 +415,72 @@ export default function AgentDetailModal({ agentId, onClose }) {
               </div>
               <div className="text-xs text-[var(--muted)]">
                 💡 {t('agent.usageHint')}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'config' && (
+            <div className="space-y-5 animate-fade-in">
+              {/* Provider Selector */}
+              <div>
+                <h4 className="text-sm font-medium mb-1">{t('agent.providerLabel')}</h4>
+                <p className="text-xs text-[var(--muted)] mb-2">{t('agent.providerHint')}</p>
+                {agent.availableProviders?.length > 0 ? (
+                  <select
+                    value={configProviderId}
+                    onChange={e => setConfigProviderId(e.target.value)}
+                    className="w-full bg-[var(--background)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--accent)] transition-colors"
+                  >
+                    {agent.availableProviders.map(p => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} ({p.provider} · {p.model})
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <p className="text-xs text-[var(--muted)] italic">{t('agent.noProviders')}</p>
+                )}
+              </div>
+
+              {/* Role Prompt Editor */}
+              <div>
+                <h4 className="text-sm font-medium mb-1">{t('agent.promptLabel')}</h4>
+                <p className="text-xs text-[var(--muted)] mb-2">{t('agent.promptHint')}</p>
+                <textarea
+                  value={configPrompt}
+                  onChange={e => setConfigPrompt(e.target.value)}
+                  rows={5}
+                  className="w-full bg-[var(--background)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm font-mono resize-y focus:outline-none focus:border-[var(--accent)] transition-colors"
+                />
+              </div>
+
+              {/* Custom Prompt Editor */}
+              <div>
+                <h4 className="text-sm font-medium mb-1">{t('agent.customPromptLabel')}</h4>
+                <p className="text-xs text-[var(--muted)] mb-2">{t('agent.customPromptHint')}</p>
+                <textarea
+                  value={configCustomPrompt}
+                  onChange={e => setConfigCustomPrompt(e.target.value)}
+                  placeholder={t('agent.customPromptPlaceholder')}
+                  rows={4}
+                  className="w-full bg-[var(--background)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm font-mono resize-y focus:outline-none focus:border-[var(--accent)] transition-colors placeholder:text-[var(--muted)]/50"
+                />
+              </div>
+
+              {/* Save button + feedback */}
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={handleSaveConfig}
+                  disabled={configSaving}
+                  className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--accent)] text-white hover:opacity-90 transition-opacity disabled:opacity-50"
+                >
+                  {configSaving ? t('agent.saving') : t('agent.saveConfig')}
+                </button>
+                {configMsg && (
+                  <span className={`text-xs ${configMsg.type === 'ok' ? 'text-green-400' : 'text-red-400'}`}>
+                    {configMsg.text}
+                  </span>
+                )}
               </div>
             </div>
           )}

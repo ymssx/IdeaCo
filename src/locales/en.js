@@ -542,6 +542,20 @@ When the boss communicates with you, you need to:
     spyLoading: 'Decrypting communications...',
     spyReadonly: 'Read-only surveillance mode — your agents don\'t know you\'re watching',
     highPerformer: 'High Performer',
+    // Config tab
+    configTab: '⚙️ Config',
+    providerLabel: 'Model Provider',
+    providerHint: 'Switch the AI brain powering this employee',
+    promptLabel: 'Role Prompt',
+    promptHint: 'The role description and instructions that define this employee\'s job',
+    customPromptLabel: 'Custom Instructions',
+    customPromptPlaceholder: 'Add special instructions for this employee (e.g. "Always reply in formal English", "Focus on backend tasks")...',
+    customPromptHint: 'Extra instructions injected into the system prompt — affects how this employee thinks and responds',
+    saveConfig: 'Save Changes',
+    saving: 'Saving...',
+    configSaved: 'Configuration saved!',
+    configSaveFailed: 'Failed to save',
+    noProviders: 'No available providers',
   },
 
   // === Org Tree ===
