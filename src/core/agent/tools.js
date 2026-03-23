@@ -10,6 +10,7 @@
  * - file_list: List directory contents
  * - file_delete: Delete files
  * - mkdir: Create directories (with recursive parent creation)
+ * - load_skill: Load full SKILL.md instructions for a specific skill
  * - file_stats: Get file metadata without reading content
  * - file_search: Search for files by name
  * - grep_search: Search file contents for text/regex patterns
@@ -25,6 +26,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { securityGuard } from '../system/audit.js';
 import { pluginRegistry, HookPoint } from '../system/plugin.js';
+import { skillRegistry } from '../employee/skill/registry.js';
 // chatStore recording is handled centrally by requirement.js messageHandler
 
 const execAsync = promisify(exec);
@@ -145,6 +147,20 @@ export class AgentToolKit {
               },
             },
             required: [],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'load_skill',
+          description: 'Load the full instructions (SKILL.md body) for a specific skill by its ID. Use this when you see <available_skills> in your system prompt and determine a skill applies to the current task. Returns the detailed workflow and best practices for that skill.',
+          parameters: {
+            type: 'object',
+            properties: {
+              skillId: { type: 'string', description: 'The skill ID from the <id> field in <available_skills>' },
+            },
+            required: ['skillId'],
           },
         },
       },
@@ -391,6 +407,12 @@ export class AgentToolKit {
       case 'send_message':
         result = await this._sendMessage(args.targetAgentId, args.content, args.type);
         break;
+      case 'load_skill': {
+        const skillId = args.skillId || args.skill_id || args.id;
+        if (!skillId) throw new Error('Missing required parameter: skillId');
+        result = skillRegistry.loadSkillBody(skillId);
+        break;
+      }
       case 'file_stats': {
         const filePath = resolvePath(args);
         if (!filePath) throw new Error(`Missing required parameter: path (received args: ${JSON.stringify(args)})`);

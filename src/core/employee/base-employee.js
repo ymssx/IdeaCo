@@ -12,6 +12,8 @@ import { EmployeeLifecycle } from './lifecycle.js';
 import { StaminaSystem } from './stamina.js';
 import { safeJSONParse } from '../utils/json-parse.js';
 import { buildLanguageInstruction, getAppLanguageName } from '../utils/app-language.js';
+import { EmployeeSkillSet } from './skill/skill-set.js';
+import { skillRegistry } from './skill/registry.js';
 
 // Placeholder signature
 const DEFAULT_SIGNATURE = 'Just arrived, still thinking of what to say...';
@@ -79,7 +81,15 @@ export class Employee {
     this.role = config.role;
     this.prompt = config.prompt;
     this.templateId = config.templateId || null;
-    this.skills = config.skills || [];
+
+    // Skills: modern EmployeeSkillSet with backward compat for legacy string arrays
+    if (config.skillSet instanceof EmployeeSkillSet) {
+      this.skillSet = config.skillSet;
+    } else {
+      this.skillSet = EmployeeSkillSet.fromLegacy(this.id, config.skills || []);
+    }
+    // Legacy accessor — returns flat skill tag array for backward compat
+    this.skills = this.skillSet.toArray();
 
     // Bind employee ID to WebAgent for per-employee session isolation
     if (this.agent.setEmployeeId) {
@@ -261,11 +271,18 @@ export class Employee {
   }
 
   learnSkill(skill) {
-    if (!this.skills.includes(skill)) {
-      this.skills.push(skill);
-      this.memory.addLongTerm(`Learned new skill: ${skill}`, 'skill');
-      console.log(`  📚 [${this.name}] Learned new skill: ${skill}`);
+    // Check if it's a registry skill ID
+    if (skillRegistry.get(skill)) {
+      this.skillSet.enable(skill);
+    } else {
+      // Legacy free-text tag
+      if (!this.skillSet.legacySkills.includes(skill)) {
+        this.skillSet.legacySkills.push(skill);
+      }
     }
+    this.skills = this.skillSet.toArray();
+    this.memory.addLongTerm(`Learned new skill: ${skill}`, 'skill');
+    console.log(`  📚 [${this.name}] Learned new skill: ${skill}`);
   }
 
   // ======================== Session & Context Management ========================
@@ -669,7 +686,7 @@ ${scenePrompt}`;
     systemContent += `- Gender: ${this.gender === 'female' ? 'Female' : 'Male'}\n`;
     systemContent += `- Age: ${this.age}\n`;
     systemContent += `- Position: ${this.role}\n`;
-    systemContent += `- Skills: ${this.skills.join(', ')}\n`;
+    systemContent += `- Skills: ${this.skillSet.toArray().join(', ')}\n`;
     systemContent += `- Signature: ${this.signature}\n`;
     if (this.personalityBio) {
       systemContent += `\n## Your Personality Profile\n${this.personalityBio}\n`;
@@ -677,7 +694,7 @@ ${scenePrompt}`;
 
     if (this.toolKit) {
       systemContent += `\n## Available Tools\n`;
-      systemContent += `Built-in tools: file_read (read file), file_write (create/write file), file_list (list directory), file_delete (delete file), mkdir (create directories), shell_exec (execute command), send_message (send message to colleague for collaboration and feedback).\n`;
+      systemContent += `Built-in tools: file_read (read file), file_write (create/write file), file_list (list directory), file_delete (delete file), mkdir (create directories), shell_exec (execute command), send_message (send message to colleague for collaboration and feedback), load_skill (load full instructions for a skill).\n`;
       systemContent += `\n**Teamwork & Collaboration (IMPORTANT)**:\n`;
       systemContent += `- You are part of a team! Proactively communicate with colleagues using send_message.\n`;
       systemContent += `- When working in parallel, coordinate to avoid duplicate work and share discoveries.\n`;
@@ -699,6 +716,14 @@ ${scenePrompt}`;
     try {
       const kbPrompt = knowledgeManager.buildKnowledgePrompt(this.id, this.department);
       if (kbPrompt) systemContent += kbPrompt;
+    } catch {}
+
+    // Progressive disclosure: inject L1 skill metadata (compact XML)
+    // The agent loads full SKILL.md body on-demand via load_skill tool
+    try {
+      const resolvedSkills = this.skillSet.resolve(skillRegistry);
+      const skillsPrompt = skillRegistry.buildSkillsPrompt(resolvedSkills);
+      if (skillsPrompt) systemContent += skillsPrompt;
     } catch {}
 
     // Enforce response language based on current UI language
@@ -768,7 +793,7 @@ ${scenePrompt}`;
 - Gender: ${this.gender === 'female' ? 'Female' : 'Male'}
 - Age: ${this.age}
 - Department: ${deptName}
-- Skills: ${this.skills.join(', ')}
+- Skills: ${this.skillSet.toArray().join(', ')}
 - Boss's name: ${bossName}
 
 ## Your Personality
@@ -1059,6 +1084,7 @@ Do not use any code, tool calls, or technical instructions — reply in natural 
       prompt: this.prompt,
       templateId: this.templateId || null,
       skills: [...this.skills],
+      skillSet: this.skillSet.serialize(),
       department: this.department,
       reportsTo: this.reportsTo,
       subordinates: [...this.subordinates],
@@ -1132,6 +1158,9 @@ Do not use any code, tool calls, or technical instructions — reply in natural 
       role: data.role,
       prompt: data.prompt,
       skills: data.skills,
+      skillSet: data.skillSet
+        ? EmployeeSkillSet.deserialize(data.id, data.skillSet)
+        : EmployeeSkillSet.fromLegacy(data.id, data.skills || []),
       provider: data.provider,
       cliBackend: data.cliBackend,
       cliProvider: data.cliProvider,

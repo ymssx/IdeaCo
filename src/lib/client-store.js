@@ -561,9 +561,14 @@ chatPanelWidth: 380,
   },
 
   // === Skills ===
-  fetchSkills: async () => {
+  fetchSkills: async (opts = {}) => {
     try {
-      const data = await apiCall('/system/skills');
+      const params = new URLSearchParams();
+      if (opts.source) params.set('source', opts.source);
+      if (opts.category) params.set('category', opts.category);
+      if (opts.q) params.set('q', opts.q);
+      const qs = params.toString();
+      const data = await apiCall(`/system/skills${qs ? `?${qs}` : ''}`);
       return data.data;
     } catch (e) {
       return [];
@@ -575,6 +580,144 @@ chatPanelWidth: 380,
       const data = await apiCall('/system/skills', {
         method: 'POST',
         body: JSON.stringify({ action, skillId, config }),
+      });
+      return data.data;
+    } catch (e) {
+      set({ error: e.message });
+      throw e;
+    }
+  },
+
+  // Custom skills
+  fetchCustomSkills: async () => {
+    try {
+      const data = await apiCall('/system/skills/custom');
+      return data.data;
+    } catch (e) {
+      return [];
+    }
+  },
+
+  createCustomSkill: async (markdown) => {
+    try {
+      const data = await apiCall('/system/skills/custom', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'create', markdown }),
+      });
+      return data.data;
+    } catch (e) {
+      set({ error: e.message });
+      throw e;
+    }
+  },
+
+  updateCustomSkill: async (skillId, markdown) => {
+    try {
+      const data = await apiCall('/system/skills/custom', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'update', skillId, markdown }),
+      });
+      return data.data;
+    } catch (e) {
+      set({ error: e.message });
+      throw e;
+    }
+  },
+
+  deleteCustomSkill: async (skillId) => {
+    try {
+      const data = await apiCall('/system/skills/custom', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'delete', skillId }),
+      });
+      return data.data;
+    } catch (e) {
+      set({ error: e.message });
+      throw e;
+    }
+  },
+
+  getCustomSkillRaw: async (skillId) => {
+    try {
+      const data = await apiCall('/system/skills/custom', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'getRaw', skillId }),
+      });
+      return data.data;
+    } catch (e) {
+      set({ error: e.message });
+      throw e;
+    }
+  },
+
+  // Marketplace
+  searchMarketplace: async (query = '', opts = {}) => {
+    try {
+      const params = new URLSearchParams({ q: query });
+      if (opts.page) params.set('page', String(opts.page));
+      if (opts.limit) params.set('limit', String(opts.limit));
+      if (opts.category) params.set('category', opts.category);
+      if (opts.featured) params.set('featured', 'true');
+      const data = await apiCall(`/system/skills/marketplace?${params}`);
+      return data.data;
+    } catch (e) {
+      return { skills: [], total: 0, page: 1 };
+    }
+  },
+
+  installMarketplaceSkill: async (slug, version) => {
+    try {
+      const data = await apiCall('/system/skills/marketplace', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'install', slug, version }),
+      });
+      return data.data;
+    } catch (e) {
+      set({ error: e.message });
+      throw e;
+    }
+  },
+
+  uninstallMarketplaceSkill: async (skillId) => {
+    try {
+      const data = await apiCall('/system/skills/marketplace', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'uninstall', skillId }),
+      });
+      return data.data;
+    } catch (e) {
+      set({ error: e.message });
+      throw e;
+    }
+  },
+
+  listInstalledMarketplaceSkills: async () => {
+    try {
+      const data = await apiCall('/system/skills/marketplace', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'listInstalled' }),
+      });
+      return data.data;
+    } catch (e) {
+      return [];
+    }
+  },
+
+  // Per-agent skill management
+  fetchAgentSkills: async (agentId) => {
+    try {
+      const data = await apiCall(`/agents/${agentId}/skills`);
+      return data.data;
+    } catch (e) {
+      return { enabledSkills: [], pinnedSkills: [], legacySkills: [], allSkills: [] };
+    }
+  },
+
+  manageAgentSkill: async (agentId, action, skillId, skillIds) => {
+    try {
+      const data = await apiCall(`/agents/${agentId}/skills`, {
+        method: 'POST',
+        body: JSON.stringify({ action, skillId, skillIds }),
       });
       return data.data;
     } catch (e) {

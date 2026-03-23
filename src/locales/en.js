@@ -530,6 +530,7 @@ When the boss communicates with you, you need to:
     notFound: 'Employee info not found',
     tabs: {
       info: '📋 Basic Info',
+      skills: '📚 Skills',
       soul: '👻 Soul',
       work: '📊 Work',
       usage: '💰 Usage',
@@ -542,6 +543,13 @@ When the boss communicates with you, you need to:
     rolePrompt: 'Role Prompt',
     personalityBio: 'Personality Profile',
     skills: 'Skills',
+    noSkills: 'No skills assigned',
+    manageSkills: 'Manage Skills',
+    skillsDescription: 'Enable or disable skills for this employee. Pinned skills are always active.',
+    skillPin: 'Pin skill (always active)',
+    skillUnpin: 'Unpin skill',
+    legacySkills: 'Legacy Skills',
+    skillsLoadError: 'Failed to load skills data',
     shortTermMemory: '⚡ Short-term Memory ({n})',
     longTermMemory: '💾 Long-term Memory ({n})',
     noShortTerm: 'No short-term memory',
@@ -956,6 +964,7 @@ When the boss communicates with you, you need to:
     // Plugins & Skills
     missingPluginId: 'Missing pluginId',
     missingSkillId: 'Missing skillId',
+    missingParameter: 'Missing required parameter: {param}',
     pluginUnknownAction: 'Unknown action: {action}',
 
     // CLI Backends
@@ -998,7 +1007,7 @@ When the boss communicates with you, you need to:
     cronStats: { running: 'Running', jobs: 'Jobs' },
     hookStats: { handlers: 'Handlers', eventKeys: 'Event Keys' },
     sessionStats: { total: 'Total Sessions', messages: 'Messages' },
-    skillStats: { total: 'Total Skills', enabled: 'Enabled', categories: 'Categories', installed: 'Installed' },
+    skillStats: { total: 'Total Skills', enabled: 'Enabled', categories: 'Categories', installed: 'Installed', custom: 'Custom' },
     kbStats: { totalBases: 'Knowledge Bases', enabled: 'Enabled', totalEntries: 'Entries', globalBases: 'Global' },
     cronDetail: {
       jobList: 'Scheduled Tasks',
@@ -1022,6 +1031,26 @@ When the boss communicates with you, you need to:
     },
     skillDetail: {
       noSkills: 'No skills available',
+      noCustom: 'No custom skills yet',
+      noCustomHint: 'Create your own skill with Markdown to customize agent behavior',
+    },
+    skillTabs: {
+      all: 'All Skills',
+      custom: 'Custom',
+      marketplace: 'Marketplace',
+    },
+    skillActions: {
+      create: 'Create Skill',
+      edit: 'Edit Skill',
+      markdownHint: 'Write your skill in Markdown format with YAML frontmatter (name, description, category, icon, tags)',
+    },
+    skillMarketplace: {
+      searchPlaceholder: 'Search skills on ClawHub...',
+      install: 'Install',
+      installed: 'Installed',
+      installedTitle: 'Installed from Marketplace',
+      empty: 'No marketplace skills',
+      emptyHint: 'Search ClawHub to discover and install community skills',
     },
     kbDetail: {
       listTitle: 'Knowledge Bases',

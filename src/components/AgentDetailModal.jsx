@@ -10,7 +10,7 @@ import CachedAvatar from './CachedAvatar';
 
 export default function AgentDetailModal({ agentId, onClose }) {
   const { t } = useI18n();
-  const { fetchAgentDetail, updateAgent } = useStore();
+  const { fetchAgentDetail, updateAgent, fetchAgentSkills, manageAgentSkill } = useStore();
   const [agent, setAgent] = useState(null);
   const [activeTab, setActiveTab] = useState('info');
   const [memorySubTab, setMemorySubTab] = useState('personal');
@@ -25,6 +25,10 @@ export default function AgentDetailModal({ agentId, onClose }) {
   const [configCustomPrompt, setConfigCustomPrompt] = useState('');
   const [configSaving, setConfigSaving] = useState(false);
   const [configMsg, setConfigMsg] = useState(null); // { type: 'ok' | 'err', text }
+
+  // Skills tab state
+  const [agentSkillsData, setAgentSkillsData] = useState(null);
+  const [skillsLoading, setSkillsLoading] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -109,6 +113,7 @@ export default function AgentDetailModal({ agentId, onClose }) {
 
   const tabs = [
     { id: 'info', label: t('agent.tabs.info') },
+    { id: 'skills', label: t('agent.tabs.skills') },
     { id: 'soul', label: t('agent.tabs.soul') },
     { id: 'work', label: t('agent.tabs.work') },
     { id: 'usage', label: t('agent.tabs.usage') },
@@ -227,10 +232,29 @@ export default function AgentDetailModal({ agentId, onClose }) {
               <div>
                 <h4 className="text-sm font-medium mb-2 text-[var(--muted)]">{t('agent.skills')}</h4>
                 <div className="flex flex-wrap gap-2">
-                  {agent.skills.map((s, i) => (
+                  {(agent.skills || []).map((s, i) => (
                     <span key={i} className="text-sm bg-[var(--accent)]/10 text-[var(--accent)] px-2 py-1 rounded-lg">{s}</span>
                   ))}
+                  {(!agent.skills || agent.skills.length === 0) && (
+                    <span className="text-xs text-[var(--muted)]">{t('agent.noSkills')}</span>
+                  )}
                 </div>
+                <button
+                  onClick={async () => {
+                    setActiveTab('skills');
+                    if (!agentSkillsData) {
+                      setSkillsLoading(true);
+                      try {
+                        const data = await fetchAgentSkills(agent.id);
+                        setAgentSkillsData(data);
+                      } catch {}
+                      setSkillsLoading(false);
+                    }
+                  }}
+                  className="mt-2 text-[10px] text-[var(--accent)] hover:underline"
+                >
+                  {t('agent.manageSkills')} →
+                </button>
               </div>
             </div>
           )}
@@ -445,6 +469,86 @@ export default function AgentDetailModal({ agentId, onClose }) {
                       </span>
                     )}
                   </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'skills' && (
+            <div className="space-y-4 animate-fade-in">
+              {skillsLoading ? (
+                <div className="text-center py-8 text-[var(--muted)]">
+                  <div className="animate-spin text-2xl mb-2">⏳</div>
+                  <p className="text-xs">{t('common.loading')}</p>
+                </div>
+              ) : agentSkillsData ? (
+                <>
+                  <p className="text-xs text-[var(--muted)]">{t('agent.skillsDescription')}</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    {(agentSkillsData.allSkills || []).map(skill => {
+                      const isEnabled = agentSkillsData.enabledSkills?.includes(skill.id);
+                      const isPinned = agentSkillsData.pinnedSkills?.includes(skill.id);
+                      return (
+                        <div key={skill.id} className={`p-3 rounded-lg border transition-all ${
+                          isEnabled ? 'border-green-500/30 bg-green-900/10' : 'border-[var(--border)] bg-[var(--background)]'
+                        }`}>
+                          <div className="flex items-center justify-between mb-1">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span>{skill.icon}</span>
+                              <span className="text-sm font-medium truncate">{skill.name}</span>
+                              {isPinned && <span className="text-[8px] bg-yellow-900/30 text-yellow-400 px-1 py-0.5 rounded">📌</span>}
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={async () => {
+                                  const action = isPinned ? 'unpin' : 'pin';
+                                  await manageAgentSkill(agent.id, action, skill.id);
+                                  const data = await fetchAgentSkills(agent.id);
+                                  setAgentSkillsData(data);
+                                }}
+                                className={`text-[10px] px-1.5 py-0.5 rounded transition-all ${
+                                  isPinned ? 'text-yellow-400 hover:text-[var(--muted)]' : 'text-[var(--muted)] hover:text-yellow-400'
+                                }`}
+                                title={isPinned ? t('agent.skillUnpin') : t('agent.skillPin')}
+                              >
+                                📌
+                              </button>
+                              <button
+                                onClick={async () => {
+                                  const action = isEnabled ? 'disable' : 'enable';
+                                  await manageAgentSkill(agent.id, action, skill.id);
+                                  const data = await fetchAgentSkills(agent.id);
+                                  setAgentSkillsData(data);
+                                }}
+                                className={`text-[10px] px-2 py-0.5 rounded-full transition-all ${
+                                  isEnabled
+                                    ? 'bg-green-900/30 text-green-400 hover:bg-red-900/30 hover:text-red-400'
+                                    : 'bg-white/10 text-[var(--muted)] hover:bg-green-900/30 hover:text-green-400'
+                                }`}
+                              >
+                                {isEnabled ? t('common.disable') : t('common.enable')}
+                              </button>
+                            </div>
+                          </div>
+                          <p className="text-[10px] text-[var(--muted)] line-clamp-2">{skill.description}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {agentSkillsData.legacySkills?.length > 0 && (
+                    <div>
+                      <h4 className="text-xs font-medium text-[var(--muted)] mb-2">{t('agent.legacySkills')}</h4>
+                      <div className="flex flex-wrap gap-2">
+                        {agentSkillsData.legacySkills.map((s, i) => (
+                          <span key={i} className="text-xs bg-white/5 text-[var(--muted)] px-2 py-1 rounded-lg">{s}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="text-center py-8 text-[var(--muted)]">
+                  <p className="text-xs">{t('agent.skillsLoadError')}</p>
                 </div>
               )}
             </div>

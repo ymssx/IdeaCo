@@ -11,11 +11,18 @@ import ProviderGrid from './ProviderGrid';
  */
 export default function SystemMonitor({ embedded = false }) {
   const { t } = useI18n();
-  const { company, fetchCronJobs, createCronJob, manageCronJob, fetchPlugins, managePlugin, fetchSkills, manageSkill, fetchKnowledge, searchKnowledge, manageKnowledge, fetchSystemStatus, factoryReset } = useStore();
+  const { company, fetchCronJobs, createCronJob, manageCronJob, fetchPlugins, managePlugin, fetchSkills, manageSkill, createCustomSkill, updateCustomSkill, deleteCustomSkill, getCustomSkillRaw, searchMarketplace, installMarketplaceSkill, uninstallMarketplaceSkill, fetchKnowledge, searchKnowledge, manageKnowledge, fetchSystemStatus, factoryReset } = useStore();
   const [activeSection, setActiveSection] = useState('providers');
   const [cronData, setCronData] = useState({ summary: {}, jobs: [] });
   const [plugins, setPlugins] = useState([]);
   const [skills, setSkills] = useState([]);
+  const [skillSubTab, setSkillSubTab] = useState('all'); // 'all' | 'custom' | 'marketplace'
+  const [showCreateSkill, setShowCreateSkill] = useState(false);
+  const [editingSkill, setEditingSkill] = useState(null); // skill id or null
+  const [skillMarkdown, setSkillMarkdown] = useState('');
+  const [marketplaceQuery, setMarketplaceQuery] = useState('');
+  const [marketplaceResults, setMarketplaceResults] = useState([]);
+  const [marketplaceLoading, setMarketplaceLoading] = useState(false);
   const [knowledge, setKnowledge] = useState({ bases: [], stats: {} });
   const [systemStatus, setSystemStatus] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -93,6 +100,68 @@ export default function SystemMonitor({ embedded = false }) {
     const action = currentState === 'enabled' ? 'disable' : 'enable';
     try {
       await manageSkill(action, skillId);
+      await refresh();
+    } catch {}
+  };
+
+  const handleCreateCustomSkill = async () => {
+    if (!skillMarkdown.trim()) return;
+    try {
+      await createCustomSkill(skillMarkdown);
+      setShowCreateSkill(false);
+      setSkillMarkdown('');
+      await refresh();
+    } catch {}
+  };
+
+  const handleUpdateCustomSkill = async () => {
+    if (!editingSkill || !skillMarkdown.trim()) return;
+    try {
+      await updateCustomSkill(editingSkill, skillMarkdown);
+      setEditingSkill(null);
+      setSkillMarkdown('');
+      await refresh();
+    } catch {}
+  };
+
+  const handleDeleteCustomSkill = async (skillId) => {
+    try {
+      await deleteCustomSkill(skillId);
+      await refresh();
+    } catch {}
+  };
+
+  const handleEditCustomSkill = async (skillId) => {
+    try {
+      const data = await getCustomSkillRaw(skillId);
+      if (data?.markdown) {
+        setSkillMarkdown(data.markdown);
+        setEditingSkill(skillId);
+        setShowCreateSkill(true);
+      }
+    } catch {}
+  };
+
+  const handleMarketplaceSearch = async () => {
+    setMarketplaceLoading(true);
+    try {
+      const result = await searchMarketplace(marketplaceQuery);
+      setMarketplaceResults(result?.skills || result || []);
+    } catch {}
+    setMarketplaceLoading(false);
+  };
+
+  const handleInstallMarketplaceSkill = async (slug) => {
+    try {
+      await installMarketplaceSkill(slug);
+      await refresh();
+      if (marketplaceQuery) await handleMarketplaceSearch();
+    } catch {}
+  };
+
+  const handleUninstallSkill = async (skillId) => {
+    try {
+      await uninstallMarketplaceSkill(skillId);
       await refresh();
     } catch {}
   };
@@ -403,68 +472,205 @@ export default function SystemMonitor({ embedded = false }) {
       {/* === SKILLS SECTION === */}
       {activeSection === 'skills' && (
         <div className="space-y-4">
+          {/* Stats */}
           <div className="grid grid-cols-4 gap-4">
             <StatCard label={t('systemSettings.skillStats.total')} value={skills.length} />
             <StatCard label={t('systemSettings.skillStats.enabled')} value={skills.filter(s => s.state === 'enabled').length} color="text-green-400" />
             <StatCard label={t('systemSettings.skillStats.categories')} value={[...new Set(skills.map(s => s.category))].length} />
-            <StatCard label={t('systemSettings.skillStats.installed')} value={skills.filter(s => s.state !== 'available').length} />
+            <StatCard label={t('systemSettings.skillStats.custom')} value={skills.filter(s => s.source === 'custom').length} color="text-purple-400" />
           </div>
 
-          {/* Skills grouped by category */}
-          {Object.entries(
-            skills.reduce((acc, s) => {
-              (acc[s.category] = acc[s.category] || []).push(s);
-              return acc;
-            }, {})
-          ).map(([category, catSkills]) => (
-            <div key={category} className="card">
-              <div className="flex items-center gap-2 mb-3">
-                <span className="text-lg">{SKILL_CATEGORY_ICONS[category] || '⚡'}</span>
-                <h3 className="text-sm font-semibold capitalize">{category}</h3>
-                <span className="text-[10px] text-[var(--muted)]">{t('providers.skillsCount', { n: catSkills.length })}</span>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
-                {catSkills.map(skill => (
-                  <div key={skill.id} className={`p-3 rounded-lg border transition-all ${
-                    skill.state === 'enabled'
-                      ? 'border-green-500/30 bg-green-900/10'
-                      : 'border-[var(--border)] bg-[var(--background)]'
-                  }`}>
-                    <div className="flex items-center justify-between mb-1">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span>{skill.icon}</span>
-                        <span className="text-sm font-medium truncate">{skill.name}</span>
-                      </div>
-                      <button
-                        onClick={() => handleSkillToggle(skill.id, skill.state)}
-                        className={`text-[10px] px-2 py-0.5 rounded-full transition-all ${
-                          skill.state === 'enabled'
-                            ? 'bg-green-900/30 text-green-400 hover:bg-red-900/30 hover:text-red-400'
-                            : 'bg-white/10 text-[var(--muted)] hover:bg-green-900/30 hover:text-green-400'
-                        }`}
-                      >
-                        {skill.state === 'enabled' ? t('common.disable') : t('common.enable')}
-                      </button>
-                    </div>
-                    <p className="text-[10px] text-[var(--muted)] line-clamp-2">{skill.description}</p>
-                    {skill.tags?.length > 0 && (
-                      <div className="flex gap-1 flex-wrap mt-1.5">
-                        {skill.tags.slice(0, 4).map((tag, i) => (
-                          <span key={i} className="text-[9px] bg-white/5 text-[var(--muted)] px-1.5 py-0.5 rounded">{tag}</span>
-                        ))}
-                      </div>
-                    )}
+          {/* Sub-tabs: All / Custom / Marketplace */}
+          <div className="flex items-center gap-2 border-b border-[var(--border)] pb-2">
+            {[{id:'all', label: t('systemSettings.skillTabs.all'), icon: '📚'}, {id:'custom', label: t('systemSettings.skillTabs.custom'), icon: '✨'}, {id:'marketplace', label: t('systemSettings.skillTabs.marketplace'), icon: '🏪'}].map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setSkillSubTab(tab.id)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-all ${
+                  skillSubTab === tab.id
+                    ? 'bg-[var(--accent)]/20 text-[var(--accent)]'
+                    : 'text-[var(--muted)] hover:bg-white/5'
+                }`}
+              >
+                <span>{tab.icon}</span>
+                <span>{tab.label}</span>
+              </button>
+            ))}
+            {skillSubTab === 'custom' && (
+              <button
+                onClick={() => { setShowCreateSkill(true); setEditingSkill(null); setSkillMarkdown(SKILL_TEMPLATE); }}
+                className="ml-auto text-[10px] px-3 py-1 rounded-lg bg-[var(--accent)]/20 text-[var(--accent)] hover:bg-[var(--accent)]/30 transition-all"
+              >
+                + {t('systemSettings.skillActions.create')}
+              </button>
+            )}
+          </div>
+
+          {/* ALL SKILLS sub-tab */}
+          {skillSubTab === 'all' && (
+            <>
+              {Object.entries(
+                skills.reduce((acc, s) => {
+                  (acc[s.category] = acc[s.category] || []).push(s);
+                  return acc;
+                }, {})
+              ).map(([category, catSkills]) => (
+                <div key={category} className="card">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-lg">{SKILL_CATEGORY_ICONS[category] || '⚡'}</span>
+                    <h3 className="text-sm font-semibold capitalize">{category}</h3>
+                    <span className="text-[10px] text-[var(--muted)]">{t('providers.skillsCount', { n: catSkills.length })}</span>
                   </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+                    {catSkills.map(skill => (
+                      <SkillCard key={skill.id} skill={skill} t={t} onToggle={handleSkillToggle}
+                        onEdit={skill.source === 'custom' ? () => handleEditCustomSkill(skill.id) : null}
+                        onDelete={skill.source === 'custom' ? () => handleDeleteCustomSkill(skill.id) : skill.source === 'marketplace' ? () => handleUninstallSkill(skill.id) : null}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ))}
+              {skills.length === 0 && (
+                <div className="text-center py-12 text-[var(--muted)]">
+                  <div className="text-4xl mb-3">📚</div>
+                  <p className="text-sm">{t('systemSettings.skillDetail.noSkills')}</p>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* CUSTOM SKILLS sub-tab */}
+          {skillSubTab === 'custom' && (
+            <>
+              {/* Create/Edit modal */}
+              {showCreateSkill && (
+                <div className="card border-[var(--accent)]/30">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold">
+                      {editingSkill ? t('systemSettings.skillActions.edit') : t('systemSettings.skillActions.create')}
+                    </h3>
+                    <button onClick={() => { setShowCreateSkill(false); setEditingSkill(null); setSkillMarkdown(''); }}
+                      className="text-[var(--muted)] hover:text-[var(--foreground)] text-xs">✕</button>
+                  </div>
+                  <p className="text-[10px] text-[var(--muted)] mb-2">{t('systemSettings.skillActions.markdownHint')}</p>
+                  <textarea
+                    value={skillMarkdown}
+                    onChange={e => setSkillMarkdown(e.target.value)}
+                    placeholder={SKILL_TEMPLATE}
+                    className="w-full h-64 bg-[var(--background)] border border-[var(--border)] rounded-lg p-3 text-xs font-mono resize-y focus:border-[var(--accent)] focus:outline-none"
+                  />
+                  <div className="flex justify-end gap-2 mt-2">
+                    <button onClick={() => { setShowCreateSkill(false); setEditingSkill(null); setSkillMarkdown(''); }}
+                      className="text-xs px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10">{t('common.cancel')}</button>
+                    <button onClick={editingSkill ? handleUpdateCustomSkill : handleCreateCustomSkill}
+                      className="text-xs px-3 py-1.5 rounded-lg bg-[var(--accent)]/20 text-[var(--accent)] hover:bg-[var(--accent)]/30">
+                      {editingSkill ? t('common.save') : t('systemSettings.skillActions.create')}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Custom skills list */}
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+                {skills.filter(s => s.source === 'custom').map(skill => (
+                  <SkillCard key={skill.id} skill={skill} t={t} onToggle={handleSkillToggle}
+                    onEdit={() => handleEditCustomSkill(skill.id)}
+                    onDelete={() => handleDeleteCustomSkill(skill.id)}
+                  />
                 ))}
               </div>
-            </div>
-          ))}
+              {skills.filter(s => s.source === 'custom').length === 0 && !showCreateSkill && (
+                <div className="text-center py-12 text-[var(--muted)]">
+                  <div className="text-4xl mb-3">✨</div>
+                  <p className="text-sm">{t('systemSettings.skillDetail.noCustom')}</p>
+                  <p className="text-[10px] mt-1">{t('systemSettings.skillDetail.noCustomHint')}</p>
+                </div>
+              )}
+            </>
+          )}
 
-          {skills.length === 0 && (
-            <div className="text-center py-12 text-[var(--muted)]">
-              <div className="text-4xl mb-3">📚</div>
-              <p className="text-sm">{t('systemSettings.skillDetail.noSkills')}</p>
-            </div>
+          {/* MARKETPLACE sub-tab */}
+          {skillSubTab === 'marketplace' && (
+            <>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={marketplaceQuery}
+                  onChange={e => setMarketplaceQuery(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleMarketplaceSearch()}
+                  placeholder={t('systemSettings.skillMarketplace.searchPlaceholder')}
+                  className="flex-1 bg-[var(--background)] border border-[var(--border)] rounded-lg px-3 py-1.5 text-xs focus:border-[var(--accent)] focus:outline-none"
+                />
+                <button onClick={handleMarketplaceSearch}
+                  className="text-xs px-4 py-1.5 rounded-lg bg-[var(--accent)]/20 text-[var(--accent)] hover:bg-[var(--accent)]/30">
+                  {t('common.search')}
+                </button>
+              </div>
+
+              {marketplaceLoading && (
+                <div className="text-center py-8 text-[var(--muted)]">
+                  <div className="animate-spin text-2xl mb-2">⏳</div>
+                  <p className="text-xs">{t('common.loading')}</p>
+                </div>
+              )}
+
+              {!marketplaceLoading && marketplaceResults.length > 0 && (
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+                  {marketplaceResults.map(skill => (
+                    <div key={skill.slug} className={`p-3 rounded-lg border transition-all ${
+                      skill.installed ? 'border-green-500/30 bg-green-900/10' : 'border-[var(--border)] bg-[var(--background)]'
+                    }`}>
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span>{skill.icon || '📦'}</span>
+                          <span className="text-sm font-medium truncate">{skill.name}</span>
+                        </div>
+                        <button
+                          onClick={() => handleInstallMarketplaceSkill(skill.slug)}
+                          disabled={skill.installed}
+                          className={`text-[10px] px-2 py-0.5 rounded-full transition-all ${
+                            skill.installed
+                              ? 'bg-green-900/30 text-green-400 cursor-default'
+                              : 'bg-[var(--accent)]/20 text-[var(--accent)] hover:bg-[var(--accent)]/30'
+                          }`}
+                        >
+                          {skill.installed ? t('systemSettings.skillMarketplace.installed') : t('systemSettings.skillMarketplace.install')}
+                        </button>
+                      </div>
+                      <p className="text-[10px] text-[var(--muted)] line-clamp-2">{skill.description}</p>
+                      <div className="flex items-center gap-2 mt-1.5 text-[9px] text-[var(--muted)]">
+                        <span>by {skill.author}</span>
+                        {skill.downloads > 0 && <span>⬇ {skill.downloads}</span>}
+                        {skill.stars > 0 && <span>⭐ {skill.stars}</span>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Installed marketplace skills */}
+              {skills.filter(s => s.source === 'marketplace').length > 0 && (
+                <div className="card">
+                  <h3 className="text-sm font-semibold mb-3">{t('systemSettings.skillMarketplace.installedTitle')}</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+                    {skills.filter(s => s.source === 'marketplace').map(skill => (
+                      <SkillCard key={skill.id} skill={skill} t={t} onToggle={handleSkillToggle}
+                        onDelete={() => handleUninstallSkill(skill.id)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {!marketplaceLoading && marketplaceResults.length === 0 && skills.filter(s => s.source === 'marketplace').length === 0 && (
+                <div className="text-center py-12 text-[var(--muted)]">
+                  <div className="text-4xl mb-3">🏪</div>
+                  <p className="text-sm">{t('systemSettings.skillMarketplace.empty')}</p>
+                  <p className="text-[10px] mt-1">{t('systemSettings.skillMarketplace.emptyHint')}</p>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
@@ -806,3 +1012,74 @@ function StatCard({ icon, label, value, sub, color = '' }) {
     </div>
   );
 }
+
+const SOURCE_BADGES = {
+  builtin: { label: 'Built-in', color: 'bg-blue-900/30 text-blue-400' },
+  custom: { label: 'Custom', color: 'bg-purple-900/30 text-purple-400' },
+  marketplace: { label: 'Market', color: 'bg-orange-900/30 text-orange-400' },
+};
+
+function SkillCard({ skill, t, onToggle, onEdit, onDelete }) {
+  const badge = SOURCE_BADGES[skill.source] || SOURCE_BADGES.builtin;
+  return (
+    <div className={`p-3 rounded-lg border transition-all ${
+      skill.state === 'enabled'
+        ? 'border-green-500/30 bg-green-900/10'
+        : 'border-[var(--border)] bg-[var(--background)]'
+    }`}>
+      <div className="flex items-center justify-between mb-1">
+        <div className="flex items-center gap-2 min-w-0">
+          <span>{skill.icon}</span>
+          <span className="text-sm font-medium truncate">{skill.name}</span>
+          <span className={`text-[8px] px-1.5 py-0.5 rounded-full ${badge.color}`}>{badge.label}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          {onEdit && (
+            <button onClick={onEdit} className="text-[10px] px-1.5 py-0.5 rounded text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-white/10">✏️</button>
+          )}
+          {onDelete && (
+            <button onClick={onDelete} className="text-[10px] px-1.5 py-0.5 rounded text-[var(--muted)] hover:text-red-400 hover:bg-red-900/20">🗑</button>
+          )}
+          <button
+            onClick={() => onToggle(skill.id, skill.state)}
+            className={`text-[10px] px-2 py-0.5 rounded-full transition-all ${
+              skill.state === 'enabled'
+                ? 'bg-green-900/30 text-green-400 hover:bg-red-900/30 hover:text-red-400'
+                : 'bg-white/10 text-[var(--muted)] hover:bg-green-900/30 hover:text-green-400'
+            }`}
+          >
+            {skill.state === 'enabled' ? t('common.disable') : t('common.enable')}
+          </button>
+        </div>
+      </div>
+      <p className="text-[10px] text-[var(--muted)] line-clamp-2">{skill.description}</p>
+      {skill.tags?.length > 0 && (
+        <div className="flex gap-1 flex-wrap mt-1.5">
+          {skill.tags.slice(0, 4).map((tag, i) => (
+            <span key={i} className="text-[9px] bg-white/5 text-[var(--muted)] px-1.5 py-0.5 rounded">{tag}</span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const SKILL_TEMPLATE = `---
+name: My Custom Skill
+description: Short description of what this skill does
+category: coding
+icon: 🔥
+tags: tag1, tag2, tag3
+---
+
+# My Custom Skill
+
+## Workflow
+1. Step one
+2. Step two
+3. Step three
+
+## Best Practices
+- Best practice one
+- Best practice two
+`;

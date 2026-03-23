@@ -398,10 +398,17 @@ const zh = {
 
   agent: {
     notFound: '员工信息未找到',
-    tabs: { info: '📋 基本信息', soul: '👻 灵魂', work: '📊 工作', usage: '💰 消耗', performanceSection: '绩效评价', taskSection: '任务历史' },
+    tabs: { info: '📋 基本信息', skills: '📚 技能', soul: '👻 灵魂', work: '📊 工作', usage: '💰 消耗', performanceSection: '绩效评价', taskSection: '任务历史' },
     soulSections: { memory: '🧠 记忆', stamina: '🔋 体力', config: '⚙️ 配置' },
     memorySubTabs: { personal: '💭 个人记忆', social: '👥 社交记忆' },
     avgPerformance: '平均绩效 {score}', rolePrompt: '角色 Prompt', personalityBio: '性格档案', skills: '技能',
+    noSkills: '未分配技能',
+    manageSkills: '管理技能',
+    skillsDescription: '为此员工启用或禁用技能。置顶的技能始终处于活跃状态。',
+    skillPin: '置顶技能（始终活跃）',
+    skillUnpin: '取消置顶',
+    legacySkills: '传统技能',
+    skillsLoadError: '加载技能数据失败',
     shortTermMemory: '⚡ 短期记忆 ({n})', longTermMemory: '💾 长期记忆 ({n})',
     noShortTerm: '暂无短期记忆', noLongTerm: '暂无长期记忆',
     noRelationships: '暂无社交记忆',
@@ -672,7 +679,7 @@ const zh = {
     cronStats: { running: '运行中', jobs: '任务数' },
     hookStats: { handlers: '处理器', eventKeys: '事件类型' },
     sessionStats: { total: '总会话', messages: '消息数' },
-    skillStats: { total: '总技能', enabled: '已启用', categories: '分类', installed: '已安装' },
+    skillStats: { total: '总技能', enabled: '已启用', categories: '分类', installed: '已安装', custom: '自定义' },
     kbStats: { totalBases: '知识库', enabled: '已启用', totalEntries: '条目数', globalBases: '全局' },
     cronDetail: {
       jobList: '定时任务列表',
@@ -696,6 +703,26 @@ const zh = {
     },
     skillDetail: {
       noSkills: '暂无可用技能',
+      noCustom: '暂无自定义技能',
+      noCustomHint: '用 Markdown 创建自定义技能来定制 Agent 行为',
+    },
+    skillTabs: {
+      all: '全部技能',
+      custom: '自定义',
+      marketplace: '技能市场',
+    },
+    skillActions: {
+      create: '创建技能',
+      edit: '编辑技能',
+      markdownHint: '使用 YAML frontmatter（name, description, category, icon, tags）编写 Markdown 格式的技能',
+    },
+    skillMarketplace: {
+      searchPlaceholder: '搜索 ClawHub 技能...',
+      install: '安装',
+      installed: '已安装',
+      installedTitle: '从市场安装的技能',
+      empty: '暂无市场技能',
+      emptyHint: '搜索 ClawHub 发现并安装社区技能',
     },
     kbDetail: {
       listTitle: '知识库列表',
@@ -865,6 +892,7 @@ const zh = {
     // 插件 & 技能
     missingPluginId: '缺少 pluginId',
     missingSkillId: '缺少 skillId',
+    missingParameter: '缺少必要参数：{param}',
     pluginUnknownAction: '未知操作：{action}',
 
     // CLI 后端

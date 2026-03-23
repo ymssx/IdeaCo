@@ -19,5 +19,6 @@ export const WORKSPACE_DIR = process.env.IDEACO_WORKSPACE_DIR
 export const MEMORY_DIR = path.join(DATA_DIR, 'memories');
 export const CHATS_DIR = path.join(DATA_DIR, 'chats');
 export const AUDIT_DIR = path.join(DATA_DIR, 'audit');
+export const SKILLS_DIR = path.join(DATA_DIR, 'skills');
 export const STATE_FILE = path.join(DATA_DIR, 'company-state.json');
 export const BACKUP_FILE = path.join(DATA_DIR, 'company-state.backup.json');
