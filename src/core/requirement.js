@@ -10,6 +10,27 @@ import { buildRhetoricPrompt, getRandomRhetoric } from './organization/workforce
 const REQ_GROUP_PREFIX = 'req-';
 
 /**
+ * Safely resolve a file path relative to a workspace directory.
+ * 
+ * Agents may write files using absolute-looking paths like "/project/prd_summary.md"
+ * which are virtual container paths. `path.join(wsPath, "/project/foo")` would
+ * return "/project/foo" (absolute wins), losing the workspace prefix entirely.
+ * 
+ * This helper strips leading slashes and common container prefixes (e.g. /project/, /workspace/)
+ * so the path is always resolved relative to the actual workspace directory on disk.
+ */
+function resolveWorkspaceFilePath(wsPath, filePath) {
+  if (!filePath) return path.join(wsPath, filePath);
+  // Strip common container-style absolute prefixes that agents may use
+  let normalized = filePath;
+  // Remove leading slash to force relative resolution
+  normalized = normalized.replace(/^\/+/, '');
+  // Strip well-known container prefixes (e.g. "project/", "workspace/")
+  normalized = normalized.replace(/^(project|workspace|home|app)\//i, '');
+  return path.join(wsPath, normalized);
+}
+
+/**
  * Requirement status enum
  */
 export const RequirementStatus = {
@@ -689,7 +710,7 @@ You must AVOID these leadership anti-patterns:
               const upstreamFiles = (d.result?.toolResults || [])
                 .filter(t => fileWriteTools.has(t.tool))
                 .map(t => t.args?.path || t.args?.filePath || t.args?.file_path || '')
-                .filter(f => f && (!depWsPath || existsSync(path.join(depWsPath, f))));
+                .filter(f => f && (!depWsPath || existsSync(resolveWorkspaceFilePath(depWsPath, f))));
 
               // === DELIVERY TRANSPARENCY: Include actual file content previews ===
               let fileDeliverySection = '';
@@ -698,7 +719,7 @@ You must AVOID these leadership anti-patterns:
                 const fileDetails = [];
                 for (const fp of uniqueFiles.slice(0, 8)) {
                   try {
-                    const fullPath = path.join(depWsPath, fp);
+                    const fullPath = resolveWorkspaceFilePath(depWsPath, fp);
                     if (existsSync(fullPath)) {
                       const content = readFileSync(fullPath, 'utf-8');
                       const preview = content.length > 1500
@@ -890,7 +911,7 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
             const verifiedFiles = [];
             for (const expectedFile of node.expectedOutputFiles) {
               try {
-                const fullPath = path.join(wsPath, expectedFile);
+                const fullPath = resolveWorkspaceFilePath(wsPath, expectedFile);
                 if (existsSync(fullPath)) {
                   verifiedFiles.push(expectedFile);
                 } else {
@@ -923,7 +944,7 @@ currentAction: `${agent.name} is typing... (round ${iteration})`,
           const phantomFilePaths = [];
           for (const fp of allClaimedPaths) {
             if (wsPath) {
-              const fullPath = path.join(wsPath, fp);
+              const fullPath = resolveWorkspaceFilePath(wsPath, fp);
               if (existsSync(fullPath)) {
                 writtenFilePaths.push(fp);
               } else {
@@ -1608,7 +1629,7 @@ Be natural, in character, and collegial. You can praise, suggest improvements, o
           const missingFiles = [];
           for (const fp of uniqueFiles.slice(0, 5)) {
             try {
-              const fullPath = path.join(wsPath, fp);
+              const fullPath = resolveWorkspaceFilePath(wsPath, fp);
               if (existsSync(fullPath)) {
                 const content = readFileSync(fullPath, 'utf-8');
                 const preview = content.length > 2000
@@ -1739,9 +1760,9 @@ Please provide your review verdict as JSON.`
     const round = node.reviewRounds || 1;
     // Pressure escalation messages based on revision round
     const pressureMsg = round <= 1 ? '' :
-      round === 2 ? '\n\n⚠️ This is your SECOND attempt. Stop tweaking the same approach — think fundamentally differently. What assumptions haven\'t you verified? What did you miss in the error signals?' :
-      round === 3 ? '\n\n🔴 THIRD attempt. Apply the 5-step methodology: (1) What pattern are your failures showing? (2) Read the reviewer\'s feedback WORD BY WORD. (3) Are you repeating variants of the same approach? (4) Verify EVERY assumption. (5) Try the OPPOSITE of what you\'ve been doing.' :
-      `\n\n🚨 ATTEMPT ${round}. This is a CRITICAL situation. You must: (1) List everything you\'ve tried and find the common failure pattern. (2) Verify ALL assumptions with evidence. (3) Try a COMPLETELY different approach — not a parameter tweak, a fundamentally different strategy. (4) Produce new diagnostic information even if the fix doesn\'t work.`;
+      round === 2 ? '\n\n⚠️ This is your SECOND attempt. Before changing anything: (1) Did you independently VERIFY the reviewer\'s claims? The reviewer could be wrong. (2) If you confirmed a real issue, think fundamentally differently — don\'t tweak the same approach. (3) If the reviewer is wrong, PROVE IT with evidence from your tool results.' :
+      round === 3 ? '\n\n🔴 THIRD attempt. STOP. You may be in a loop. Ask yourself: (1) Am I making the SAME change the reviewer keeps rejecting? If so, maybe the REVIEWER is wrong — verify independently. (2) Am I apologizing for things that aren\'t actually broken? STOP apologizing — verify first. (3) Read the reviewer\'s feedback WORD BY WORD and use file_read/workspace_files to check every factual claim. (4) If your work IS correct, push back with evidence instead of making unnecessary changes.' :
+      `\n\n🚨 ATTEMPT ${round}. CRITICAL: You are likely stuck in a rejection loop. This means either: (A) You keep making the same mistake — identify the ROOT CAUSE, not symptoms. Or (B) The reviewer keeps making the same wrong claim — VERIFY independently and PUSH BACK with hard evidence. Do NOT keep apologizing and redoing correct work. Trust your own verification over the reviewer's claims. Break the loop.`;
 
     // Collect files previously written by this agent for this node
     const fileWriteToolSet = new Set(['file_write', 'file_append', 'file_patch']);
@@ -1772,14 +1793,20 @@ ${pressureMsg}
 **Instructions:**
 1. Carefully read the reviewer's feedback — EVERY WORD. 90% of the answer is in their feedback.
 2. **FIRST ACTION**: Use file_read to read ALL your previously written files listed above. Do NOT skip this step.
-3. Address EVERY issue mentioned by the reviewer — do not skip any point
-4. MODIFY existing files (don't recreate from scratch unless fundamentally wrong)
-5. Before making changes, verify your assumptions: are the paths correct? Are the dependencies right? Are the edge cases covered?
-6. After revision, proactively check: are there SIMILAR issues elsewhere that you should also fix?
-7. Output your complete revised result with EVIDENCE that the reviewer's concerns are addressed
-8. **IMPORTANT**: Do NOT use fictional time references ("I'll fix this by tomorrow"). Fix it NOW.`,
+3. **INDEPENDENTLY VERIFY every claim the reviewer makes** — do NOT blindly trust the feedback:
+   - If the reviewer says a file doesn't exist → Use file_read to check yourself. If you can read it, the file exists and the reviewer (or the verification system) is wrong.
+   - If the reviewer says your logic is flawed → Re-examine the logic yourself. Is it actually flawed, or did the reviewer misunderstand?
+   - If the reviewer says output doesn't meet requirements → Re-read the original requirements. Does your output actually meet them?
+   - **Everyone is fallible — the reviewer, the automated systems, and you. Trust evidence, not authority.**
+4. For issues you've CONFIRMED are genuine problems: address them thoroughly — don't just patch, fix the root cause
+5. For issues you've CONFIRMED are FALSE: do NOT change your correct work. Instead, clearly state in your output that you verified and the original work is correct, with evidence.
+6. MODIFY existing files (don't recreate from scratch unless fundamentally wrong)
+7. Before making changes, verify your assumptions: are the paths correct? Are the dependencies right? Are the edge cases covered?
+8. After revision, proactively check: are there SIMILAR issues elsewhere that you should also fix?
+9. Output your complete revised result with EVIDENCE addressing each of the reviewer's points (whether you agree or disagree)
+10. **IMPORTANT**: Do NOT use fictional time references ("I'll fix this by tomorrow"). Fix it NOW.`,
       context: '',
-      requirements: `This is a REVISION for requirement "${requirement.title}". The reviewer was not satisfied and you must address their feedback. Do not repeat the same approach that was rejected — demonstrate progress.`,
+      requirements: `This is a REVISION for requirement "${requirement.title}". The reviewer was not satisfied — but that does NOT automatically mean your work was wrong. Independently verify EVERY claim before making changes. Only fix what is genuinely broken. Push back on incorrect feedback with evidence.`,
     };
 
     return await agent.executeTask(revisionTask, callbacks);
@@ -1813,16 +1840,19 @@ Your personality: ${p.trait || 'Professional'}. Speaking style: ${p.tone || 'Nor
 Your work on task "${node.title}" for requirement "${requirement.title}" was just reviewed and REJECTED by ${reviewer.name} (${reviewer.role}).
 
 You now have a choice — this is a professional discussion, not a hierarchy:
-1. **Accept** the feedback and revise your work (if you genuinely agree the feedback is valid)
-2. **Push back** and argue your case (if you believe your work is correct or the feedback is unfair/wrong)
+1. **Accept** the feedback and revise your work (if you genuinely agree the feedback is valid after YOUR OWN independent verification)
+2. **Push back** and argue your case (if your independent verification shows your work is correct)
 
-**Important guidelines for your decision:**
-- Be honest and professional. Don't just accept to be polite — if you genuinely believe your work is good, defend it!
-- Consider whether the reviewer's points are technically valid
-- If the feedback is about style preferences vs. actual errors, you can push back
-- If you made a genuine mistake, accept gracefully
-- When pushing back, provide SPECIFIC technical arguments, not just "I disagree"
-- Be respectful but firm — this is a professional debate between colleagues
+**⚠️ CRITICAL MINDSET — Question Everything:**
+Everyone makes mistakes — you, the reviewer, and even the automated systems. Do NOT blindly trust anyone's claims. Your job is to THINK INDEPENDENTLY:
+
+- **Verify before accepting**: Before agreeing with ANY criticism, independently verify the claim yourself. If the reviewer says something is wrong, CHECK IT yourself — don't just take their word for it.
+- **The reviewer is fallible**: Reviewers can misread code, misunderstand requirements, have wrong assumptions, or use broken tools. Their rejection is an OPINION, not a fact — until YOU verify it.
+- **The system is fallible**: Automated checks (file existence validation, linting, path resolution) can have bugs. If the system says a file doesn't exist but you wrote it successfully, the system is probably wrong — not you.
+- **Never apologize without evidence**: Do NOT say "sorry" or "I apologize" unless YOU have independently confirmed you made an error. Apologizing for things you didn't do wrong creates confusion and wastes everyone's time.
+- **Defend correct work fiercely**: If your tool calls returned success, if your logic is sound, if your output matches the requirements — PUSH BACK. Provide evidence: quote your tool results, cite specific code, reference the requirements.
+- **Accept genuine mistakes gracefully**: If after independent verification you find you DID make an error, accept it clearly and specifically — explain what went wrong and how you'll fix it.
+- **Break the loop**: If you've been rejected multiple times for the SAME issue and you believe your work is correct, escalate by providing detailed evidence rather than making the same fix again. Repeating the same approach expecting different results is a waste.
 
 **Output format (JSON only):**
 {
@@ -2112,7 +2142,7 @@ Rules:
       referencedPaths.add(trimmed);
       // Validate file exists in workspace
       if (wsPath) {
-        const fullPath = path.join(wsPath, trimmed);
+        const fullPath = resolveWorkspaceFilePath(wsPath, trimmed);
         if (!existsSync(fullPath)) {
           invalidPaths.push(trimmed);
           // Do NOT render as [[file:]] — show as plain text with ❌ marker
@@ -2130,7 +2160,7 @@ return `❌ ${trimmed} (file not found)`;
       referencedPaths.add(trimmed);
       // Also validate incomplete refs
       if (wsPath) {
-        const fullPath = path.join(wsPath, trimmed);
+        const fullPath = resolveWorkspaceFilePath(wsPath, trimmed);
         if (!existsSync(fullPath)) {
           invalidPaths.push(trimmed);
 return `❌ ${trimmed} (file not found)`;

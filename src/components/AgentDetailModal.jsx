@@ -32,7 +32,11 @@ export default function AgentDetailModal({ agentId, onClose }) {
         const data = await fetchAgentDetail(agentId);
         setAgent(data);
         // Initialize config form from fetched data
-        setConfigProviderId(data.provider?.id || '');
+        // If the current provider is not in availableProviders (e.g. CLI backend expired),
+        // default to the first available provider so user can save immediately
+        const currentPid = data.provider?.id || '';
+        const isCurrentAvailable = (data.availableProviders || []).some(p => p.id === currentPid);
+        setConfigProviderId(isCurrentAvailable ? currentPid : (data.availableProviders?.[0]?.id || ''));
         setConfigPrompt(data.prompt || '');
         setConfigCustomPrompt(data.customPrompt || '');
       } catch (e) { /* handled */ }
