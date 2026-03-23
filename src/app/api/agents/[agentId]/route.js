@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { getCompany } from '@/lib/store';
 import { getApiT } from '@/lib/api-i18n';
+import { LLMAgent } from '@/core/agent/llm-agent/index.js';
+import { CLIAgent } from '@/core/agent/cli-agent/index.js';
+import { WebAgent } from '@/core/agent/web-agent/index.js';
 
 export async function GET(request, { params }) {
   const t = getApiT(request);
@@ -22,6 +25,7 @@ export async function GET(request, { params }) {
             gender: agent.gender,
             age: agent.age,
             personality: agent.personality,
+            personalityBio: agent.personalityBio || '',
             signature: agent.signature,
             prompt: agent.prompt,
             skills: agent.skills,
@@ -29,9 +33,16 @@ export async function GET(request, { params }) {
             provider: agent.getProviderDisplayInfo(),
             cliBackend: agent.cliBackend || null,
             fallbackProvider: agent.getFallbackProviderName(),
+            customPrompt: agent.customPrompt || '',
             department: dept.name,
             departmentId: dept.id,
+            // Available providers for frontend dropdown (all enabled providers, not just same category)
+            availableProviders: company.providerRegistry
+              .listAll()
+              .filter(p => p.enabled)
+              .map(p => ({ id: p.id, name: p.name, provider: p.provider, model: p.model, category: p.category })),
             memory: agent.memory.getSummary(),
+            stamina: agent.stamina ? agent.stamina.getSummary() : null,
             performanceHistory: agent.performanceHistory,
             reviews: reviews.map(r => r.getSummary()),
             taskHistory: agent.taskHistory.map(t => ({
@@ -86,6 +97,70 @@ export async function PUT(request, { params }) {
           agent.agent.cliBackend = body.cliBackend || null;
         }
 
+        // Switch provider (by provider ID) — handles cross-type switching (e.g. CLI→LLM)
+        if ('providerId' in body && body.providerId) {
+          const newProvider = company.providerRegistry.getById(body.providerId);
+          if (newProvider && newProvider.enabled) {
+            const oldProviderName = agent.getProviderDisplayInfo()?.name || 'unknown';
+
+            // Determine if agent type needs to change
+            const targetType = newProvider.isCLI ? 'cli' : newProvider.isWeb ? 'web' : 'llm';
+            const needsTypeSwitch = agent.agentType !== targetType;
+
+            if (needsTypeSwitch) {
+              // Agent type mismatch — rebuild the communication agent
+              if (newProvider.isCLI && newProvider.cliBackendId) {
+                const fallback = company.providerRegistry.recommend('general');
+                agent.agent = new CLIAgent({
+                  cliBackend: newProvider.cliBackendId,
+                  cliProvider: newProvider,
+                  fallbackProvider: fallback,
+                  provider: fallback,
+                });
+                console.log(`[${agent.name}] Agent rebuilt as CLIAgent: ${newProvider.name} (${newProvider.cliBackendId})`);
+              } else if (newProvider.isWeb) {
+                agent.agent = new WebAgent({ provider: newProvider });
+                agent.agent.setEmployeeId(agent.id);
+                // Reset session so next chat reinitializes with the new provider
+                agent._sessionAwake = false;
+                console.log(`[${agent.name}] Agent rebuilt as WebAgent: ${newProvider.name}`);
+              } else {
+                agent.agent = new LLMAgent({ provider: newProvider });
+                console.log(`[${agent.name}] Agent rebuilt as LLMAgent: ${newProvider.name}`);
+              }
+              // Reset introduction flag so the employee re-onboards with the new model
+              agent.hasIntroduced = false;
+            } else {
+              agent.switchProvider(newProvider);
+            }
+
+            console.log(`[${agent.name}] Provider switched: ${oldProviderName} → ${newProvider.name} (id: ${newProvider.id}, type: ${agent.agentType})`);
+            // Re-onboard in background (non-blocking): regenerate signature/personalityBio with new model
+            // Don't await — return the response immediately so the save doesn't time out
+            const bgDeptName = dept.name || 'the company';
+            agent.onboard({ departmentName: bgDeptName, bossName: company.bossName || 'Boss' })
+              .then(() => {
+                console.log(`[${agent.name}] Re-onboard after provider switch completed`);
+                company.save();
+              })
+              .catch(e => {
+                console.error(`[${agent.name}] Re-onboard after provider switch failed:`, e.message);
+              });
+          } else {
+            console.warn(`[${agent.name}] Provider switch failed: provider "${body.providerId}" ${!newProvider ? 'not found' : 'is disabled'}`);
+          }
+        }
+
+        // Update role prompt
+        if ('prompt' in body && typeof body.prompt === 'string') {
+          agent.prompt = body.prompt;
+        }
+
+        // Update custom prompt (boss's special instructions)
+        if ('customPrompt' in body && typeof body.customPrompt === 'string') {
+          agent.customPrompt = body.customPrompt;
+        }
+
         // Persist
         company.save();
 
@@ -94,6 +169,11 @@ export async function PUT(request, { params }) {
             id: agent.id,
             name: agent.name,
             cliBackend: agent.cliBackend,
+            provider: agent.getProviderDisplayInfo(),
+            prompt: agent.prompt,
+            customPrompt: agent.customPrompt || '',
+            signature: agent.signature,
+            personalityBio: agent.personalityBio || '',
             message: t('api.agentConfigUpdated'),
           },
         });

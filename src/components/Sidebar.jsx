@@ -9,7 +9,7 @@ import BossProfileModal from './BossProfileModal';
 import CachedAvatar from './CachedAvatar';
 
 export default function Sidebar() {
-  const { company, activeTab, setActiveTab, setChatOpen, chatOpen, chatMinimized, setChatMinimized } = useStore();
+  const { company, activeTab, setActiveTab, setChatOpen, chatOpen } = useStore();
   const { t } = useI18n();
   const [showSettings, setShowSettings] = useState(false);
   const [showBossProfile, setShowBossProfile] = useState(false);
@@ -17,11 +17,11 @@ export default function Sidebar() {
   if (!company) return null;
 
   const NAV_ITEMS = [
-    { id: 'overview', label: t('sidebar.nav.overview'), icon: '📊' },
-    { id: 'office', label: t('sidebar.nav.office'), icon: '🎮' },
-    { id: 'mailbox', label: t('sidebar.nav.mailbox'), icon: '💬' },
     { id: 'requirements', label: t('sidebar.nav.requirements'), icon: '📋' },
+    { id: 'mailbox', label: t('sidebar.nav.mailbox'), icon: '💬' },
     { id: 'departments', label: t('sidebar.nav.departments'), icon: '🏢' },
+    { id: 'office', label: t('sidebar.nav.office'), icon: '🎮' },
+    { id: 'overview', label: t('sidebar.nav.overview'), icon: '📊' },
   ];
 
   const deptCount = company.departments?.length || 0;
@@ -58,14 +58,8 @@ export default function Sidebar() {
       {/* Secretary info - clickable to open chat */}
       <div className="mx-3 mt-3 rounded-lg bg-gradient-to-r from-blue-900/20 to-purple-900/20 border border-blue-500/20">
         <button
-          onClick={() => {
-            if (!chatOpen) {
-              setChatOpen(true);
-            } else if (chatMinimized) {
-              setChatMinimized(false);
-            }
-          }}
-          className="w-full p-3 hover:bg-white/5 transition-all text-left rounded-t-lg"
+          onClick={() => setChatOpen(!chatOpen)}
+          className={`w-full p-3 hover:bg-white/5 transition-all text-left rounded-t-lg ${chatOpen ? 'bg-white/5' : ''}`}
         >
           <div className="flex items-center gap-2">
             <img
@@ -82,7 +76,9 @@ export default function Sidebar() {
                 {t('sidebar.clickToChat', { provider: company.secretary?.provider })}
               </div>
             </div>
-            <span className="text-sm">💬</span>
+            <span className={`text-sm transition-transform duration-200 ${chatOpen ? 'text-[var(--accent)]' : ''}`}>
+              {chatOpen ? '◀' : '💬'}
+            </span>
           </div>
         </button>
         <button

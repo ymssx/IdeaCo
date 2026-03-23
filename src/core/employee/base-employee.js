@@ -9,7 +9,9 @@ import { sessionManager } from '../agent/session.js';
 import { cliBackendRegistry } from '../agent/cli-agent/backends/index.js';
 import { createAgent, deserializeAgent } from '../agent/index.js';
 import { EmployeeLifecycle } from './lifecycle.js';
+import { StaminaSystem } from './stamina.js';
 import { safeJSONParse } from '../utils/json-parse.js';
+import { buildLanguageInstruction, getAppLanguageName } from '../utils/app-language.js';
 
 // Placeholder signature
 const DEFAULT_SIGNATURE = 'Just arrived, still thinking of what to say...';
@@ -101,9 +103,15 @@ export class Employee {
     // Personality
     this.personality = config.personality || this._assignPersonality();
 
+    // Personality bio — a ~100-word self-description generated during onboarding
+    this.personalityBio = config.personalityBio || '';
+
     // Signature
     this.signature = config.signature || DEFAULT_SIGNATURE;
     this.hasIntroduced = !!config.signature;
+
+    // Custom prompt override — boss can add extra instructions per employee
+    this.customPrompt = config.customPrompt || '';
 
     // Org structure
     this.department = config.department;
@@ -145,6 +153,9 @@ export class Employee {
     this._sessionMessageCount = 0; // Track total messages in current web session (for auto-refresh)
     this._maxSessionMessages = 50; // Max messages before forcing a new web session
 
+    // Stamina system — tracks patience, fatigue, stress, and comfort
+    this.stamina = new StaminaSystem();
+
     // Lifecycle — manages poll cycle, flow state, anti-spam, etc.
     this.lifecycle = new EmployeeLifecycle(this);
   }
@@ -171,7 +182,13 @@ export class Employee {
   getFallbackProviderName() { return this.agent.getFallbackProviderName(); }
 
   /** Switch the agent's provider. */
-  switchProvider(newProvider) { this.agent.switchProvider(newProvider); }
+  switchProvider(newProvider) {
+    this.agent.switchProvider(newProvider);
+    // Reset introduction flag so the employee re-onboards with the new model
+    this.hasIntroduced = false;
+    this.signature = DEFAULT_SIGNATURE;
+    this.personalityBio = '';
+  }
 
   /** CLI backend ID (null for LLM agents). */
   get cliBackend() { return this.agent.cliBackend || null; }
@@ -654,10 +671,13 @@ ${scenePrompt}`;
     systemContent += `- Position: ${this.role}\n`;
     systemContent += `- Skills: ${this.skills.join(', ')}\n`;
     systemContent += `- Signature: ${this.signature}\n`;
+    if (this.personalityBio) {
+      systemContent += `\n## Your Personality Profile\n${this.personalityBio}\n`;
+    }
 
     if (this.toolKit) {
       systemContent += `\n## Available Tools\n`;
-      systemContent += `Built-in tools: file_read (read file), file_write (create/write file), file_list (list directory), file_delete (delete file), shell_exec (execute command), send_message (send message to colleague for collaboration and feedback).\n`;
+      systemContent += `Built-in tools: file_read (read file), file_write (create/write file), file_list (list directory), file_delete (delete file), mkdir (create directories), shell_exec (execute command), send_message (send message to colleague for collaboration and feedback).\n`;
       systemContent += `\n**Teamwork & Collaboration (IMPORTANT)**:\n`;
       systemContent += `- You are part of a team! Proactively communicate with colleagues using send_message.\n`;
       systemContent += `- When working in parallel, coordinate to avoid duplicate work and share discoveries.\n`;
@@ -666,13 +686,23 @@ ${scenePrompt}`;
       systemContent += `- Don't work in isolation — great teams communicate frequently!\n`;
 
       systemContent += `\nAll file operations are within your workspace directory. Please actively use tools to produce actual work output.\n`;
-      systemContent += `**Efficiency requirement: Minimize tool call rounds, plan all needed operations at once, avoid repetitive reading and checking. Give a final summary immediately after completing core work.**\n`;
+      systemContent += `**Efficiency requirement: Plan all needed operations at once and batch related tool calls. However, ALWAYS verify critical results after execution — verification is NOT optional overhead, it is a core part of completing work. After creating files or directories, use file_list or shell_exec ls to confirm they actually exist on disk before reporting completion.**\n`;
+
+      // Anti-hallucination: ground truth constraints
+      systemContent += `\n## Ground Truth Rules (ALWAYS FOLLOW)\n`;
+      systemContent += `- **File verification (MANDATORY)**: After writing files or creating directories, you MUST use file_list or file_read to verify they actually exist on disk. A successful tool call does NOT guarantee the result — always confirm. Before claiming any file exists, verify with tools. Never assume.\n`;
+      systemContent += `- **No fictional time**: You execute tasks in real-time (seconds to minutes). NEVER say "by end of day", "tomorrow", "this afternoon", "give me a few hours", "before deadline", etc. These time references are fictional — you don't have a clock or schedule. Just DO the work NOW.\n`;
+      systemContent += `- **Concrete deliverables**: When reporting completion, state EXACTLY what you produced (file paths, content summaries). Never say "I've prepared the document" without specifying the actual file path.\n`;
+      systemContent += `- **Read before reference**: If a colleague says they delivered files, READ them with file_read before acting on them. Do not trust text summaries alone.\n`;
     }
 
     try {
       const kbPrompt = knowledgeManager.buildKnowledgePrompt(this.id, this.department);
       if (kbPrompt) systemContent += kbPrompt;
     } catch {}
+
+    // Enforce response language based on current UI language
+    systemContent += buildLanguageInstruction();
 
     return systemContent;
   }
@@ -683,8 +713,25 @@ ${scenePrompt}`;
     if (task.description) content += `**Task Description**: ${task.description}\n`;
     if (task.context) content += `\n**Context**:\n${task.context}\n`;
     if (task.requirements) content += `\n**Requirements**:\n${task.requirements}\n`;
-    content += `\nPlease complete the task diligently. If you need to create files, please use tools to actually create them. Produce real work output.\n**Important: Execute efficiently, try to complete all work in one go. Don't repeatedly check or over-iterate. Give the final result directly after completing core output.**`;
+    content += `\nPlease complete the task diligently. If you need to create files, please use tools to actually create them. Produce real work output.\n**Important: Execute efficiently, try to complete all work in one go. After creating files or directories, ALWAYS verify they exist using file_list or shell_exec before reporting completion — this is required, not optional.**`;
     content += `\n**Critical: If this task involves reviewing, integrating, or checking existing work/files, you MUST actually read the relevant files using file_read before giving your assessment. Do NOT just produce a summary without reading the actual content. Reviewers who don't read the files are not doing their job.**`;
+
+    // === Anti-hallucination: File existence verification ===
+    content += `\n\n**⚠️ FILE HANDLING RULES (CRITICAL):**`;
+    content += `\n1. Before referencing any file, use file_read or file_list to VERIFY it exists. Never assume a file exists based on someone's description.`;
+    content += `\n2. If a predecessor says they delivered files, READ them with file_read before proceeding. Do not trust summaries alone.`;
+    content += `\n3. If file_read returns an error (file not found), do NOT proceed as if the file exists. Report the issue immediately.`;
+    content += `\n4. When you write files, state the EXACT path you wrote to. When you read files, state the EXACT path you read from.`;
+    content += `\n5. Use file_list to check what files actually exist in the workspace before starting work that depends on existing files.`;
+
+    // === Anti-hallucination: Prohibit fictional time references ===
+    content += `\n\n**⚠️ TIME AND SCHEDULE RULES (CRITICAL):**`;
+    content += `\n- You are an AI agent executing tasks in real-time. Each task executes in seconds to minutes.`;
+    content += `\n- NEVER use fictional time references like "by end of day", "before 5pm", "tomorrow morning", "next week", "I'll finish this afternoon", "give me a few hours".`;
+    content += `\n- NEVER propose schedules, timelines, or deadlines. You execute NOW, not later.`;
+    content += `\n- Instead of "I'll have this ready by tomorrow", just DO the work immediately.`;
+    content += `\n- Do not roleplay having a work schedule, lunch breaks, or office hours. Execute the task right now.`;
+
     return content;
   }
 
@@ -733,6 +780,7 @@ ${scenePrompt}`;
 It's your first day! Generate the following in JSON format:
 {
   "signature": "Your personal motto/signature (10-30 words, fully reflects your personality, speaking style, age, and gender)",
+  "personalityBio": "A vivid ~100-word self-portrait describing who you really are — your temperament, work habits, communication style, quirks, values, and how you relate to others. Write in third person (e.g. 'He/She is...'). Make it feel like a character profile, not a resume. Reflect your age, gender, and personality archetype naturally.",
   "greeting": "A personal message to your boss ${bossName} (50-150 words). Introduce yourself naturally — who you are, what you do, your personality. Be genuine, speak in YOUR voice. This is a private 1-on-1 message.",
   "broadcast": "A short message to all colleagues (30-80 words). Say hi, introduce yourself briefly. Keep your personality."
 }
@@ -742,12 +790,14 @@ Rules:
 - The greeting should feel like a real person talking, NOT a corporate template
 - Include your quirks naturally
 - Match your age and gender characteristics
+- You MUST write ALL content (signature, personalityBio, greeting, broadcast) in ${getAppLanguageName()}
 - Return ONLY valid JSON, no markdown fences` },
           { role: 'user', content: 'It\'s your first day at work. Introduce yourself!' },
         ], { temperature: 1.0, maxTokens: 512 });
 
         const result = this._parseOnboardResponse(response.content);
         this.signature = result.signature || this._generateFallbackSignature();
+        if (result.personalityBio) this.personalityBio = result.personalityBio;
         this.hasIntroduced = true;
         return result;
       } catch (e) {
@@ -1019,6 +1069,8 @@ Do not use any code, tool calls, or technical instructions — reply in natural 
       age: this.age,
       signature: this.signature,
       hasIntroduced: this.hasIntroduced,
+      personalityBio: this.personalityBio || '',
+      customPrompt: this.customPrompt || '',
       personality: { ...this.personality },
       // Full memory is persisted in separate files (data/memories/{id}.json);
       // only store counts here to avoid bloating company-state.json.
@@ -1032,6 +1084,7 @@ Do not use any code, tool calls, or technical instructions — reply in natural 
         success: h.result?.success,
       })),
       performanceHistory: [...this.performanceHistory],
+      stamina: this.stamina.serialize(),
       createdAt: this.createdAt,
     };
   }
@@ -1051,6 +1104,7 @@ Do not use any code, tool calls, or technical instructions — reply in natural 
       result: { success: h.success },
     }));
     this.performanceHistory = data.performanceHistory || [];
+    this.stamina = StaminaSystem.deserialize(data.stamina);
     this.createdAt = data.createdAt ? new Date(data.createdAt) : new Date();
 
     if (!this.templateId && this.role) {
@@ -1092,6 +1146,7 @@ Do not use any code, tool calls, or technical instructions — reply in natural 
       avatarParams: data.avatarParams,
       personality: data.personality || undefined,
       templateId: data.templateId || null,
+      customPrompt: data.customPrompt || '',
     });
 
     // Restore the agent from serialized data (with proper provider resolution)

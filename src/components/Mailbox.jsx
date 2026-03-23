@@ -183,7 +183,7 @@ for (const agent of (dept.members || dept.agents || [])) {
     if (activeChat?.type === 'secretary' && chatOpen) {
       setChatOpen(false);
     }
-  }, [activeChat]);
+  }, [activeChat, chatOpen, setChatOpen]);
 
   // Build conversation list: sorted by latest message time
   const allConversations = buildConversations(secretary, secretaryHistory, requirements, t, agentChatSessions, company?.departments || []);

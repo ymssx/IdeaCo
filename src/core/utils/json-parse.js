@@ -1,34 +1,35 @@
 /**
  * Robust JSON parser for LLM / Web Agent output.
  *
- * LLM（尤其是 ChatGPT web 版）返回的 "JSON" 经常包含各种脏字符：
- * - Markdown 代码块包裹 (```json ... ```)
- * - Smart quotes（"" → ""）
- * - BOM / 零宽空格等不可见字符
- * - JSON 前后有额外的文字说明
- * - 值中未转义的换行符
- * - 尾逗号 (trailing comma)
+ * LLM output (especially ChatGPT web) often contains various dirty characters:
+ * - Markdown code block wrappers (```json ... ```)
+ * - Smart quotes ("" → "")
+ * - BOM / zero-width spaces and other invisible characters
+ * - Extra text before/after the JSON
+ * - Unescaped newlines inside string values
+ * - Trailing commas
  *
- * 本模块提供统一的解析入口，避免在业务代码中重复编写 fallback 链。
+ * This module provides a unified parsing entry point to avoid
+ * repetitive fallback chains in business code.
  */
 
 /**
- * 清理 LLM 输出中常见的脏字符，使其更容易被 JSON.parse 解析。
+ * Clean common dirty characters from LLM output to make JSON.parse work.
  * @param {string} raw
  * @returns {string}
  */
 function sanitize(raw) {
   let s = raw;
 
-  // 1. 移除 BOM 和常见零宽字符
+  // 1. Remove BOM and common zero-width characters
   s = s.replace(/[\uFEFF\u200B\u200C\u200D\u2060]/g, '');
 
   // 2. Smart quotes → ASCII quotes
-  s = s.replace(/[\u201C\u201D\u201E\u201F\u2033\u2036]/g, '"');  // ""„‟ → "
-  s = s.replace(/[\u2018\u2019\u201A\u201B\u2032\u2035]/g, "'");  // '' → '
+  s = s.replace(/[\u201C\u201D\u201E\u201F\u2033\u2036]/g, '"');  // curly double quotes → "
+  s = s.replace(/[\u2018\u2019\u201A\u201B\u2032\u2035]/g, "'");  // curly single quotes → '
 
-  // 3. 全角冒号 → 半角（JSON key-value 分隔符）
-  // 仅在明显的 JSON key 上下文中替换，避免误伤内容
+  // 3. Fullwidth colon → halfwidth (JSON key-value separator)
+  // Only replace in obvious JSON key context to avoid damaging content
   // "key"：value → "key":value
   s = s.replace(/"(\s*)：(\s*)/g, '"$1:$2');
 
@@ -36,20 +37,102 @@ function sanitize(raw) {
 }
 
 /**
- * 尝试从原始字符串中提取并解析 JSON 对象。
+ * Build a smart preview of failed JSON output for error messages.
+ * Instead of blindly truncating (which cuts mid-value and produces unreadable output),
+ * this attempts to parse partial JSON and truncate individual values while preserving
+ * the overall JSON structure so the preview is always parseable and informative.
  *
- * 解析策略（按优先级）：
- * 1. 直接 JSON.parse
- * 2. 去除 markdown code fence 后解析
- * 3. 提取第一个 ```json ... ``` 或 ``` ... ``` 块
- * 4. 提取最外层的 { ... } 子串
- * 5. 修复尾逗号后重试
+ * @param {string} raw - The original LLM output
+ * @param {number} maxLen - Maximum preview length (default 500)
+ * @returns {string} A structured preview string
+ */
+function buildSmartPreview(raw, maxLen = 500) {
+  if (!raw || raw.length <= maxLen) return raw || '';
+
+  // Try to extract the { ... } block first
+  const braceStart = raw.indexOf('{');
+  const braceEnd = raw.lastIndexOf('}');
+
+  if (braceStart !== -1 && braceEnd > braceStart) {
+    const candidate = raw.substring(braceStart, braceEnd + 1);
+    // Try to parse and truncate values
+    try {
+      // Fix common issues first
+      let fixed = candidate.replace(/,\s*([\]}])/g, '$1');
+      fixed = fixed.replace(
+        /"(?:[^"\\]|\\.)*"/g,
+        (match) => match.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t')
+      );
+      const parsed = JSON.parse(fixed);
+      const truncated = truncateValues(parsed, 80);
+      return JSON.stringify(truncated, null, 2).substring(0, maxLen);
+    } catch {
+      // Can't parse — fall through to raw truncation
+    }
+
+    // Even if can't parse, show the { ... } block with better boundaries
+    if (candidate.length <= maxLen) return candidate;
+    // Find a natural break point (end of a key-value pair)
+    const safeSlice = candidate.substring(0, maxLen);
+    const lastComma = safeSlice.lastIndexOf(',');
+    const lastNewline = safeSlice.lastIndexOf('\n');
+    const breakPoint = Math.max(lastComma, lastNewline);
+    if (breakPoint > maxLen * 0.5) {
+      return safeSlice.substring(0, breakPoint + 1) + '\n  ... (truncated)';
+    }
+  }
+
+  // Fallback: raw truncation at natural boundary
+  const safeSlice = raw.substring(0, maxLen);
+  const lastNewline = safeSlice.lastIndexOf('\n');
+  if (lastNewline > maxLen * 0.5) {
+    return safeSlice.substring(0, lastNewline) + '\n... (truncated)';
+  }
+  return safeSlice + '... (truncated)';
+}
+
+/**
+ * Recursively truncate string values in a parsed JSON object.
+ * Preserves structure (keys, nesting) while shortening long string values.
+ * @param {*} obj
+ * @param {number} maxValueLen
+ * @returns {*}
+ */
+function truncateValues(obj, maxValueLen = 80) {
+  if (obj === null || obj === undefined) return obj;
+  if (typeof obj === 'string') {
+    return obj.length > maxValueLen
+      ? obj.substring(0, maxValueLen) + '...(truncated)'
+      : obj;
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(item => truncateValues(item, maxValueLen));
+  }
+  if (typeof obj === 'object') {
+    const result = {};
+    for (const [key, value] of Object.entries(obj)) {
+      result[key] = truncateValues(value, maxValueLen);
+    }
+    return result;
+  }
+  return obj; // numbers, booleans, etc.
+}
+
+/**
+ * Attempt to extract and parse a JSON object from a raw string.
  *
- * @param {string} raw - LLM / Web Agent 的原始输出
+ * Parsing strategies (by priority):
+ * 1. Direct JSON.parse
+ * 2. Strip markdown code fences and parse
+ * 3. Extract first ```json ... ``` or ``` ... ``` block
+ * 4. Extract outermost { ... } substring
+ * 5. Fix trailing commas and retry
+ *
+ * @param {string} raw - Raw LLM / Web Agent output
  * @param {object} [options]
- * @param {boolean} [options.allowArray=false] - 是否允许顶层是数组
- * @returns {object|Array} 解析后的 JSON 对象
- * @throws {Error} 如果所有策略均失败
+ * @param {boolean} [options.allowArray=false] - Whether to allow top-level arrays
+ * @returns {object|Array} Parsed JSON object
+ * @throws {Error} If all strategies fail
  */
 export function robustJSONParse(raw, options = {}) {
   if (!raw || typeof raw !== 'string') {
@@ -59,7 +142,7 @@ export function robustJSONParse(raw, options = {}) {
   const allowArray = options.allowArray ?? false;
   const cleaned = sanitize(raw);
 
-  // 判断是否为有效的 JSON 值（对象，或可选的数组）
+  // Check if value is a valid JSON result (object, or optionally array)
   const isValid = (v) => {
     if (v === null || v === undefined) return false;
     if (typeof v === 'object' && !Array.isArray(v)) return true;
@@ -67,21 +150,21 @@ export function robustJSONParse(raw, options = {}) {
     return false;
   };
 
-  // ── Strategy 1: 直接解析 ──
+  // ── Strategy 1: Direct parse ──
   try {
     const result = JSON.parse(cleaned);
     if (isValid(result)) return result;
   } catch {}
 
-  // ── Strategy 2: 去除外层 markdown fence ──
+  // ── Strategy 2: Strip outer markdown fence ──
   {
     const tick = '`';
     const fence = tick + tick + tick;
     let stripped = cleaned.trim();
-    // 可能有多层 fence
+    // May have multiple layers of fences
     for (let i = 0; i < 2; i++) {
       if (stripped.startsWith(fence)) {
-        // 移除开头 fence（含可选的语言标签）和结尾 fence
+        // Remove opening fence (with optional language tag) and closing fence
         stripped = stripped.replace(new RegExp('^' + fence.replace(/`/g, '\\`') + '[a-zA-Z]*\\s*\\n?'), '');
         stripped = stripped.replace(new RegExp('\\n?\\s*' + fence.replace(/`/g, '\\`') + '\\s*$'), '');
       }
@@ -94,7 +177,7 @@ export function robustJSONParse(raw, options = {}) {
     }
   }
 
-  // ── Strategy 3: 提取 code block 内容 ──
+  // ── Strategy 3: Extract code block content ──
   {
     const codeBlockMatch = cleaned.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
     if (codeBlockMatch) {
@@ -102,7 +185,7 @@ export function robustJSONParse(raw, options = {}) {
         const result = JSON.parse(codeBlockMatch[1].trim());
         if (isValid(result)) return result;
       } catch {}
-      // code block 内容可能也有脏字符，递归尝试提取 {...}
+      // Code block content may also have dirty chars — try extracting {...}
       try {
         const inner = codeBlockMatch[1].trim();
         const start = inner.indexOf('{');
@@ -115,7 +198,7 @@ export function robustJSONParse(raw, options = {}) {
     }
   }
 
-  // ── Strategy 4: 提取最外层 { ... } ──
+  // ── Strategy 4: Extract outermost { ... } ──
   {
     const start = cleaned.indexOf('{');
     const end = cleaned.lastIndexOf('}');
@@ -126,16 +209,16 @@ export function robustJSONParse(raw, options = {}) {
         if (isValid(result)) return result;
       } catch {}
 
-      // ── Strategy 5: 修复尾逗号 ──
+      // ── Strategy 5: Fix trailing commas ──
       try {
         const fixed = candidate.replace(/,\s*([\]}])/g, '$1');
         const result = JSON.parse(fixed);
         if (isValid(result)) return result;
       } catch {}
 
-      // ── Strategy 6: 修复值中未转义的换行 ──
+      // ── Strategy 6: Fix unescaped newlines in string values ──
       try {
-        // 将 JSON 字符串值内的真实换行替换为 \\n
+        // Replace real newlines inside JSON string values with \\n
         const fixedNewlines = candidate.replace(
           /"(?:[^"\\]|\\.)*"/g,
           (match) => match.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t')
@@ -144,7 +227,7 @@ export function robustJSONParse(raw, options = {}) {
         if (isValid(result)) return result;
       } catch {}
 
-      // ── Strategy 7: 修复尾逗号 + 换行一起 ──
+      // ── Strategy 7: Fix trailing commas + newlines together ──
       try {
         let fixed = candidate.replace(/,\s*([\]}])/g, '$1');
         fixed = fixed.replace(
@@ -157,7 +240,7 @@ export function robustJSONParse(raw, options = {}) {
     }
   }
 
-  // ── Strategy 8: 允许数组时，提取 [ ... ] ──
+  // ── Strategy 8: Extract [ ... ] when arrays are allowed ──
   if (allowArray) {
     const start = cleaned.indexOf('[');
     const end = cleaned.lastIndexOf(']');
@@ -169,12 +252,13 @@ export function robustJSONParse(raw, options = {}) {
     }
   }
 
-  // 全部失败
-  throw new Error(`robustJSONParse: Cannot extract valid JSON from LLM output (length=${raw.length}, preview="${raw.substring(0, 120)}")`);
+  // All strategies failed — build a smart preview that preserves JSON structure
+  const preview = buildSmartPreview(raw, 500);
+  throw new Error(`robustJSONParse: Cannot extract valid JSON from LLM output (length=${raw.length}, preview=${preview})`);
 }
 
 /**
- * 安全版本 — 解析失败不抛异常，返回 null。
+ * Safe version — returns null on parse failure instead of throwing.
  * @param {string} raw
  * @param {object} [options]
  * @returns {object|Array|null}

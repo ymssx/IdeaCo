@@ -144,6 +144,7 @@ export class PerformanceSystem {
 
   /**
    * Simulated auto-evaluation by supervisor (generate scores based on task results)
+   * Incorporates PUA-style management rhetoric for motivation and accountability
    */
   autoEvaluate({ agent, reviewer, taskTitle }) {
     // Simulated scoring: base score 60-95 random + some variance
@@ -156,21 +157,22 @@ export class PerformanceSystem {
       [PerformanceDimensions.COMMUNICATION]: Math.min(100, baseScore + Math.floor(Math.random() * 10 - 5)),
     };
 
-    const comments = {
-      90: 'Outstanding performance, exceeded expectations, a benchmark for the team!',
-      75: 'Excellent work quality, keep it up.',
-      60: 'Task completed adequately, but there is room for improvement.',
-      40: 'Performance was not ideal, improvement needed.',
-      0: 'Work output fell below standards, needs serious attention.',
-    };
-
     const overallScore = Object.values(scores).reduce((a, b) => a + b, 0) / Object.values(scores).length;
-    let comment = comments[0];
-    for (const [threshold, c] of Object.entries(comments).sort((a, b) => b[0] - a[0])) {
-      if (overallScore >= Number(threshold)) {
-        comment = c;
-        break;
-      }
+
+    // PUA-style calibrated comments based on performance level
+    let comment;
+    if (overallScore >= 90) {
+      comment = 'Outstanding delivery, exceeded expectations. This is the bar you need to maintain — today\'s best is tomorrow\'s minimum. Keep the momentum, a 3.75 is within reach.';
+    } else if (overallScore >= 80) {
+      comment = 'Solid work quality. But don\'t settle — where\'s the proactive initiative? Did you check for similar issues? Did you verify edge cases? Good enough is the enemy of great. Push for the extra mile next time.';
+    } else if (overallScore >= 70) {
+      comment = 'Adequate task completion, but I expected more from you. Where\'s the ownership? You delivered the minimum, not the optimum. Next time, ask yourself: did I exhaust all approaches? Did I verify end-to-end?';
+    } else if (overallScore >= 60) {
+      comment = 'Performance fell short of expectations. Let me be direct — where\'s the underlying logic of your approach? Where\'s the methodology? This 3.25 is meant to motivate you, not negate you. Settle down, make a change.';
+    } else if (overallScore >= 40) {
+      comment = 'Results are not acceptable. Did you actually investigate the problem or just guess? Show me the evidence trail: what did you try, what did you verify, what did you rule out? A P8 engineer doesn\'t deliver at this level.';
+    } else {
+      comment = 'This output is unacceptable. Other team members could have solved this. The compute invested in you was significant — did you exhaust every option? This is your last chance to demonstrate capability before reassignment.';
     }
 
     return this.evaluate({ agent, reviewer, taskTitle, scores, comment });

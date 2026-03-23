@@ -1767,7 +1767,7 @@ function useAgentPositions(rooms, frame) {
 
 // ===== Main Component =====
 export default function PixelOffice({ embedded, groupChat, members: filterMembers }) {
-  const { company, fetchMessages, setChatOpen, setChatMinimized } = useStore();
+  const { company, fetchMessages, setChatOpen } = useStore();
   const { t } = useI18n();
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
@@ -2183,14 +2183,13 @@ export default function PixelOffice({ embedded, groupChat, members: filterMember
     });
 
     if (clicked?.id === '__secretary__') {
-      // Open the bottom-right chat panel with secretary
+      // Open the middle chat panel with secretary
       setChatOpen(true);
-      setChatMinimized(false);
       return;
     }
 
     setSelectedAgent(clicked?.id || null);
-  }, [rooms, positions, zoom, setChatOpen, setChatMinimized]);
+  }, [rooms, positions, zoom, setChatOpen]);
 
   const handleCanvasMove = useCallback((e) => {
     const canvas = canvasRef.current;

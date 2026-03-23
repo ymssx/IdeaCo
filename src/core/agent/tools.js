@@ -2,10 +2,19 @@
  * Agent Tool System - Callable tool set for Agents
  * 
  * Follows the Codex/OpenAI Agents tool_use pattern:
- * - file_read: Read file contents
+ * - file_read: Read file contents (with offset/limit for large files)
  * - file_write: Write/create files
+ * - file_append: Append content to a file
+ * - file_patch: Replace a text segment in a file
+ * - multi_patch: Apply multiple replacements to a file in one call
  * - file_list: List directory contents
  * - file_delete: Delete files
+ * - mkdir: Create directories (with recursive parent creation)
+ * - file_stats: Get file metadata without reading content
+ * - file_search: Search for files by name
+ * - grep_search: Search file contents for text/regex patterns
+ * - glob_search: Find files matching glob patterns (e.g. **\/*.js)
+ * - workspace_files: List all files recursively
  * - shell_exec: Execute shell commands (restricted)
  * - send_message: Send messages to other Agents
  */
@@ -123,6 +132,25 @@ export class AgentToolKit {
       {
         type: 'function',
         function: {
+          name: 'mkdir',
+          description: 'Create one or more directories (with parent directories created automatically). Use this to set up project folder structures. You can pass a single path string or an array of paths to create multiple directories at once. Path is relative to workspace.',
+          parameters: {
+            type: 'object',
+            properties: {
+              path: { type: 'string', description: 'Directory path to create (relative to workspace). For multiple directories, separate with commas: "backend,frontend,shared"' },
+              paths: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Array of directory paths to create (alternative to single path)',
+              },
+            },
+            required: [],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
           name: 'shell_exec',
           description: 'Execute a shell command in the workspace directory. Only safe commands are allowed (e.g. ls, cat, grep, node, npm).',
           parameters: {
@@ -221,6 +249,64 @@ export class AgentToolKit {
           },
         },
       },
+      {
+        type: 'function',
+        function: {
+          name: 'grep_search',
+          description: 'Search file contents for a text string or regex pattern across the workspace. Returns matching lines with file paths and line numbers. Essential for finding function definitions, variable usages, imports, and any code pattern. Much faster than reading files one by one.',
+          parameters: {
+            type: 'object',
+            properties: {
+              pattern: { type: 'string', description: 'Search string or regular expression pattern to match against file contents' },
+              path: { type: 'string', description: 'Directory to search in (relative to workspace). Defaults to workspace root.' },
+              include: { type: 'string', description: 'File extension filter, e.g. "js", "ts", "py". Only search files with this extension.' },
+              isRegex: { type: 'boolean', description: 'If true, treat pattern as a regular expression. Defaults to false (literal string match).' },
+              maxResults: { type: 'integer', description: 'Maximum number of matching lines to return (default: 50)' },
+            },
+            required: ['pattern'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'glob_search',
+          description: 'Find files matching a glob-like pattern. Supports "*" (any filename), "**" (any directory depth), and "?" (single char). Examples: "**/*.test.js", "src/**/*.ts", "*.json".',
+          parameters: {
+            type: 'object',
+            properties: {
+              pattern: { type: 'string', description: 'Glob pattern to match against file paths (e.g. "**/*.js", "src/**/*.test.ts", "*.json")' },
+            },
+            required: ['pattern'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'multi_patch',
+          description: 'Apply multiple text replacements to a single file in one operation. Each edit replaces one occurrence of old_text with new_text, applied sequentially. Use this instead of multiple file_patch calls when you need to make several changes to the same file.',
+          parameters: {
+            type: 'object',
+            properties: {
+              path: { type: 'string', description: 'File path (relative to workspace)' },
+              edits: {
+                type: 'array',
+                description: 'Array of edits to apply sequentially',
+                items: {
+                  type: 'object',
+                  properties: {
+                    old_text: { type: 'string', description: 'Exact text to find (must be unique in the file at the time of application)' },
+                    new_text: { type: 'string', description: 'Replacement text' },
+                  },
+                  required: ['old_text', 'new_text'],
+                },
+              },
+            },
+            required: ['path', 'edits'],
+          },
+        },
+      },
       // Include tools from enabled plugins
       ...pluginRegistry.getPluginTools(),
     ];
@@ -278,6 +364,19 @@ export class AgentToolKit {
         result = await this._fileDelete(filePath);
         break;
       }
+      case 'mkdir': {
+        // Support both single path (string, possibly comma-separated) and array of paths
+        let dirs = [];
+        if (args.paths && Array.isArray(args.paths)) {
+          dirs = args.paths;
+        } else {
+          const p = resolvePath(args) || args.dir || args.directory || '';
+          if (!p) throw new Error('Missing required parameter: path or paths');
+          dirs = p.split(',').map(s => s.trim()).filter(Boolean);
+        }
+        result = await this._mkdir(dirs);
+        break;
+      }
       case 'shell_exec': {
         const command = args.command || args.cmd || null;
         if (!command) throw new Error(`Missing required parameter: command (received args: ${JSON.stringify(Object.keys(args))})`);
@@ -325,6 +424,26 @@ export class AgentToolKit {
       case 'file_search':
         result = await this._fileSearch(args.query || args.keyword || args.pattern || '');
         break;
+      case 'grep_search': {
+        const pattern = args.pattern || args.query || args.search || '';
+        if (!pattern) throw new Error('Missing required parameter: pattern');
+        result = await this._grepSearch(pattern, resolvePath(args) || args.dir || '.', args.include, args.isRegex, args.maxResults);
+        break;
+      }
+      case 'glob_search': {
+        const pattern = args.pattern || args.glob || '';
+        if (!pattern) throw new Error('Missing required parameter: pattern');
+        result = await this._globSearch(pattern);
+        break;
+      }
+      case 'multi_patch': {
+        const filePath = resolvePath(args);
+        const edits = args.edits;
+        if (!filePath) throw new Error('Missing required parameter: path');
+        if (!edits || !Array.isArray(edits) || edits.length === 0) throw new Error('Missing required parameter: edits (must be a non-empty array)');
+        result = await this._multiPatch(filePath, edits);
+        break;
+      }
       default: {
         // Try plugin tools before giving up
         const pluginTools = pluginRegistry.getPluginTools();
@@ -394,6 +513,35 @@ export class AgentToolKit {
 
     await fs.writeFile(fullPath, content, { encoding: 'utf-8', mode: 0o644 });
     return `File written: ${filePath} (${content.length} chars)`;
+  }
+
+  /**
+   * Create directories (with recursive parent creation)
+   */
+  async _mkdir(dirs) {
+    const created = [];
+    const alreadyExist = [];
+    const errors = [];
+
+    for (const dir of dirs) {
+      try {
+        const fullPath = this._safePath(dir);
+        if (existsSync(fullPath)) {
+          alreadyExist.push(dir);
+        } else {
+          mkdirSync(fullPath, { recursive: true });
+          created.push(dir);
+        }
+      } catch (error) {
+        errors.push(`${dir}: ${error.message}`);
+      }
+    }
+
+    const parts = [];
+    if (created.length > 0) parts.push(`Created: ${created.join(', ')}`);
+    if (alreadyExist.length > 0) parts.push(`Already exist: ${alreadyExist.join(', ')}`);
+    if (errors.length > 0) parts.push(`Errors: ${errors.join('; ')}`);
+    return parts.join('\n') || 'No directories specified.';
   }
 
   /**
@@ -564,6 +712,175 @@ export class AgentToolKit {
     await walk(this.workspaceDir);
     if (files.length === 0) return 'Workspace is empty — no files found.';
     return `Files in workspace (${files.length} total):\n${files.map(f => `  ${f}`).join('\n')}`;
+  }
+
+  /**
+   * Grep search: search file contents for a pattern
+   */
+  async _grepSearch(pattern, searchDir = '.', include, isRegex = false, maxResults = 50) {
+    const baseDir = this._safePath(searchDir);
+    const results = [];
+    const limit = Math.min(maxResults || 50, 200);
+
+    let regex;
+    try {
+      regex = isRegex ? new RegExp(pattern, 'i') : new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    } catch (e) {
+      return `Error: invalid regex pattern "${pattern}" — ${e.message}`;
+    }
+
+    const extFilter = include ? include.replace(/^\./, '').toLowerCase() : null;
+
+    // Binary file extensions to skip
+    const binaryExts = new Set(['png','jpg','jpeg','gif','bmp','ico','svg','woff','woff2','ttf','eot','mp3','mp4','avi','mov','zip','tar','gz','pdf','exe','dll','so','dylib','bin','dat','db','sqlite','lock']);
+
+    const walk = async (dir) => {
+      if (results.length >= limit) return;
+      try {
+        const entries = await fs.readdir(dir, { withFileTypes: true });
+        for (const entry of entries) {
+          if (results.length >= limit) return;
+          if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === '__pycache__' || entry.name === 'dist' || entry.name === 'build') continue;
+          const fullPath = path.join(dir, entry.name);
+          if (entry.isDirectory()) {
+            await walk(fullPath);
+          } else {
+            const ext = path.extname(entry.name).replace(/^\./, '').toLowerCase();
+            if (binaryExts.has(ext)) continue;
+            if (extFilter && ext !== extFilter) continue;
+            try {
+              const stat = await fs.stat(fullPath);
+              if (stat.size > 512 * 1024) continue; // Skip files > 512KB
+              const content = await fs.readFile(fullPath, 'utf-8');
+              const lines = content.split('\n');
+              const relPath = path.relative(this.workspaceDir, fullPath);
+              for (let i = 0; i < lines.length; i++) {
+                if (results.length >= limit) break;
+                if (regex.test(lines[i])) {
+                  results.push({ file: relPath, line: i + 1, text: lines[i].trimEnd().substring(0, 200) });
+                }
+              }
+            } catch { /* skip unreadable files */ }
+          }
+        }
+      } catch { /* skip unreadable dirs */ }
+    };
+
+    await walk(baseDir);
+
+    if (results.length === 0) return `No matches found for "${pattern}"${extFilter ? ` in *.${extFilter} files` : ''}.`;
+
+    const header = `Found ${results.length}${results.length >= limit ? '+' : ''} matches for "${pattern}"${extFilter ? ` in *.${extFilter} files` : ''}:\n`;
+    const body = results.map(r => `${r.file}:${r.line}: ${r.text}`).join('\n');
+    return header + body;
+  }
+
+  /**
+   * Glob search: find files matching a glob-like pattern
+   */
+  async _globSearch(pattern) {
+    // Convert glob pattern to regex:
+    // ** => match any path segments
+    // * => match anything except /
+    // ? => match single char except /
+    const globToRegex = (glob) => {
+      let regexStr = '^';
+      let i = 0;
+      while (i < glob.length) {
+        const c = glob[i];
+        if (c === '*' && glob[i + 1] === '*') {
+          // ** matches any path depth
+          regexStr += '.*';
+          i += 2;
+          if (glob[i] === '/') i++; // skip trailing /
+        } else if (c === '*') {
+          regexStr += '[^/]*';
+          i++;
+        } else if (c === '?') {
+          regexStr += '[^/]';
+          i++;
+        } else if (c === '.') {
+          regexStr += '\\.';
+          i++;
+        } else {
+          regexStr += c;
+          i++;
+        }
+      }
+      regexStr += '$';
+      return new RegExp(regexStr, 'i');
+    };
+
+    const regex = globToRegex(pattern);
+    const matches = [];
+
+    const walk = async (dir, prefix = '') => {
+      try {
+        const entries = await fs.readdir(dir, { withFileTypes: true });
+        for (const entry of entries) {
+          if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === '__pycache__') continue;
+          const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+          if (entry.isDirectory()) {
+            await walk(path.join(dir, entry.name), rel);
+          } else {
+            if (regex.test(rel)) {
+              matches.push(rel);
+            }
+          }
+        }
+      } catch { /* skip */ }
+    };
+
+    await walk(this.workspaceDir);
+    if (matches.length === 0) return `No files found matching pattern "${pattern}".`;
+    return `Files matching "${pattern}" (${matches.length} found):\n${matches.map(f => `  ${f}`).join('\n')}`;
+  }
+
+  /**
+   * Multi-patch: apply multiple edits to a single file sequentially
+   */
+  async _multiPatch(filePath, edits) {
+    const fullPath = this._safePath(filePath);
+    try {
+      let content = await fs.readFile(fullPath, 'utf-8');
+      const applied = [];
+      const failed = [];
+
+      for (let i = 0; i < edits.length; i++) {
+        const { old_text, new_text } = edits[i];
+        if (!old_text) {
+          failed.push({ index: i + 1, reason: 'missing old_text' });
+          continue;
+        }
+        const occurrences = content.split(old_text).length - 1;
+        if (occurrences === 0) {
+          failed.push({ index: i + 1, reason: 'old_text not found (may have been affected by a previous edit)' });
+          continue;
+        }
+        if (occurrences > 1) {
+          failed.push({ index: i + 1, reason: `old_text found ${occurrences} times — must be unique` });
+          continue;
+        }
+        content = content.replace(old_text, new_text);
+        applied.push(i + 1);
+      }
+
+      if (applied.length > 0) {
+        // Security check on final content
+        const writeCheck = securityGuard.validateFileWrite(filePath, content, this.agentId, this.agentName);
+        if (!writeCheck.allowed) return `Security blocked: ${writeCheck.reason}`;
+        await fs.writeFile(fullPath, content, { encoding: 'utf-8', mode: 0o644 });
+      }
+
+      let msg = `Multi-patch on ${filePath}: ${applied.length}/${edits.length} edits applied.`;
+      if (failed.length > 0) {
+        msg += `\nFailed edits: ${failed.map(f => `#${f.index} (${f.reason})`).join(', ')}`;
+      }
+      return msg;
+    } catch (error) {
+      if (error.code === 'ENOENT') return `Error: file not found "${filePath}"`;
+      throw error;
+    }
   }
 
   /**

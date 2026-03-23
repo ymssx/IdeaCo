@@ -715,10 +715,13 @@ Boss's adjustment goal: ${adjustGoal}`;
 
   static _designCollaboration(members) {
     return [
-      '1. Project leader coordinates overall operations, assigns tasks and tracks progress',
-      '2. Members report to their direct supervisor upon task completion',
-      '3. Peers at the same level can collaborate horizontally',
-      '4. Project progresses in phases, each with clear deliverables',
+      '1. Project leader drives overall execution with ownership mindset — coordinates, tracks, and VERIFIES task completion end-to-end',
+      '2. Members report to their direct supervisor with EVIDENCE of completion (deliverables, not just status text)',
+      '3. When stuck, follow the 5-step methodology: Smell → Elevate → Mirror → Execute → Retrospect — before asking for help',
+      '4. Peers at the same level collaborate horizontally and can review each other\'s work with accountability',
+      '5. Project progresses in phases, each with clear deliverables and acceptance criteria — no vague "done" claims',
+      '6. After completing any task, proactively check: similar issues? upstream/downstream impact? edge cases? better approach?',
+      '7. Excuses without evidence are not tolerated — "probably X", "can\'t do Y", "need more Z" require investigation first',
     ];
   }
 

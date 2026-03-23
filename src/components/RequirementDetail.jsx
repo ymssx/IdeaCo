@@ -11,7 +11,18 @@ import PixelOffice from './PixelOffice';
 
 import { useRouter } from 'next/navigation';
 
-
+/**
+ * Resolve currentAction to a translated string.
+ * If currentAction is an object with { key, params }, use t() to translate.
+ * Otherwise fallback to displaying the raw string.
+ */
+function resolveAction(action, t) {
+  if (!action) return null;
+  if (typeof action === 'object' && action.key) {
+    return t(action.key, action.params);
+  }
+  return String(action);
+}
 
 /**
  * Requirement detail page
@@ -650,7 +661,7 @@ function WorkflowView({ workflow, liveStatus, members }) {
             <div className="inline-block bg-[var(--card)] border border-[var(--border)] rounded-2xl rounded-tl-sm px-4 py-3 text-sm">
               <div className="flex items-center gap-2">
                 <span className="animate-pulse">🧠</span>
-                <span className="text-[var(--muted)]">{liveStatus.currentAction || t('reqDetail.workflow.planning')}</span>
+<span className="text-[var(--muted)]">{resolveAction(liveStatus.currentAction, t) || t('reqDetail.workflow.planning')}</span>
               </div>
               <div className="flex items-center gap-1 mt-2">
                 <span className="w-1.5 h-1.5 bg-[var(--accent)] rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
@@ -751,7 +762,7 @@ function WorkflowView({ workflow, liveStatus, members }) {
           'bg-yellow-900/10 border border-yellow-500/20 text-yellow-300'
         }`}>
           <span className="animate-spin text-xs shrink-0">{node.status === 'reviewing' ? '🔍' : node.status === 'revision' ? '✏️' : '⚙️'}</span>
-          <span className="truncate">{liveStatus.currentAction}</span>
+          <span className="truncate">{resolveAction(liveStatus.currentAction, t)}</span>
         </div>
       )}
       {/* Tool call progress */}
@@ -988,7 +999,7 @@ function WorkflowView({ workflow, liveStatus, members }) {
               <div className="mt-1 text-[var(--muted)]">{t('reqDetail.timeDuration', { n: Math.round((new Date(hoveredNode.node.completedAt) - new Date(hoveredNode.node.startedAt)) / 1000) })}</div>
             )}
             {(hoveredNode.node.status === 'running' || hoveredNode.node.status === 'reviewing' || hoveredNode.node.status === 'revision') && liveStatus?.currentNodeId === hoveredNode.node.id && liveStatus.currentAction && (
-              <div className={`mt-1 ${hoveredNode.node.status === 'reviewing' ? 'text-purple-300' : hoveredNode.node.status === 'revision' ? 'text-orange-300' : 'text-yellow-300'}`}>{hoveredNode.node.status === 'reviewing' ? '🔍' : hoveredNode.node.status === 'revision' ? '✏️' : '⚙️'} {liveStatus.currentAction}</div>
+              <div className={`mt-1 ${hoveredNode.node.status === 'reviewing' ? 'text-purple-300' : hoveredNode.node.status === 'revision' ? 'text-orange-300' : 'text-yellow-300'}`}>{hoveredNode.node.status === 'reviewing' ? '🔍' : hoveredNode.node.status === 'revision' ? '✏️' : '⚙️'} {resolveAction(liveStatus.currentAction, t)}</div>
             )}
             {/* Arrow triangle */}
             <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[6px] border-t-white/10" />

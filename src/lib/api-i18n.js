@@ -44,6 +44,20 @@ const DEFAULT_LANG = 'en';
 const SUPPORTED = new Set(Object.keys(translations));
 
 /**
+ * Human-readable language names for LLM prompt injection.
+ * Used to instruct agents to reply in a specific language.
+ */
+export const LANGUAGE_NAMES = {
+  en: 'English',
+  zh: 'Chinese (Simplified)',
+  ja: 'Japanese',
+  ko: 'Korean',
+  es: 'Spanish',
+  fr: 'French',
+  de: 'German',
+};
+
+/**
  * Sanitise a raw language tag token into a bare 2-3 letter code.
  * Returns null when the token is empty, whitespace-only, or '*'.
  *
@@ -208,4 +222,27 @@ export function getTForLang(lang) {
     // Fallback to DEFAULT_LANG on any error
   }
   return createTranslator(code);
+}
+
+/**
+ * Extract the resolved language code from a Next.js Request object.
+ * Returns a bare language code (e.g. 'en', 'zh', 'ja') — always valid and supported.
+ *
+ * @param {Request|null|undefined} request
+ * @returns {string} language code
+ */
+export function getLanguageFromRequest(request) {
+  if (!request) return DEFAULT_LANG;
+  try {
+    const getHeader = request.headers?.get?.bind(request.headers);
+    const acceptLanguage = typeof getHeader === 'function'
+      ? (getHeader('accept-language') ?? null)
+      : null;
+    const appLang = typeof getHeader === 'function'
+      ? (getHeader('x-app-lang') ?? null)
+      : null;
+    return resolveLanguage(acceptLanguage, appLang);
+  } catch (_) {
+    return DEFAULT_LANG;
+  }
 }

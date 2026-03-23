@@ -15,6 +15,7 @@ import { llmClient } from '../agent/llm-agent/client.js';
 import { webClientRegistry } from '../agent/web-agent/web-client.js';
 import { loadAgentMemory, saveAgentMemory } from '../employee/memory/store.js';
 import { Memory } from '../employee/memory/index.js';
+import { StaminaSystem } from '../employee/stamina.js';
 import { RequirementManager, RequirementStatus } from '../requirement.js';
 import { TeamManager, SprintStatus } from './team.js';
 import { hookRegistry, HookEvent } from '../../lib/hooks.js';
@@ -26,6 +27,8 @@ import { auditLogger, AuditCategory, AuditLevel } from '../system/audit.js';
 import { chatStore } from '../agent/chat-store.js';
 import { cliBackendRegistry } from '../agent/cli-agent/backends/index.js';
 import { groupChatLoop } from './group-chat-loop.js';
+import { buildRhetoricPrompt } from './workforce/management-rhetoric.js';
+import { getAppLanguageName } from '../utils/app-language.js';
 
 // Expand short-form file references: [[file:path]] → [[file:deptId:path|name]]
 // Also fix incomplete references: [[file:deptId:path]] → [[file:deptId:path|name]]
@@ -76,6 +79,7 @@ export class Company {
     this.name = companyName;
     this.bossName = bossName;
     this.bossAvatar = null; // Boss avatar URL
+    this.language = 'en'; // Current UI language (synced from frontend on each API call)
     this.departments = new Map();
     this.providerRegistry = new ProviderRegistry();
     // Sync CLI backends into provider registry so they appear in Brain Providers
@@ -239,6 +243,7 @@ Rules:
 - If boss gives a simple task you can handle alone → secretary_handle
 - If boss gives a task but no department matches → need_new_department
 - Casual chat → null
+- You MUST write ALL your "content" text in ${getAppLanguageName()}
 - ALWAYS return valid JSON only, no markdown fences`;
 
         const cliResult = await cliBackendRegistry.executeTask(
@@ -1529,6 +1534,23 @@ const dept = this.findDepartment(departmentId);
     this.save();
     console.log(`📝 Requirement created: ${requirement.id} - ${title}`);
 
+    // Create per-requirement workspace subdirectory to isolate files from other requirements
+    const originalWorkspacePath = dept.workspacePath;
+    if (originalWorkspacePath) {
+      const safeName = title.replace(/[^a-zA-Z0-9\u4e00-\u9fff_-]/g, '_').slice(0, 40);
+      const reqDirName = `${safeName}_${requirement.id.slice(0, 8)}`;
+      const reqWorkspacePath = path.join(originalWorkspacePath, reqDirName);
+      if (!existsSync(reqWorkspacePath)) {
+        mkdirSync(reqWorkspacePath, { recursive: true });
+      }
+      // Switch all agents' toolKits to use the requirement-specific subdirectory
+      dept.workspacePath = reqWorkspacePath;
+      for (const agent of members) {
+        agent.initToolKit(reqWorkspacePath, this.messageBus);
+      }
+      console.log(`📁 Requirement workspace: ${reqWorkspacePath}`);
+    }
+
     // 2. Leader decomposes workflow
     const leader = dept.getLeader() || members[0];
 
@@ -1537,7 +1559,7 @@ const dept = this.findDepartment(departmentId);
       currentAgent: leader.name,
       currentAgentId: leader.id,
       currentAgentAvatar: leader.avatar,
-      currentAction: `${leader.name} is analyzing and decomposing the requirement...`,
+      currentAction: { key: 'reqDetail.action.analyzingRequirement', params: { name: leader.name } },
     });
     this.save();
 
@@ -1570,6 +1592,13 @@ const dept = this.findDepartment(departmentId);
         `❌ Requirement execution failed: ${e.message}`,
         'system', null, { auto: true }
       );
+      // Restore original workspace path on failure
+      if (originalWorkspacePath && dept.workspacePath !== originalWorkspacePath) {
+        dept.workspacePath = originalWorkspacePath;
+        for (const agent of members) {
+          agent.initToolKit(originalWorkspacePath, this.messageBus);
+        }
+      }
       this.save();
       summary = requirement.summary;
     }
@@ -1610,6 +1639,15 @@ const dept = this.findDepartment(departmentId);
     });
 
     this._log('Task completed', `"${dept.name}" completed task: "${title}", ${summary.successTasks}/${summary.totalTasks} succeeded`);
+
+    // Restore original department workspace path so next requirement gets its own subdirectory
+    if (originalWorkspacePath && dept.workspacePath !== originalWorkspacePath) {
+      dept.workspacePath = originalWorkspacePath;
+      for (const agent of members) {
+        agent.initToolKit(originalWorkspacePath, this.messageBus);
+      }
+    }
+
     this.save();
 
     // Return summary with requirement ID
@@ -1679,7 +1717,7 @@ const dept = this.findDepartment(departmentId);
       currentAgent: leader.name,
       currentAgentId: leader.id,
       currentAgentAvatar: leader.avatar,
-      currentAction: `${leader.name} is analyzing and decomposing the sprint plan...`,
+      currentAction: { key: 'reqDetail.action.analyzingSprint', params: { name: leader.name } },
     });
     this.save();
 
@@ -1808,7 +1846,7 @@ const dept = this.findDepartment(departmentId);
       requirement.status = 'failed';
       requirement.completedAt = new Date();
       requirement.updateLiveStatus({
-        currentAction: 'Boss requested stop, project halted',
+      currentAction: { key: 'reqDetail.action.bossStop' },
         currentAgent: null,
       });
       requirement.addGroupMessage(
@@ -1859,7 +1897,7 @@ const dept = this.findDepartment(departmentId);
         currentAgent: leader.name,
         currentAgentId: leader.id,
         currentAgentAvatar: leader.avatar,
-        currentAction: `${leader.name} is re-planning the workflow based on Boss's instructions...`,
+      currentAction: { key: 'reqDetail.action.rePlanning', params: { name: leader.name } },
         toolCallsInProgress: [],
         recentFileChanges: [],
       });
@@ -1914,7 +1952,7 @@ const dept = this.findDepartment(departmentId);
       requirement.status = RequirementStatus.COMPLETED;
       requirement.completedAt = new Date();
       requirement.updateLiveStatus({
-        currentAction: 'Boss approved — requirement completed',
+      currentAction: { key: 'reqDetail.action.bossApproved' },
         currentAgent: null,
       });
       requirement.addGroupMessage(
@@ -2006,6 +2044,8 @@ const dept = this.findDepartment(departmentId);
       }).join('\n') || 'No workflow yet';
 
       const p = leader.personality || {};
+      // 注入管理话术参考
+      const rhetoricRef = buildRhetoricPrompt(['respond_to_boss', 'risk_warning'], 2);
       const response = await leader.chat([
         {
           role: 'system',
@@ -2019,7 +2059,7 @@ ${workflowStatus}
 
 Recent group chat:
 ${recentChat}
-
+${rhetoricRef}
 The Boss (your employer) just sent a message in the group chat. You need to:
 1. Carefully analyze the Boss's intent
 2. Decide what action to take
@@ -2112,6 +2152,7 @@ Reply in the same language the Boss used. Be concise but warm.`
         reportsTo: a.reportsTo,
         subordinates: a.subordinates,
         memory: a.memory.getSummary(),
+        stamina: a.stamina ? { comfort: a.stamina.comfort, zone: a.stamina.zone } : null,
         performanceHistory: a.performanceHistory,
         avgScore: a.performanceHistory.length > 0
           ? Math.round(a.performanceHistory.reduce((s, p) => s + p.score, 0) / a.performanceHistory.length)
@@ -2500,6 +2541,10 @@ const dept = this.findDepartment(departmentId);
         const externalMemory = loadAgentMemory(agentData.id);
         if (externalMemory) {
           agentData.memory = externalMemory;
+          // Restore stamina from external memory file if available
+          if (externalMemory.stamina) {
+            agentData.stamina = externalMemory.stamina;
+          }
         }
         const agent = deserializeEmployee(agentData, company.providerRegistry);
         dept.addAgent(agent);

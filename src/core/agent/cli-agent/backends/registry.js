@@ -77,6 +77,14 @@ export function buildAgentMemoryContent(agent) {
   lines.push(`- **Skills**: ${agent.skills.join(', ')}`);
   lines.push('');
 
+  // Personality bio (generated during onboarding)
+  if (agent.personalityBio) {
+    lines.push('## Personality Bio');
+    lines.push('');
+    lines.push(agent.personalityBio);
+    lines.push('');
+  }
+
   // Personality traits
   if (agent.personality) {
     lines.push('## Personality');

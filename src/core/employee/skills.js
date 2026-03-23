@@ -96,7 +96,7 @@ export class SkillRegistry {
     skill.state = SkillState.INSTALLED;
     skill.config = { ...config };
     skill.installedAt = new Date();
-    logInfo(`📚 Skill installed: ${skill.definition.name}`);
+    // logInfo(`📚 Skill installed: ${skill.definition.name}`);
     return skill;
   }
 

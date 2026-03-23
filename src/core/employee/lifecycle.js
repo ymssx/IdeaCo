@@ -524,14 +524,22 @@ export class EmployeeLifecycle {
           );
           monologue.addThought(`[Sent to group] ${expandedContent}`);
 
-          // Auto-feedback: notify agent about invalid file references
+          // Auto-feedback: force agent to correct invalid file references
           if (invalidRefs.length > 0) {
             const invalidList = invalidRefs.map(f => `  - ${f}`).join('\n');
             chatTarget.addGroupMessage(
               { id: 'system', name: 'System', role: 'system' },
-              `⚠️ @[${agent.id}] File reference error: the following files do not exist in workspace:\n${invalidList}\nPlease use workspace_files or file_search tool to check available files before referencing them.`,
+              `⚠️ @[${agent.id}] The following files you referenced do not exist in the workspace:\n${invalidList}\nYou MUST use the workspace_files or file_search tool to check available files, then resend with correct paths. This is mandatory and cannot be ignored.`,
               'message', null, { auto: true }
             );
+            // Force agent to re-think immediately to address the invalid refs
+            const { groupChatLoop } = await import('./group-chat-loop.js');
+            setTimeout(() => {
+              groupChatLoop.triggerImmediate(agent.id, groupId, {
+                content: `[System] You MUST fix invalid file references: ${invalidRefs.join(', ')}. Use workspace_files tool to find correct paths.`,
+                from: { id: 'system', name: 'System' },
+              }).catch(() => {});
+            }, 1000);
           }
           this._lastGroupActivity.set(groupId, new Date());
           this._recordSpeak(groupId);
@@ -608,7 +616,7 @@ export class EmployeeLifecycle {
     const formatMsg = (msg) => {
       const senderName = msg.from?.name || 'Unknown';
       const senderId = msg.from?.id || 'unknown';
-      const time = new Date(msg.time).toLocaleTimeString('zh', { hour: '2-digit', minute: '2-digit' });
+      const time = new Date(msg.time).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' });
       if (msg.type === 'system') return `[System] ${msg.content}`;
       const selfMark = msg.from?.id === agent.id ? ' (you)' : '';
       return `[${time}] ${senderName}(${senderId})${selfMark}: ${msg.content}`;
@@ -681,6 +689,9 @@ export class EmployeeLifecycle {
         { role: 'user', content: userPrompt },
       ], { temperature: 0.95, maxTokens: 1024 });
 
+      // ── Stamina: track LLM call ──
+      if (agent.stamina) agent.stamina.onLLMCall();
+
       const rawContent = response.content || '';
       const result = robustJSONParse(rawContent);
 
@@ -704,8 +715,32 @@ export class EmployeeLifecycle {
       }
       // 3. Relationship impressions: AI updates its personal views of colleagues
       if (result.relationshipOps && Array.isArray(result.relationshipOps) && result.relationshipOps.length > 0) {
+        // Capture old affinity values before processing
+        const oldAffinities = new Map();
+        for (const op of result.relationshipOps) {
+          if (op.employeeId) {
+            const existing = agent.memory.relationships.get(op.employeeId);
+            oldAffinities.set(op.employeeId, existing?.affinity || 50);
+          }
+        }
         const relResult = agent.memory.processRelationshipOps(result.relationshipOps);
         console.log(`  👥 [Lifecycle] ${agent.name} relationship updates: ${relResult.updated}`);
+
+        // ── Stamina: detect chat sentiment from affinity changes ──
+        if (agent.stamina && relResult.updated > 0) {
+          let totalDelta = 0;
+          for (const op of result.relationshipOps) {
+            if (!op.employeeId) continue;
+            const oldAff = oldAffinities.get(op.employeeId) || 50;
+            const newRel = agent.memory.relationships.get(op.employeeId);
+            if (newRel) totalDelta += (newRel.affinity - oldAff);
+          }
+          const sentiment = totalDelta > 5 ? 'positive' : totalDelta < -5 ? 'negative' : 'neutral';
+          if (sentiment !== 'neutral') {
+            agent.stamina.onChatSentiment(sentiment, { affinityDelta: totalDelta });
+            console.log(`  🎭 [Stamina] ${agent.name} chat sentiment: ${sentiment} (delta=${totalDelta}, comfort=${agent.stamina.comfort})`);
+          }
+        }
       }
 
       // Anti-spam gate
@@ -806,7 +841,7 @@ ${pt.shouldNotSpeak(spamInfo.recentCount, spamInfo.isOnCooldown, isMentioned)}
 ${pt.topicSaturation}
 
 ${pt.outputFormat}
-
+${agent.customPrompt ? `\n## Boss's Special Instructions For You\n${agent.customPrompt}\n` : ''}
 ${pt.antiAIWarning(agent.age)}`;
   }
 

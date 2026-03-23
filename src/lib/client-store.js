@@ -121,9 +121,10 @@ export const useStore = create((set, get) => ({
   initialized: false,
   loading: false,
   error: null,
-activeTab: 'overview',
+activeTab: 'requirements',
 chatOpen: true,
 chatMinimized: false,
+chatPanelWidth: 380,
 
   // === Recruitment Plan ===
   pendingPlan: null, // Current pending recruitment plan
@@ -131,6 +132,7 @@ chatMinimized: false,
   setActiveTab: (tab) => set({ activeTab: tab }),
   setChatOpen: (open) => set({ chatOpen: open, chatMinimized: false }),
   setChatMinimized: (minimized) => set({ chatMinimized: minimized }),
+  setChatPanelWidth: (width) => set({ chatPanelWidth: Math.max(300, Math.min(600, width)) }),
   setError: (error) => set({ error }),
   clearError: () => set({ error: null }),
   setPendingPlan: (plan) => set({ pendingPlan: plan }),
@@ -360,6 +362,9 @@ chatMinimized: false,
         method: 'PUT',
         body: JSON.stringify(updates),
       });
+      // Refresh global company store so the main dashboard reflects changes
+      // (e.g. updated provider name on agent cards)
+      get().fetchCompany().catch(() => {});
       return data.data;
     } catch (e) {
       set({ error: e.message });
@@ -456,6 +461,7 @@ chatMinimized: false,
 
   _pollTaskStatus: (taskId) => {
     set({ runningTaskId: taskId, taskResult: null });
+    let unknownCount = 0;
 
     const poll = async () => {
       try {
@@ -470,6 +476,15 @@ chatMinimized: false,
         } else if (state.status === 'failed') {
           set({ taskResult: { error: state.error }, runningTaskId: null });
           return; // Stop polling
+        } else if (state.status === 'unknown') {
+          unknownCount++;
+          // Task not found — may have been cleaned up; stop after a few retries
+          if (unknownCount >= 3) {
+            // Task disappeared, treat as completed (result already in chat history)
+            set({ runningTaskId: null });
+            await get().fetchCompany();
+            return;
+          }
         }
 
         // Still running, continue polling
