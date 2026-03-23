@@ -410,9 +410,10 @@ You must AVOID these leadership anti-patterns:
       const response = await planner.chat([
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
-], { temperature: 0.7, maxTokens: 2048 });
+], { temperature: 0.7, maxTokens: 4096 });
 
       // Parse JSON (robust extraction for both LLM and CLI output)
+      console.log(`  📋 Workflow decomposition LLM response length: ${response.content?.length || 0} chars`);
       const workflow = robustJSONParse(response.content);
 
       // Validate and complete
@@ -460,10 +461,11 @@ You must AVOID these leadership anti-patterns:
     } catch (e) {
       // LLM failed, generate simple workflow using rules
       console.error('Workflow decomposition failed:', e.message);
+      console.error('Workflow decomposition error stack:', e.stack);
       const fallbackWorkflow = this._fallbackWorkflow(requirement, members);
       requirement.addGroupMessage(
         { name: 'System', role: 'system' },
-        `⚠️ AI decomposition failed, generated a simple workflow using rules (${fallbackWorkflow.nodes.length} tasks)`,
+        `⚠️ AI decomposition failed (${e.message}), generated a simple workflow using rules (${fallbackWorkflow.nodes.length} tasks)`,
         'system', null, { auto: true }
       );
       return fallbackWorkflow;
@@ -2178,6 +2180,9 @@ Rules:
     const referencedPaths = new Set();
     const invalidPaths = [];
 
+    // Build a set of known valid file paths for cross-check
+    const knownValidPaths = new Set(writtenFilePaths);
+
     // Step 1: Expand simple [[file:path]] → [[file:deptId:path|name]], validate existence
     let expanded = content.replace(SIMPLE_REF, (_match, filePath) => {
       const trimmed = filePath.trim();
@@ -2186,9 +2191,15 @@ Rules:
       if (wsPath) {
         const fullPath = resolveWorkspaceFilePath(wsPath, trimmed);
         if (!existsSync(fullPath)) {
+          // Check if this path is known from tool results (might be a path resolution issue)
+          const isKnown = knownValidPaths.has(trimmed) || [...knownValidPaths].some(kp => kp.endsWith(trimmed) || trimmed.endsWith(kp));
+          if (!isKnown) {
+            invalidPaths.push(trimmed);
+            // Completely remove hallucinated file references — don't show broken cards
+            return '';
+          }
           invalidPaths.push(trimmed);
-          // Do NOT render as [[file:]] — show as plain text with ❌ marker
-return `❌ ${trimmed} (file not found)`;
+          return `❌ ${trimmed} (file not found)`;
         }
       }
       const displayName = path.basename(trimmed);
@@ -2204,8 +2215,13 @@ return `❌ ${trimmed} (file not found)`;
       if (wsPath) {
         const fullPath = resolveWorkspaceFilePath(wsPath, trimmed);
         if (!existsSync(fullPath)) {
+          const isKnown = knownValidPaths.has(trimmed) || [...knownValidPaths].some(kp => kp.endsWith(trimmed) || trimmed.endsWith(kp));
+          if (!isKnown) {
+            invalidPaths.push(trimmed);
+            return '';
+          }
           invalidPaths.push(trimmed);
-return `❌ ${trimmed} (file not found)`;
+          return `❌ ${trimmed} (file not found)`;
         }
       }
       const displayName = path.basename(trimmed);

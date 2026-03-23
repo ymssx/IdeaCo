@@ -98,14 +98,17 @@ export async function PUT(request, { params }) {
           const newProvider = company.providerRegistry.getById(body.providerId);
           if (newProvider && newProvider.enabled) {
             agent.switchProvider(newProvider);
-            // Re-onboard: regenerate signature/personalityBio with the new model
-            try {
-              const dept = [...company.departments.values()].find(d => d.agents.has(agentId));
-              const deptName = dept?.name || 'the company';
-              await agent.onboard({ departmentName: deptName, bossName: company.bossName || 'Boss' });
-            } catch (e) {
-              console.error(`[${agent.name}] Re-onboard after provider switch failed:`, e.message);
-            }
+            // Re-onboard in background (non-blocking): regenerate signature/personalityBio with new model
+            // Don't await — return the response immediately so the save doesn't time out
+            const bgDeptName = dept.name || 'the company';
+            agent.onboard({ departmentName: bgDeptName, bossName: company.bossName || 'Boss' })
+              .then(() => {
+                console.log(`[${agent.name}] Re-onboard after provider switch completed`);
+                company.save();
+              })
+              .catch(e => {
+                console.error(`[${agent.name}] Re-onboard after provider switch failed:`, e.message);
+              });
           }
         }
 
