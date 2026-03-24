@@ -3,9 +3,16 @@ import { chatStore } from '@/core/agent/chat-store.js';
 import { getApiT, getLanguageFromRequest } from '@/lib/api-i18n';
 import { setAppLanguage } from '@/core/utils/app-language.js';
 import { processSecretaryAction } from '../action-handler.js';
+import { extractFieldFromPartialJSON } from '@/core/utils/json-parse.js';
 
 /**
  * SSE streaming endpoint for secretary chat.
+ *
+ * The secretary is just an Employee with a different prompt — streaming is
+ * a generic capability provided by Employee.chatStream(). The secretary
+ * enables the `contentExtractor` option to extract the "content" field
+ * from its structured JSON response in real-time, so the frontend sees
+ * clean text instead of raw JSON fragments.
  *
  * Events:
  *   - thinking: { content }  — chain-of-thought reasoning token
@@ -42,16 +49,12 @@ export async function POST(request) {
   const sec = company.secretary;
 
   // Fall back to non-streaming if secretary doesn't support streaming
-  // (CLI backend, canChat() false, or handleBossMessageStream missing after HMR)
-  if (!sec.canChat() || sec.cliBackend || typeof sec.handleBossMessageStream !== 'function') {
+  // (CLI backend, canChat() false, etc.)
+  if (!sec.canChat() || sec.cliBackend) {
     try {
-      // chatWithSecretary handles its own boss message + reply persistence
       const reply = await company.chatWithSecretary(message, { lang });
-
-      // Process all action types even in non-streaming fallback
       processSecretaryAction(reply, message, company, { lang });
 
-      // Return as a single SSE "done" event
       const encoder = new TextEncoder();
       const body = encoder.encode(`event: done\ndata: ${JSON.stringify({ reply })}\n\n`);
       return new Response(body, {
@@ -71,10 +74,20 @@ export async function POST(request) {
   }
 
   // Persist the boss message before streaming starts
-  // (only for the streaming path — the fallback above uses chatWithSecretary which persists internally)
   const bossMsg = { role: 'boss', content: message, time: new Date() };
   company.chatHistory.push(bossMsg);
   chatStore.appendMessage(company.chatSessionId, bossMsg);
+
+  // Build context — same as handleBossMessage but we drive the stream ourselves
+  const { messages, secretaryChatGroupId } = sec._buildBossMessageContext(message, company, { lang });
+
+  // The contentExtractor enables real-time JSON "content" field extraction at the
+  // Employee/Agent layer — this is the "switch" the secretary turns on.
+  const streamOptions = {
+    temperature: 0.8,
+    maxTokens: 2048,
+    contentExtractor: extractFieldFromPartialJSON,
+  };
 
   // Create a ReadableStream that pushes SSE events
   const stream = new ReadableStream({
@@ -84,40 +97,83 @@ export async function POST(request) {
         controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
       };
 
+      let fullRawContent = '';
+
       try {
-        const streamIterator = sec.handleBossMessageStream(message, company, { lang });
-        // Verify the return value is async iterable before iterating
-        if (!streamIterator || typeof streamIterator[Symbol.asyncIterator] !== 'function') {
-          throw new Error('handleBossMessageStream did not return an async iterable');
-        }
-        for await (const chunk of streamIterator) {
-          send(chunk.event, chunk.data);
-
-          // When done, persist the secretary reply to chat history
-          if (chunk.event === 'done' && chunk.data.reply) {
-            const reply = chunk.data.reply;
-
-            // Process all action types (secretary_handle, task_assigned, create_department, etc.)
-            processSecretaryAction(reply, message, company);
-
-            const secretaryMsg = {
-              role: 'secretary',
-              content: reply.content,
-              action: reply.action || null,
-              time: new Date(),
-            };
-            company.chatHistory.push(secretaryMsg);
-            chatStore.appendMessage(company.chatSessionId, secretaryMsg);
-
-            if (company.chatHistory.length > 50) {
-              company.chatHistory = company.chatHistory.slice(-50);
-            }
-            company.save();
+        // Stream using the base Employee.chatStream() with contentExtractor
+        for await (const chunk of sec.chatStream(messages, streamOptions)) {
+          if (chunk.type === 'thinking') {
+            send('thinking', { content: chunk.content });
+          } else if (chunk.type === 'delta') {
+            send('delta', { content: chunk.content });
+          } else if (chunk.type === 'done') {
+            fullRawContent = chunk.content || fullRawContent;
           }
         }
+
+        let reply = sec.parseStructuredResponse(fullRawContent, secretaryChatGroupId);
+
+        // Progressive disclosure: query_department → re-stream with details
+        if (reply.action?.type === 'query_department' && reply.action.departmentId) {
+          const dept = company.departments.get(reply.action.departmentId);
+          if (dept) {
+            const memberList = [...dept.agents.values()].map(a =>
+              `  - ${a.name} (${a.role}) [status: ${a.status || 'active'}]`
+            ).join('\n');
+            const deptInfo = `Department "${dept.name}" members:\n${memberList}`;
+
+            messages.push(
+              { role: 'assistant', content: fullRawContent },
+              { role: 'user', content: `[System: Department query result]\n${deptInfo}\n\nNow please respond to the boss's original message with this information.` }
+            );
+
+            fullRawContent = '';
+            for await (const chunk of sec.chatStream(messages, streamOptions)) {
+              if (chunk.type === 'thinking') {
+                send('thinking', { content: chunk.content });
+              } else if (chunk.type === 'delta') {
+                send('delta', { content: chunk.content });
+              } else if (chunk.type === 'done') {
+                fullRawContent = chunk.content || fullRawContent;
+              }
+            }
+            reply = sec.parseStructuredResponse(fullRawContent, secretaryChatGroupId);
+          }
+        }
+
+        // Send the final done event with parsed reply
+        send('done', { reply });
+
+        // Process action and persist
+        processSecretaryAction(reply, message, company, { lang });
+
+        const secretaryMsg = {
+          role: 'secretary',
+          content: reply.content,
+          action: reply.action || null,
+          time: new Date(),
+        };
+        company.chatHistory.push(secretaryMsg);
+        chatStore.appendMessage(company.chatSessionId, secretaryMsg);
+
+        if (company.chatHistory.length > 50) {
+          company.chatHistory = company.chatHistory.slice(-50);
+        }
+        company.save();
       } catch (err) {
         console.error('❌ [Chat Stream] Error:', err.message);
-        send('error', { message: err.message });
+
+        // Try to salvage partial content
+        if (fullRawContent.length > 0) {
+          try {
+            const reply = sec.parseStructuredResponse(fullRawContent, secretaryChatGroupId);
+            send('done', { reply });
+          } catch {
+            send('error', { message: err.message });
+          }
+        } else {
+          send('error', { message: err.message });
+        }
       } finally {
         controller.close();
       }

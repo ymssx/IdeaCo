@@ -10,7 +10,8 @@
  */
 
 import { Employee } from './base-employee.js';
-import { Secretary, HRAssistant } from './secretary.js';
+import { Secretary } from './secretary.js';
+import { HRAssistant } from './hr-assistant.js';
 import { EmployeeLifecycle, InnerMonologue } from './lifecycle.js';
 import { StaminaSystem } from './stamina.js';
 import { EmployeeSkillSet } from './skill/skill-set.js';

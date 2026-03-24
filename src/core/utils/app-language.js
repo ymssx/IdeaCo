@@ -64,7 +64,7 @@ export function getLanguageNameByCode(code) {
  * an instruction telling the agent to respond in the target language.
  * @returns {string}
  */
-export function buildLanguageInstruction() {
-  const langName = getAppLanguageName();
+export function buildLanguageInstruction(lang) {
+  const langName = lang ? getLanguageNameByCode(lang) : getAppLanguageName();
   return `\n## Response Language (MANDATORY)\nYou MUST respond in ${langName}. All your messages, reports, summaries, and deliverables MUST be written in ${langName}. This applies to all conversations, task outputs, and any text you generate. Only code, technical identifiers, and file paths may remain in their original language.\n`;
 }

@@ -10,7 +10,7 @@ import { cliBackendRegistry } from '../agent/cli-agent/backends/index.js';
 import { createAgent, deserializeAgent } from '../agent/index.js';
 import { EmployeeLifecycle } from './lifecycle.js';
 import { StaminaSystem } from './stamina.js';
-import { safeJSONParse } from '../utils/json-parse.js';
+import { safeJSONParse, robustJSONParse } from '../utils/json-parse.js';
 import { buildLanguageInstruction, getAppLanguageName } from '../utils/app-language.js';
 import { EmployeeSkillSet } from './skill/skill-set.js';
 import { skillRegistry } from './skill/registry.js';
@@ -247,28 +247,97 @@ export class Employee {
   /**
    * Stream chat via the agent — returns an async generator yielding delta tokens.
    * Only supported for LLM agents (not web/cli).
+   *
    * @param {Array} messages
    * @param {object} [options]
+   * @param {function} [options.contentExtractor] - Optional function (rawAccumulated: string) => string.
+   *   When provided, each delta chunk is passed through the extractor to yield only the
+   *   incremental "useful content" (e.g. extracting the "content" field from a streaming JSON
+   *   response). The raw accumulated text is still available in the final 'done' event.
+   *   This enables any employee (e.g. secretary) to stream structured JSON responses while
+   *   the consumer only sees the human-readable portion.
    * @yields {{ type: 'delta'|'thinking'|'done', content: string }}
    */
   async *chatStream(messages, options = {}) {
+    const { contentExtractor, ...restOptions } = options;
     // Inject agent identity so LLM debug logger can record this call
-    const mergedOptions = { _agentId: this.id, _agentName: this.name, ...options };
+    const mergedOptions = { _agentId: this.id, _agentName: this.name, ...restOptions };
     if (typeof this.agent.chatStream !== 'function') {
       // Fallback: non-streaming chat wrapped as a single yield
       const response = await this.chat(messages, mergedOptions);
-      yield { type: 'delta', content: response.content };
+      const content = contentExtractor ? contentExtractor(response.content) : response.content;
+      yield { type: 'delta', content };
       yield { type: 'done', content: response.content, usage: response.usage || {} };
       return;
     }
-    let finalContent = '';
+    let rawAccumulated = '';
+    let lastExtracted = '';
     for await (const chunk of this.agent.chatStream(messages, mergedOptions)) {
       if (chunk.type === 'done') {
-        finalContent = chunk.content;
+        rawAccumulated = chunk.content || rawAccumulated;
         this._trackUsage(chunk.usage);
+        // Done event always carries the full raw content for post-processing
+        yield { type: 'done', content: rawAccumulated, usage: chunk.usage };
+      } else if (chunk.type === 'delta' && contentExtractor) {
+        rawAccumulated += chunk.content;
+        const currentExtracted = contentExtractor(rawAccumulated);
+        if (currentExtracted.length > lastExtracted.length) {
+          const delta = currentExtracted.slice(lastExtracted.length);
+          lastExtracted = currentExtracted;
+          yield { type: 'delta', content: delta };
+        }
+        // If extractor returns same length, skip this delta (JSON structure token, not content)
+      } else {
+        if (chunk.type === 'delta') rawAccumulated += chunk.content;
+        yield chunk;
       }
-      yield chunk;
     }
+  }
+
+  // ======================== Structured Response Parsing ========================
+
+  /**
+   * Parse a structured JSON response from an LLM and process memory/relationship ops.
+   *
+   * This is a generic capability available to ALL employees.  The secretary
+   * happens to use it for boss-message replies (with "content" + "action"),
+   * but any employee whose prompt requests structured JSON can use it.
+   *
+   * @param {string} rawContent - Raw LLM output (expected to be JSON)
+   * @param {string} chatGroupId - Chat group ID for memory context
+   * @returns {{ content: string, action: object|null, [key: string]: any }}
+   */
+  parseStructuredResponse(rawContent, chatGroupId) {
+    let parsed;
+    try {
+      parsed = robustJSONParse(rawContent);
+    } catch (parseError) {
+      console.warn(`⚠️ [${this.name}] JSON parse failed:`, parseError.message, '\nRaw reply:', rawContent.slice(0, 200));
+      return { content: rawContent, action: null };
+    }
+
+    const result = { content: parsed.content || rawContent, action: parsed.action || null };
+
+    // Process memory summary
+    if (parsed.memorySummary) {
+      this.memory.updateHistorySummary(chatGroupId, parsed.memorySummary);
+    }
+    // Process memory operations (add/update/delete)
+    if (parsed.memoryOps && Array.isArray(parsed.memoryOps)) {
+      const memResult = this.memory.processMemoryOps(parsed.memoryOps);
+      if (memResult.added + memResult.updated + memResult.deleted > 0) {
+        console.log(`  🧠 [${this.name}] Memory: +${memResult.added} ~${memResult.updated} -${memResult.deleted}`);
+      }
+    }
+    // Process relationship impression updates
+    if (parsed.relationshipOps && Array.isArray(parsed.relationshipOps)) {
+      const relResult = this.memory.processRelationshipOps(parsed.relationshipOps);
+      if (relResult.updated > 0) {
+        console.log(`  👥 [${this.name}] Relationship updates: ${relResult.updated}`);
+      }
+    }
+
+    return result;
   }
 
   // ======================== Toolkit & MessageBus ========================
@@ -531,7 +600,7 @@ ${scenePrompt}`;
   /**
    * Execute a full task using the underlying agent.
    */
-  async executeTask(task, callbacks = {}) {
+  async executeTask(task, callbacks = {}, { lang } = {}) {
     this.status = 'working';
     const startTime = Date.now();
     const displayInfo = this.getDisplayInfo();
@@ -554,7 +623,7 @@ ${scenePrompt}`;
       if (this.agentType === 'cli' && this.isAvailable()) {
         result = await this._executeCLITask(task, callbacks, startTime);
       } else if (this.canChat()) {
-        result = await this._executeLLMTask(task, callbacks, startTime);
+        result = await this._executeLLMTask(task, callbacks, startTime, { lang });
       } else {
         throw new Error(`No available execution engine for "${this.name}"`);
       }
@@ -563,7 +632,7 @@ ${scenePrompt}`;
       if (this.agentType === 'cli' && this.canChat()) {
         console.log(`  ⚠️ [${this.name}] CLI execution failed, falling back to LLM API`);
         try {
-          result = await this._executeLLMTask(task, callbacks, startTime);
+          result = await this._executeLLMTask(task, callbacks, startTime, { lang });
         } catch (fallbackError) {
           console.error(`  ❌ [${this.name}] LLM fallback also failed: ${fallbackError.message}`);
           result = this._buildFailResult(task, startTime, fallbackError.message);
@@ -580,13 +649,13 @@ ${scenePrompt}`;
     return result;
   }
 
-  async _executeLLMTask(task, callbacks, startTime) {
+  async _executeLLMTask(task, callbacks, startTime, { lang } = {}) {
     if (!this.canChat()) {
       throw new Error(`Provider not available for "${this.name}"`);
     }
 
     const messages = [
-      { role: 'system', content: this._buildSystemMessage() },
+      { role: 'system', content: this._buildSystemMessage({ lang }) },
       { role: 'user', content: this._buildTaskMessage(task) },
     ];
 
@@ -600,7 +669,7 @@ ${scenePrompt}`;
     let response;
     if (this.toolKit && (this.agent.provider?.category === 'general' || this.agent.provider?.category === 'browser')) {
       response = await this.chatWithTools(messages, this.toolKit, {
-        maxIterations: 5, temperature: 0.7,
+        maxIterations: 15, temperature: 0.7,
         onToolCall: callbacks.onToolCall || null,
         onLLMCall: callbacks.onLLMCall || null,
       });
@@ -704,7 +773,7 @@ ${scenePrompt}`;
 
   // ======================== Prompt Building ========================
 
-  _buildSystemMessage() {
+  _buildSystemMessage({ lang } = {}) {
     let systemContent = this.prompt + '\n\n';
 
     if (this.templateId) {
@@ -758,7 +827,7 @@ ${scenePrompt}`;
     } catch {}
 
     // Enforce response language based on current UI language
-    systemContent += buildLanguageInstruction();
+    systemContent += buildLanguageInstruction(lang);
 
     return systemContent;
   }

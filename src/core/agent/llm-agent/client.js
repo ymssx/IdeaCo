@@ -450,10 +450,11 @@ export class LLMClient {
    * @returns {Promise<{content: string, toolResults: Array, messages: Array}>}
    */
   async chatWithTools(provider, messages, toolExecutor, options = {}) {
-    const maxIterations = options.maxIterations || 5;    const onToolCall = options.onToolCall || null;  // Callback: notify on tool call
+const maxIterations = options.maxIterations || 15;    const onToolCall = options.onToolCall || null;  // Callback: notify on tool call
     const onLLMCall = options.onLLMCall || null;    // Callback: notify on each LLM call
     const conversationMessages = [...messages];
     const toolResults = [];
+    const chatWithToolsStartTime = Date.now();
     // Track whether we just executed embedded (DSML) tool calls. If so, the next
     // LLM call should NOT include tool definitions — we want the model to summarize
     // the tool results in natural language instead of attempting more tool calls.
@@ -468,6 +469,8 @@ export class LLMClient {
       const chatOpts = {
         temperature: options.temperature,
         maxTokens: options.maxTokens,
+        _agentId: options._agentId,
+        _agentName: options._agentName,
       };
       // Only pass tool definitions when we're NOT in the "summarize embedded results" phase
       if (!justDidEmbeddedCalls) {
@@ -527,7 +530,7 @@ export class LLMClient {
           const resultsPayload = callResultTexts.join('\n\n');
           conversationMessages.push({
             role: 'user',
-            content: `The tool(s) you requested have been executed. Here are the results:\n\n${resultsPayload}\n\nPlease use the tool results above to give a complete, helpful answer to the user's original question. Do NOT call any more tools — just answer directly.`,
+            content: `The tool(s) you requested have been executed. Here are the results:\n\n${resultsPayload}\n\nPlease review the tool results above. If you need more information or need to run additional tools to complete the task, go ahead and call them. If you have enough information, provide a complete, helpful answer to the user's original question.`,
           });
           justDidEmbeddedCalls = true;
           continue;
@@ -537,6 +540,23 @@ export class LLMClient {
         // If content is empty after stripping (LLM only output markup, no natural language),
         // summarize tool results as the response so user doesn't see an empty message
         const finalContent = strippedContent || _summarizeToolResults(toolResults);
+
+        // Log the full chatWithTools conversation (including tool calls) as a summary entry
+        if (toolResults.length > 0) {
+          logLLMCall({
+            agentId: options._agentId,
+            agentName: options._agentName,
+            providerId: provider.id,
+            model: getModelName(provider),
+            messages: conversationMessages,
+            response: { content: finalContent, toolResults },
+            options: { ...options, _isChatWithToolsSummary: true, iterationsUsed: i + 1 },
+            latency: Date.now() - chatWithToolsStartTime,
+            usage: response.usage,
+            streamed: false,
+          });
+        }
+
         return {
           content: finalContent,
           toolResults,
@@ -601,11 +621,31 @@ export class LLMClient {
     const finalResponse = await this.chat(provider, conversationMessages, {
       temperature: options.temperature,
       maxTokens: options.maxTokens,
+      _agentId: options._agentId,
+      _agentName: options._agentName,
     });
 
     const strippedFinal = _stripToolCallMarkup(finalResponse.content);
+    const finalContent = strippedFinal || _summarizeToolResults(toolResults);
+
+    // Log the full chatWithTools conversation (including tool calls) as a summary entry
+    if (toolResults.length > 0) {
+      logLLMCall({
+        agentId: options._agentId,
+        agentName: options._agentName,
+        providerId: provider.id,
+        model: getModelName(provider),
+        messages: conversationMessages,
+        response: { content: finalContent, toolResults },
+        options: { ...options, _isChatWithToolsSummary: true, iterationsUsed: maxIterations, maxIterationsReached: true },
+        latency: Date.now() - chatWithToolsStartTime,
+        usage: finalResponse.usage,
+        streamed: false,
+      });
+    }
+
     return {
-      content: strippedFinal || _summarizeToolResults(toolResults),
+      content: finalContent,
       toolResults,
       messages: conversationMessages,
       usage: finalResponse.usage,

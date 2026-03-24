@@ -1542,10 +1542,9 @@ const dept = this.findDepartment(departmentId);
    * @param {string} [taskTitle] - Task title
    * @returns {Promise<object>} Execution result
    */
-  async assignTaskToDepartment(departmentId, taskDescription, taskTitle = null) {
+  async assignTaskToDepartment(departmentId, taskDescription, taskTitle = null, { lang } = {}) {
     const dept = this.findDepartment(departmentId);
     if (!dept) throw new Error(`Department not found: ${departmentId}`);
-
     const members = dept.getMembers();
     if (members.length === 0) throw new Error(`Department "${dept.name}" has no employees`);
 
@@ -1601,7 +1600,7 @@ const dept = this.findDepartment(departmentId);
 
     try {
       await this.requirementManager.planWorkflow(
-        requirement, members
+        requirement, members, null, { lang }
       );
     } catch (e) {
       console.error('Workflow decomposition failed:', e.message);
@@ -1615,7 +1614,7 @@ const dept = this.findDepartment(departmentId);
     let summary;
     try {
       summary = await this.requirementManager.executeWorkflow(
-        requirement, dept, this.performanceSystem
+        requirement, dept, this.performanceSystem, { lang }
       );
     } catch (e) {
       console.error('Workflow execution failed:', e.message);

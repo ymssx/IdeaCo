@@ -160,7 +160,7 @@ export class WebAgent extends BaseAgent {
       const resultsPayload = callResultTexts.join('\n\n');
       conversationMessages.push({
         role: 'user',
-        content: `The tool(s) you requested have been executed. Here are the results:\n\n${resultsPayload}\n\nPlease use the tool results above to give a complete, helpful answer to the user's original question. Do NOT call any more tools — just answer directly.`,
+        content: `The tool(s) you requested have been executed. Here are the results:\n\n${resultsPayload}\n\nPlease review the tool results above. If you need more information or need to run additional tools to complete the task, go ahead and call them. If you have enough information, provide a complete, helpful answer to the user's original question.`,
       });
     }
 

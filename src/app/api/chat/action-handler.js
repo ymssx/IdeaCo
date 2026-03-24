@@ -113,7 +113,7 @@ export function processSecretaryAction(reply, message, company, { lang } = {}) {
         chatStore.appendMessage(company.chatSessionId, autoCreateMsg);
         company.save();
 
-        const summary = await company.assignTaskToDepartment(dept.id, suggestedMission);
+        const summary = await company.assignTaskToDepartment(dept.id, suggestedMission, null, { lang });
         runningTasks.set(taskId, { status: 'completed', summary, completedAt: Date.now() });
         console.log(`✅ Task execution complete: ${summary.successTasks}/${summary.totalTasks}`);
 
@@ -169,17 +169,21 @@ export function processSecretaryAction(reply, message, company, { lang } = {}) {
 
     (async () => {
       try {
-        const result = await company.secretary.executeTaskDirectly(taskDescription || message, company, { lang });
+        const task = {
+          title: 'Secretary Task',
+          description: taskDescription || message,
+        };
+        const result = await company.secretary.executeTask(task, {}, { lang });
 
         runningTasks.set(taskId, {
           status: 'completed',
-          summary: { content: result.content, success: result.success },
+          summary: { content: result.output, success: result.success },
           completedAt: Date.now(),
         });
 
         const resultMsg = {
           role: 'secretary',
-          content: result.content,
+          content: result.output,
           action: { type: 'secretary_task_completed', taskId },
           time: new Date(),
         };
@@ -216,7 +220,7 @@ export function processSecretaryAction(reply, message, company, { lang } = {}) {
 
     runningTasks.set(taskId, { status: 'running', departmentId, startedAt: Date.now() });
 
-    company.assignTaskToDepartment(departmentId, description, taskTitle || null)
+    company.assignTaskToDepartment(departmentId, description, taskTitle || null, { lang })
       .then(summary => {
         runningTasks.set(taskId, { status: 'completed', summary, completedAt: Date.now() });
         console.log(`✅ Task [${taskId}] completed: ${summary.successTasks}/${summary.totalTasks} succeeded`);
