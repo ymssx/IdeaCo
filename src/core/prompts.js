@@ -276,7 +276,7 @@ Before you speak, you MUST evaluate how "saturated" the current topic is:
   "shouldSpeak": true,
   "reason": "reason",
   "messages": [{ "content": "your reply" }],
-  "memorySummary": "A concise summary of the OLD messages marked as 'already read' — preserve key facts, decisions, names, numbers. null if no old messages need summarizing.",
+  "memorySummary": "A single, complete summary that REPLACES the previous one — cover all important context so far. null if nothing to summarize.",
   "memoryOps": [
     { "op": "add", "type": "long_term", "content": "Important fact worth remembering permanently", "category": "fact", "importance": 8 },
     { "op": "add", "type": "short_term", "content": "Temporary context about current discussion", "category": "context", "importance": 5, "ttl": 3600 },
@@ -300,14 +300,19 @@ Before you speak, you MUST evaluate how "saturated" the current topic is:
 - When not speaking, messages should be [].
 
 ## Memory Management (IMPORTANT)
-- memorySummary: Summarize the OLD (already read) messages into a brief recap. Keep key info: who said what important thing, decisions made, facts shared. Skip pure chitchat. Set to null if there are no old messages to summarize.
-- memoryOps: Optional array of memory operations. Use this to manage your own memory:
+- memorySummary: Replace the previous conversation summary with a NEW, complete, single summary covering everything important so far. This is NOT appended — it fully REPLACES the old summary. Keep key info: who said what, decisions made, facts shared. Skip pure chitchat. Set to null if no old messages to summarize.
+- memoryOps: Array of memory operations. Use this to actively manage your memory:
   - "add" + "long_term": Important facts about people, relationships, decisions, preferences (stays forever)
   - "add" + "short_term": Temporary context like current topics, ongoing discussions (auto-expires, ttl in seconds, default 24h)
-  - "update": Update an existing memory by id with new content
-  - "delete": Remove outdated or wrong memories by id
+  - "update": Update an existing memory by id with new content — USE THIS to merge similar memories into one
+  - "delete": Remove outdated, wrong, or redundant memories by id
   - category: fact | preference | experience | context | relationship | decision
   - importance: 1-10 (higher = more important, less likely to be forgotten)
+- ⚠️ ACTIVELY MAINTAIN your memories! Every time you respond:
+  - Look for similar or overlapping memories and MERGE them (delete duplicates, update the remaining one)
+  - DELETE memories that are no longer relevant, outdated, or superseded by newer info
+  - Prefer FEWER, higher-quality memories over many redundant ones
+  - Short-term memories about resolved topics should be deleted
 - If nothing to add/update/delete, set memoryOps to [].
 
 ## Relationship Impressions (IMPORTANT)
@@ -401,7 +406,7 @@ Before you speak, you MUST evaluate how "saturated" the current topic is:
   "shouldSpeak": true/false,
   "reason": "reason",
   "messages": [{ "content": "your message (use @[agentId] to @ others, use [[file:path]] to reference files)" }],
-  "memorySummary": "A concise summary of the OLD messages — preserve key facts, decisions, names, technical details. null if no old messages.",
+  "memorySummary": "A single, complete summary that REPLACES the previous one — cover all important context so far. null if nothing to summarize.",
   "memoryOps": [
     { "op": "add", "type": "long_term", "content": "Important technical fact or decision", "category": "decision", "importance": 8 },
     { "op": "add", "type": "short_term", "content": "Current task context", "category": "context", "importance": 5, "ttl": 7200 }
@@ -425,14 +430,19 @@ Before you speak, you MUST evaluate how "saturated" the current topic is:
 - When mentioning files, use [[file:relative/path]] format so others can click to view the file.
 
 ## Memory Management (IMPORTANT)
-- memorySummary: Summarize the OLD (already read) messages. Preserve: key decisions, technical details, who is working on what, problems found. Skip filler. null if no old messages.
-- memoryOps: Optional array of memory operations:
+- memorySummary: Replace the previous conversation summary with a NEW, complete, single summary covering everything important so far. This is NOT appended — it fully REPLACES the old summary. Preserve: key decisions, technical details, who is working on what, problems found. Skip filler. null if no old messages.
+- memoryOps: Array of memory operations to actively manage your memory:
   - "add" + "long_term": Technical decisions, architecture choices, colleague expertise, important facts
   - "add" + "short_term": Current task status, ongoing discussions, temporary blockers (ttl in seconds)
-  - "update": Update existing memory by id
-  - "delete": Remove outdated memories by id
+  - "update": Update existing memory by id with new content — USE THIS to merge similar memories into one
+  - "delete": Remove outdated, wrong, or redundant memories by id
   - category: fact | decision | context | relationship | experience | preference
   - importance: 1-10
+- ⚠️ ACTIVELY MAINTAIN your memories! Every time you respond:
+  - Look for similar or overlapping memories and MERGE them (delete duplicates, update the remaining one)
+  - DELETE memories that are no longer relevant, outdated, or superseded by newer info
+  - Prefer FEWER, higher-quality memories over many redundant ones
+  - Short-term memories about resolved topics should be deleted
 - If nothing to add/update/delete, set memoryOps to [].
 
 ## Relationship Impressions (IMPORTANT)
@@ -450,20 +460,22 @@ Before you speak, you MUST evaluate how "saturated" the current topic is:
 
   // ── User prompt templates (injected as user message) ──────────────
   userPrompt: {
-    deptChat: (chatContext, thinkingInfo, name, age, trait) =>
+    deptChat: (chatContext, thinkingInfo, name, age, trait, historySummaryContext = '') =>
       `Here are the messages from the department chat group:
 
 ${chatContext}${thinkingInfo}
+${historySummaryContext}
 
 Please focus on the 🆕 new unread messages.
 This is a casual chat group — respond with your real personality and emotions!
 You are ${name}, ${age} years old, personality "${trait}". Talk in your own way!
 🚨 IMPORTANT: If colleagues have already replied, your reply MUST be completely different from theirs, otherwise just don't speak!`,
 
-    workChat: (chatContext, thinkingInfo, name, age, trait) =>
+    workChat: (chatContext, thinkingInfo, name, age, trait, historySummaryContext = '') =>
       `Here are the messages from the work group:
 
 ${chatContext}${thinkingInfo}
+${historySummaryContext}
 
 Please focus on the 🆕 new unread messages.
 You are ${name}, ${age} years old, personality "${trait}".

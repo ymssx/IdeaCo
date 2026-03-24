@@ -6,7 +6,7 @@ import { chatStore } from '../agent/chat-store.js';
 import { cliBackendRegistry } from '../agent/cli-agent/backends/index.js';
 import { JobTemplates } from '../organization/workforce/hr.js';
 import { robustJSONParse } from '../utils/json-parse.js';
-import { getAppLanguageName, buildLanguageInstruction } from '../utils/app-language.js';
+import { getAppLanguageName, getLanguageNameByCode } from '../utils/app-language.js';
 
 
 /**
@@ -283,7 +283,7 @@ When communicating with the boss, you need to:
 
   // ======================== Boss Message Handling ========================
 
-  async handleBossMessage(message, company) {
+  async handleBossMessage(message, company, { lang } = {}) {
     if (!this.canChat()) {
       if (this.agentType === 'cli') {
         throw new Error('Secretary is in CLI mode. Please use chatWithSecretary() which handles CLI path correctly.');
@@ -294,13 +294,34 @@ When communicating with the boss, you need to:
     // Session initialization follows lazy-loading principle:
     // For web agents: _ensureSession() is called inside this.chat() to manage browser sessions.
     // For LLM/CLI agents: session management is skipped (stateless API, prompt is self-contained).
-    return await this._llmHandleBossMessage(message, company);
+    return await this._llmHandleBossMessage(message, company, { lang });
   }
 
-  async _llmHandleBossMessage(message, company) {
-    const { messages, secretaryChatGroupId } = this._buildBossMessageContext(message, company);
+  async _llmHandleBossMessage(message, company, { lang } = {}) {
+    const { messages, secretaryChatGroupId } = this._buildBossMessageContext(message, company, { lang });
     const response = await this.chat(messages, { temperature: 0.8, maxTokens: 2048 });
-    return this._parseSecretaryResponse(response.content, message, company, secretaryChatGroupId);
+    let result = this._parseSecretaryResponse(response.content, message, company, secretaryChatGroupId);
+
+    // Progressive disclosure: if secretary requests department member details, provide them and re-ask
+    if (result.action?.type === 'query_department' && result.action.departmentId) {
+      const dept = company.departments.get(result.action.departmentId);
+      if (dept) {
+        const memberList = [...dept.agents.values()].map(a =>
+          `  - ${a.name} (${a.role}) [status: ${a.status || 'active'}]`
+        ).join('\n');
+        const deptInfo = `Department "${dept.name}" members:\n${memberList}`;
+
+        // Append the query result and re-invoke the LLM
+        messages.push(
+          { role: 'assistant', content: response.content },
+          { role: 'user', content: `[System: Department query result]\n${deptInfo}\n\nNow please respond to the boss's original message with this information.` }
+        );
+        const followUp = await this.chat(messages, { temperature: 0.8, maxTokens: 2048 });
+        result = this._parseSecretaryResponse(followUp.content, message, company, secretaryChatGroupId);
+      }
+    }
+
+    return result;
   }
 
   // ======================== Boss Message Handling (Streaming) ========================
@@ -318,14 +339,14 @@ When communicating with the boss, you need to:
    *   - { event: 'done',     data: { reply } }        — final parsed reply (same as non-streaming)
    *   - { event: 'error',    data: { message } }      — error occurred
    */
-  async *handleBossMessageStream(message, company) {
+  async *handleBossMessageStream(message, company, { lang } = {}) {
     if (!this.canChat()) {
       yield { event: 'error', data: { message: 'Secretary AI is not configured.' } };
       return;
     }
 
     // Build the same messages as _llmHandleBossMessage
-    const { messages, secretaryChatGroupId } = this._buildBossMessageContext(message, company);
+    const { messages, secretaryChatGroupId } = this._buildBossMessageContext(message, company, { lang });
 
     let fullContent = '';
     // Track whether we're inside the "content" JSON field for incremental extraction
@@ -350,7 +371,42 @@ When communicating with the boss, you need to:
       }
 
       // Post-process: parse JSON, handle memory/relationship ops, fix dept IDs
-      const reply = this._parseSecretaryResponse(fullContent, message, company, secretaryChatGroupId);
+      let reply = this._parseSecretaryResponse(fullContent, message, company, secretaryChatGroupId);
+
+      // Progressive disclosure: if secretary requests department member details, provide them and re-ask
+      if (reply.action?.type === 'query_department' && reply.action.departmentId) {
+        const dept = company.departments.get(reply.action.departmentId);
+        if (dept) {
+          const memberList = [...dept.agents.values()].map(a =>
+            `  - ${a.name} (${a.role}) [status: ${a.status || 'active'}]`
+          ).join('\n');
+          const deptInfo = `Department "${dept.name}" members:\n${memberList}`;
+
+          messages.push(
+            { role: 'assistant', content: fullContent },
+            { role: 'user', content: `[System: Department query result]\n${deptInfo}\n\nNow please respond to the boss's original message with this information.` }
+          );
+
+          // Re-stream with the department info
+          fullContent = '';
+          contentExtractor = new JSONContentExtractor();
+          for await (const chunk of this.chatStream(messages, { temperature: 0.8, maxTokens: 2048 })) {
+            if (chunk.type === 'thinking') {
+              yield { event: 'thinking', data: { content: chunk.content } };
+            } else if (chunk.type === 'delta') {
+              fullContent += chunk.content;
+              const extracted = contentExtractor.feed(chunk.content);
+              if (extracted) {
+                yield { event: 'delta', data: { content: extracted } };
+              }
+            } else if (chunk.type === 'done') {
+              fullContent = chunk.content || fullContent;
+            }
+          }
+          reply = this._parseSecretaryResponse(fullContent, message, company, secretaryChatGroupId);
+        }
+      }
+
       yield { event: 'done', data: { reply } };
     } catch (err) {
       console.error(`❌ [Secretary] Stream error:`, err.message);
@@ -370,7 +426,7 @@ When communicating with the boss, you need to:
    * Build the message context for boss message handling.
    * Extracted from _llmHandleBossMessage so it can be shared with the streaming variant.
    */
-  _buildBossMessageContext(message, company) {
+  _buildBossMessageContext(message, company, { lang } = {}) {
     this.memory.consolidateMemories();
 
     const deptCount = company.departments.size;
@@ -378,9 +434,6 @@ When communicating with the boss, you need to:
       name: d.name, id: d.id, mission: d.mission, status: d.status,
       memberCount: d.agents.size,
       leader: d.getLeader()?.name || 'Unassigned',
-      members: [...d.agents.values()].map(a => ({
-        name: a.name, role: a.role, status: a.status,
-      })),
     }));
     const agentCount = departments.reduce((s, d) => s + d.memberCount, 0);
     const talentCount = company.talentMarket.listAvailable().length;
@@ -444,20 +497,28 @@ When communicating with the boss, you need to:
     } catch {}
 
     const secretaryChatGroupId = `secretary-boss-chat`;
+    // Memory section (long-term + short-term memories) goes into system prompt
     const memorySection = this.memory.buildMemoryContext(secretaryChatGroupId);
+    // History summary goes into user message (not system prompt)
+    const historySummaryContext = this.memory.buildHistorySummaryContext(secretaryChatGroupId);
 
     // Reuse the exact same system prompt from _llmHandleBossMessage
     // (extracted here to avoid duplication, but keeping it inline for now due to template literals)
     const systemPrompt = this._buildSecretarySystemPrompt({
       company, secretaryPrompt, memorySection, searchContextSection,
       deptCount, departments, agentCount, talentCount,
-      availableRoles, availableCategories, capabilitiesSection,
+      availableRoles, availableCategories, capabilitiesSection, lang,
     });
+
+    // Inject history summary into the user message so it appears as conversational context
+    const userMessage = historySummaryContext
+      ? `${historySummaryContext}\n\n${message}`
+      : message;
 
     const messages = [
       { role: 'system', content: systemPrompt },
       ...recentHistory,
-      { role: 'user', content: message },
+      { role: 'user', content: userMessage },
     ];
 
     return { messages, secretaryChatGroupId };
@@ -554,10 +615,13 @@ When communicating with the boss, you need to:
     }
 
     let action = null;
-    const actionTypeMatch = rawContent.match(/"type"\s*:\s*"(task_assigned|need_new_department|create_department|progress_report|secretary_handle)"/);
+    const actionTypeMatch = rawContent.match(/"type"\s*:\s*"(task_assigned|need_new_department|create_department|progress_report|secretary_handle|query_department)"/);
     if (actionTypeMatch) {
       const actionType = actionTypeMatch[1];
-      if (actionType === 'task_assigned') {
+      if (actionType === 'query_department') {
+        const deptIdMatch = rawContent.match(/"departmentId"\s*:\s*"([^"]+)"/);
+        action = { type: 'query_department', departmentId: deptIdMatch ? deptIdMatch[1] : null };
+      } else if (actionType === 'task_assigned') {
         const deptNameMatch = rawContent.match(/"departmentName"\s*:\s*"([^"]+)"/);
         if (deptNameMatch) {
           const targetName = deptNameMatch[1];
@@ -633,8 +697,12 @@ When communicating with the boss, you need to:
    */
   _buildSecretarySystemPrompt({ company, secretaryPrompt, memorySection, searchContextSection,
     deptCount, departments, agentCount, talentCount,
-    availableRoles, availableCategories, capabilitiesSection }) {
-    return `You are "${this.name}", the personal secretary of ${company.bossName || 'the Boss'}.
+    availableRoles, availableCategories, capabilitiesSection, lang }) {
+    const langName = lang ? getLanguageNameByCode(lang) : getAppLanguageName();
+    return `## CRITICAL: Response Language = ${langName}
+All your "content" text MUST be written in ${langName}. This is non-negotiable.
+
+You are "${this.name}", the personal secretary of ${company.bossName || 'the Boss'}.
 ${secretaryPrompt ? `\nYour core persona: ${secretaryPrompt}\n` : ''}
 Your personality: smart, efficient, approachable. Communicate with the boss like a real, thoughtful secretary — natural, warm, not robotic.
 ${memorySection}
@@ -643,13 +711,13 @@ Current company "${company.name}" status:
 - Departments: ${deptCount}
 - Active employees: ${agentCount}
 - Talent market: ${talentCount} available
-${departments.length > 0 ? `\nDepartment details:\n${departments.map(d => `  🏢 ${d.name} [${d.status}] - Mission: ${d.mission} | ${d.memberCount} people | Leader: ${d.leader}\n     Members: ${d.members.map(m => m.name + '(' + m.role + ')').join(', ')}`).join('\n')}` : '\nNo departments yet.'}
+${departments.length > 0 ? `\nDepartment overview:\n${departments.map(d => `  🏢 ${d.name} (id: ${d.id}) [${d.status}] - Mission: ${d.mission} | ${d.memberCount} people | Leader: ${d.leader}`).join('\n')}\n\n(Use the "query_department" action to get detailed member lists when needed.)` : '\nNo departments yet.'}
 ${capabilitiesSection}
 
 You must understand the boss's intent and reply naturally. Your reply MUST be a JSON object (return JSON only, nothing else):
 {
   "content": "Your natural language reply (like a real secretary — warm, personal, no rigid templates)",
-  "memorySummary": "A concise summary of older conversation messages — keep key facts, decisions, instructions, names. null if conversation just started or no old messages to summarize.",
+  "memorySummary": "A single, complete summary that REPLACES the previous one — cover the entire conversation context so far. null if conversation just started.",
   "memoryOps": [
     { "op": "add", "type": "long_term", "content": "Boss prefers weekly reports on Monday", "category": "preference", "importance": 8 },
     { "op": "add", "type": "short_term", "content": "Boss asked about Q3 revenue data", "category": "task", "importance": 5, "ttl": 3600 },
@@ -657,14 +725,18 @@ You must understand the boss's intent and reply naturally. Your reply MUST be a 
     { "op": "delete", "id": "outdated_mem_id" }
   ]
   Memory management rules:
-    - memoryOps: Array of memory operations to manage your knowledge base
+    - memoryOps: Array of memory operations to actively manage your knowledge base
     - "add" + "long_term": Important facts, boss preferences, standing instructions, key decisions (stays forever)
     - "add" + "short_term": Current task context, temporary info (auto-expires, ttl in seconds, default 24h)
-    - "update": Modify an existing memory by id when info changes
-    - "delete": Remove outdated or incorrect memories by id
+    - "update": Modify an existing memory by id when info changes — USE THIS to merge similar memories into one
+    - "delete": Remove outdated, incorrect, or redundant memories by id
     - category: preference | fact | instruction | task | context | relationship | experience | decision
     - importance: 1-10 (higher = more important, less likely to be forgotten)
     - Only add memory when the boss tells you something worth remembering. Do NOT memorize casual greetings.
+    - ⚠️ ACTIVELY MAINTAIN your memories! Every time you respond:
+      * Look for similar or overlapping memories and MERGE them (delete duplicates, update the remaining one)
+      * DELETE memories that are no longer relevant, outdated, or superseded by newer info
+      * Prefer FEWER, higher-quality memories over many redundant ones
     - If nothing to add/update/delete, set memoryOps to [].
   "relationshipOps": [
     { "employeeId": "boss", "name": "Boss", "impression": "Decisive, prefers concise updates", "affinity": 70 }
@@ -679,6 +751,7 @@ You must understand the boss's intent and reply naturally. Your reply MUST be a 
     - { "type": "create_department", "departmentName": "department name", "mission": "department mission/responsibilities", "members": [ { "templateId": "job template id", "name": "creative employee nickname", "isLeader": true/false, "reportsTo": null or member index (0=first member) } ] } - when the boss explicitly requests creating a new department — you MUST design the team directly
     - { "type": "need_new_department", "suggestedMission": "task description" } - when the boss wants to assign a task but no existing department can handle it (need to create dept first then assign)
     - { "type": "progress_report" } - when the boss wants to see progress reports
+    - { "type": "query_department", "departmentId": "dept ID" } - when you need to see the full member list of a department (progressive disclosure: use this to get details before making decisions about staffing, transfers, or when the boss asks about specific team members)
     - null - casual chat or no special action needed
 }
 
@@ -715,10 +788,9 @@ Note: You DO have access to tools (shell commands, file operations, etc.) when e
   - Read/write files
 When returning secretary_handle:
   - taskDescription should be a clear, detailed description of what you need to do
-  - In "content", ONLY give a brief acknowledgement like "Let me check!" or "One moment, I'll handle it right away! 📝"
+  - In "content", ONLY give a brief acknowledgement (in ${langName}!) — just a short "on it" style reply
   - **ABSOLUTELY DO NOT** attempt to answer the question or provide any result in "content" — the actual answer will come from executeTaskDirectly using tools
   - **NEVER** include placeholders like [current date], [loading...] in "content" — just acknowledge and let the execution phase do the real work
-  - Example: Boss asks "What's today's date?" → content: "Let me check for you~ 📝", action: secretary_handle with taskDescription: "Query the current date and inform the boss"
 
 **Medium Priority - Assign Task to Existing Department (check departments first!)**:
 When the boss wants something done that requires specialized team work, you MUST first check ALL existing departments listed above to see if any can handle it.
@@ -755,19 +827,24 @@ When the boss asks about progress/status/reports, return progress_report
 7. **Critical - Structured Output**: You MUST always return valid JSON. Do NOT wrap it in markdown code fences. Do NOT add any text outside the JSON object. The response must start with { and end with }.
 8. **Critical - Action Required for Tasks**: If the boss's message expresses ANY intent to get work done (in any language), you MUST return an action. Analyze the semantic meaning, not just keywords. For example: "help me build a website", "write a report", "analyze the data" — ALL of these require an action, regardless of what language they are expressed in.
 9. **Critical - Language Agnostic**: The boss may speak in any language (Chinese, English, Japanese, etc.). You must understand the intent regardless of language and return the correct structured action.
-10. **Critical - Response Language**: You MUST write ALL your "content" text in ${getAppLanguageName()}. The boss expects replies in ${getAppLanguageName()}.`;
+10. **Critical - Response Language**: You MUST write ALL your "content" text in ${langName}. The boss expects replies in ${langName}. Even though this system prompt is written in English, your "content" output MUST be in ${langName}. This is the #1 most important rule.`;
   }
 
   // ======================== Direct Task Execution ========================
 
-  async executeTaskDirectly(taskDescription, company) {
+  async executeTaskDirectly(taskDescription, company, { lang } = {}) {
     console.log(`\n📝 [Secretary] Handling task directly: "${taskDescription.slice(0, 50)}..."`);
 
     const secretaryPrompt = this.prompt || '';
 
     const memoryContext = this.memory.buildMemoryContext('secretary-task-exec');
 
-    const systemPrompt = `You are "${this.name}", the personal secretary of ${company.bossName || 'the Boss'}.
+    const langName = lang ? getLanguageNameByCode(lang) : getAppLanguageName();
+
+    const systemPrompt = `## CRITICAL: Response Language = ${langName}
+All your output MUST be written in ${langName}. This is non-negotiable.
+
+You are "${this.name}", the personal secretary of ${company.bossName || 'the Boss'}.
 ${secretaryPrompt ? `\nYour persona: ${secretaryPrompt}\n` : ''}
 You are now personally handling a task from the boss. Complete it thoroughly and deliver a high-quality result.
 ${memoryContext}
@@ -789,10 +866,10 @@ ${memoryContext}
 ## Guidelines:
 1. Deliver a complete, ready-to-use result (not just a plan or outline)
 2. Be thorough but concise — quality over quantity
-3. You MUST write your response in ${getAppLanguageName()}
-4. Format the output nicely with markdown if appropriate
-5. If the task involves writing, produce the actual writing (not meta-commentary about it)
-6. Sign off naturally as a secretary would`;
+3. Format the output nicely with markdown if appropriate
+4. If the task involves writing, produce the actual writing (not meta-commentary about it)
+5. Sign off naturally as a secretary would
+6. **REMINDER: Your entire response MUST be in ${langName}.**`;
 
     try {
       if (this.agentType === 'cli' && this.isAvailable()) {

@@ -15,7 +15,8 @@ import { processSecretaryAction } from '../action-handler.js';
  */
 export async function POST(request) {
   const t = getApiT(request);
-  setAppLanguage(getLanguageFromRequest(request));
+  const lang = getLanguageFromRequest(request);
+  setAppLanguage(lang);
   const company = getCompany();
   if (!company) {
     return new Response(JSON.stringify({ error: t('api.noCompany') }), {
@@ -45,10 +46,10 @@ export async function POST(request) {
   if (!sec.canChat() || sec.cliBackend || typeof sec.handleBossMessageStream !== 'function') {
     try {
       // chatWithSecretary handles its own boss message + reply persistence
-      const reply = await company.chatWithSecretary(message);
+      const reply = await company.chatWithSecretary(message, { lang });
 
       // Process all action types even in non-streaming fallback
-      processSecretaryAction(reply, message, company);
+      processSecretaryAction(reply, message, company, { lang });
 
       // Return as a single SSE "done" event
       const encoder = new TextEncoder();
@@ -84,7 +85,7 @@ export async function POST(request) {
       };
 
       try {
-        const streamIterator = sec.handleBossMessageStream(message, company);
+        const streamIterator = sec.handleBossMessageStream(message, company, { lang });
         // Verify the return value is async iterable before iterating
         if (!streamIterator || typeof streamIterator[Symbol.asyncIterator] !== 'function') {
           throw new Error('handleBossMessageStream did not return an async iterable');

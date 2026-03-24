@@ -6,7 +6,8 @@ import { processSecretaryAction, runningTasks } from './action-handler.js';
 
 export async function POST(request) {
   const t = getApiT(request);
-  setAppLanguage(getLanguageFromRequest(request));
+  const lang = getLanguageFromRequest(request);
+  setAppLanguage(lang);
   const company = getCompany();
   if (!company) {
     return NextResponse.json({ error: t('api.noCompany') }, { status: 400 });
@@ -16,10 +17,10 @@ export async function POST(request) {
     if (!message) {
       return NextResponse.json({ error: t('api.messageRequired') }, { status: 400 });
     }
-    const reply = await company.chatWithSecretary(message);
+    const reply = await company.chatWithSecretary(message, { lang });
 
     // Process all action types (create_department, secretary_handle, task_assigned, etc.)
-    processSecretaryAction(reply, message, company);
+    processSecretaryAction(reply, message, company, { lang });
 
     return NextResponse.json({
       success: true,

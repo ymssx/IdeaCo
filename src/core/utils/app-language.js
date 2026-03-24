@@ -48,6 +48,17 @@ export function getAppLanguageName() {
 }
 
 /**
+ * Get the human-readable language name by language code.
+ * Use this when you have an explicit language code (e.g. from request headers)
+ * instead of relying on the global _currentLang.
+ * @param {string} code - Language code (e.g. 'en', 'zh')
+ * @returns {string} e.g. 'English', 'Chinese (Simplified)'
+ */
+export function getLanguageNameByCode(code) {
+  return (code && LANGUAGE_NAMES[code]) || 'English';
+}
+
+/**
  * Build a language enforcement instruction for LLM system prompts.
  * Returns an empty string for English (default), otherwise returns
  * an instruction telling the agent to respond in the target language.

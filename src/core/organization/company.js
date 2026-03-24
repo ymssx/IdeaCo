@@ -29,7 +29,7 @@ import { cliBackendRegistry } from '../agent/cli-agent/backends/index.js';
 import { groupChatLoop } from './group-chat-loop.js';
 import { channelRegistry } from '../channel/index.js';
 import { buildRhetoricPrompt } from './workforce/management-rhetoric.js';
-import { getAppLanguageName } from '../utils/app-language.js';
+import { getAppLanguageName, getLanguageNameByCode } from '../utils/app-language.js';
 
 // Expand short-form file references: [[file:path]] → [[file:deptId:path|name]]
 // Also fix incomplete references: [[file:deptId:path]] → [[file:deptId:path|name]]
@@ -194,6 +194,7 @@ export class Company {
     chatStore.appendMessage(this.chatSessionId, bossMsg);
 
     const sec = this.secretary;
+    const lang = options.lang;
     let reply;
 
     // If secretary has CLI backend configured, chat also goes through CLI
@@ -246,7 +247,7 @@ Rules:
 - If boss gives a simple task you can handle alone → secretary_handle
 - If boss gives a task but no department matches → need_new_department
 - Casual chat → null
-- You MUST write ALL your "content" text in ${getAppLanguageName()}
+- You MUST write ALL your "content" text in ${lang ? getLanguageNameByCode(lang) : getAppLanguageName()}
 - ALWAYS return valid JSON only, no markdown fences`;
 
         const cliResult = await cliBackendRegistry.executeTask(
@@ -261,7 +262,7 @@ Rules:
         const hasLLM = sec.agent.provider && sec.agent.provider.enabled && sec.agent.provider.apiKey && !sec.agent.provider.apiKey.startsWith('cli');
         if (hasLLM) {
           console.warn(`  ⚠️ [Secretary] CLI chat failed, falling back to LLM: ${cliErr.message || cliErr.error}`);
-          reply = await this.secretary.handleBossMessage(message, this);
+          reply = await this.secretary.handleBossMessage(message, this, { lang });
         } else {
           // No available LLM provider, return CLI error message
           console.error(`  ❌ [Secretary] CLI chat failed, no LLM fallback available: ${cliErr.message || cliErr.error}`);
@@ -273,7 +274,7 @@ Rules:
       }
     } else {
       // Let secretary analyze whether it's task assignment or casual conversation
-      reply = await this.secretary.handleBossMessage(message, this);
+      reply = await this.secretary.handleBossMessage(message, this, { lang });
     }
 
     const secretaryMsg = {
@@ -439,6 +440,7 @@ Rules:
     // Build memory context from the new Memory system
     const bossChatGroupId = `boss-chat-${agentId}`;
     const memoryContext = targetAgent.memory.buildMemoryContext(bossChatGroupId);
+    const historySummaryContext = targetAgent.memory.buildHistorySummaryContext(bossChatGroupId);
 
     // Build messages for LLM — now with structured memory + JSON output
     const systemMessage = targetAgent._buildSystemMessage()
@@ -446,7 +448,7 @@ Rules:
       + ` You work in the "${targetDept.name}" department.`
       + ` Respond naturally based on your personality and role. Be helpful but stay in character.`
       + memoryContext
-      + `\n\n## Output Format\nYou MUST return a JSON object (JSON only, nothing else):\n{\n  "content": "Your natural language reply",\n  "memorySummary": "A concise summary of older messages in this conversation — key facts, decisions, topics discussed. null if conversation just started.",\n  "memoryOps": [\n    { "op": "add", "type": "long_term", "content": "Important fact about the boss or decision made", "category": "fact", "importance": 8 },\n    { "op": "add", "type": "short_term", "content": "Current topic context", "category": "context", "importance": 5, "ttl": 3600 },\n    { "op": "delete", "id": "mem_id_to_forget" }\n  ],\n  "relationshipOps": [\n    { "employeeId": "boss", "name": "Boss", "impression": "Demanding but fair, values results", "affinity": 65 }\n  ]\n}\n\n## Memory Management\n- memorySummary: Summarize older conversation messages to compress context. Keep key info, skip chitchat. null if no old messages.\n- memoryOps: Manage your memory — add important facts/preferences about the boss as long_term, add current topic as short_term. [] if nothing to remember.\n- category: preference | fact | instruction | task | context | relationship | experience\n- importance: 1-10 (higher = more important)\n\n## Relationship Impressions\n- relationshipOps: Update your impression of the boss based on this conversation. Max 30 chars per impression, affinity 1-100 (50=neutral).\n- affinity should change gradually (+/- 5~15 per interaction). Start from 50 if first meeting.\n- Only update when something noteworthy happened. [] if nothing to update.`;
+      + `\n\n## Output Format\nYou MUST return a JSON object (JSON only, nothing else):\n{\n  "content": "Your natural language reply",\n  "memorySummary": "A single, complete summary that REPLACES the previous one — cover all important context so far. null if conversation just started.",\n  "memoryOps": [\n    { "op": "add", "type": "long_term", "content": "Important fact about the boss or decision made", "category": "fact", "importance": 8 },\n    { "op": "add", "type": "short_term", "content": "Current topic context", "category": "context", "importance": 5, "ttl": 3600 },\n    { "op": "delete", "id": "mem_id_to_forget" }\n  ],\n  "relationshipOps": [\n    { "employeeId": "boss", "name": "Boss", "impression": "Demanding but fair, values results", "affinity": 65 }\n  ]\n}\n\n## Memory Management\n- memorySummary: Write a single, self-contained summary of the entire conversation so far. This REPLACES any previous summary — include everything important. Keep key info, skip chitchat. null if no old messages.\n- memoryOps: Manage your memory — add important facts/preferences about the boss as long_term, add current topic as short_term. [] if nothing to remember.\n- category: preference | fact | instruction | task | context | relationship | experience\n- importance: 1-10 (higher = more important)\n\n## Relationship Impressions\n- relationshipOps: Update your impression of the boss based on this conversation. Max 30 chars per impression, affinity 1-100 (50=neutral).\n- affinity should change gradually (+/- 5~15 per interaction). Start from 50 if first meeting.\n- Only update when something noteworthy happened. [] if nothing to update.`;
 
     const messages = [
       { role: 'system', content: systemMessage },
@@ -460,8 +462,11 @@ Rules:
       });
     }
 
-    // Add current message
-    messages.push({ role: 'user', content: message });
+    // Add current message (with history summary context prepended)
+    const userMessage = historySummaryContext
+      ? `${historySummaryContext}\n\n${message}`
+      : message;
+    messages.push({ role: 'user', content: userMessage });
 
     // If this is a CLI agent, execute chat via CLI backend
     let replyContent;

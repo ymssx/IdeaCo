@@ -14,7 +14,7 @@ export { runningTasks };
  * @param {string} message - Original boss message
  * @param {object} company - Company instance
  */
-export function processSecretaryAction(reply, message, company) {
+export function processSecretaryAction(reply, message, company, { lang } = {}) {
   if (!reply.action) return;
 
   if (reply.action.type === 'create_department') {
@@ -169,7 +169,7 @@ export function processSecretaryAction(reply, message, company) {
 
     (async () => {
       try {
-        const result = await company.secretary.executeTaskDirectly(taskDescription || message, company);
+        const result = await company.secretary.executeTaskDirectly(taskDescription || message, company, { lang });
 
         runningTasks.set(taskId, {
           status: 'completed',

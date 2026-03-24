@@ -654,14 +654,16 @@ const { groupChatLoop } = await import('../organization/group-chat-loop.js');
     chatContext += angleHint;
 
     // Build structured memory context from the employee's Memory system
-    // This includes: rolling history summary + long-term memories + short-term memories + relationship impressions
+    // memoryContext = long-term + short-term memories + relationship impressions (injected into system prompt)
+    // historySummaryContext = rolling conversation summary (injected into user prompt)
     const participantIds = members.filter(m => m.id !== agent.id).map(m => m.id);
-    const memoryContext = agent.memory.buildFullContext(requirement.id, participantIds);
+    const groupId = requirement.id;
+    const memoryContext = agent.memory.buildFullContext(groupId, participantIds);
+    const historySummaryContext = agent.memory.buildHistorySummaryContext(groupId);
 
     const p = agent.personality;
 
     // Anti-spam context
-    const groupId = requirement.id;
     const isDeptChat = groupId.startsWith('dept-');
     const spamInfo = this._getSpamInfo(groupId, isDeptChat);
 
@@ -676,8 +678,8 @@ const { groupChatLoop } = await import('../organization/group-chat-loop.js');
       : '';
 
     const userPrompt = isDeptChat
-      ? PROMPT.userPrompt.deptChat(chatContext, thinkingInfo, agent.name, agent.age, agent.personality.trait)
-      : PROMPT.userPrompt.workChat(chatContext, thinkingInfo, agent.name, agent.age, agent.personality.trait);
+      ? PROMPT.userPrompt.deptChat(chatContext, thinkingInfo, agent.name, agent.age, agent.personality.trait, historySummaryContext)
+      : PROMPT.userPrompt.workChat(chatContext, thinkingInfo, agent.name, agent.age, agent.personality.trait, historySummaryContext);
 
     try {
       if (!agent.canChat()) {
