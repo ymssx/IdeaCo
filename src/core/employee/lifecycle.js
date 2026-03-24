@@ -533,7 +533,7 @@ export class EmployeeLifecycle {
               'message', null, { auto: true }
             );
             // Force agent to re-think immediately to address the invalid refs
-            const { groupChatLoop } = await import('./group-chat-loop.js');
+const { groupChatLoop } = await import('../organization/group-chat-loop.js');
             setTimeout(() => {
               groupChatLoop.triggerImmediate(agent.id, groupId, {
                 content: `[System] You MUST fix invalid file references: ${invalidRefs.join(', ')}. Use workspace_files tool to find correct paths.`,

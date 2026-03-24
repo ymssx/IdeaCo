@@ -606,19 +606,8 @@ export class AgentToolKit {
    * Execute shell command (security restricted)
    */
   async _shellExec(command) {
-    // Safety whitelist: only allow specific command prefixes
-    const allowedPrefixes = [
-      'ls', 'cat', 'head', 'tail', 'grep', 'find', 'wc',
-      'node', 'npm', 'npx', 'echo', 'mkdir', 'cp', 'mv',
-      'tree', 'pwd', 'which', 'git',
-      'curl', 'wget', 'date', 'python', 'python3', 'env', 'sort', 'uniq', 'awk', 'sed', 'jq',
-    ];
-
-    const cmdName = command.trim().split(/\s+/)[0];
-    if (!allowedPrefixes.includes(cmdName)) {
-      return `Security restriction: command "${cmdName}" not allowed. Allowed commands: ${allowedPrefixes.join(', ')}`;
-    }
-
+    // No command whitelist — agents are trusted to run any command.
+    // Dangerous-pattern blocking is still handled by SecurityGuard (audit.js).
     try {
       const { stdout, stderr } = await execAsync(command, {
         cwd: this.workspaceDir,

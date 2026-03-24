@@ -220,7 +220,9 @@ export class Employee {
       await this._ensureSession();
       this._sessionMessageCount++;
     }
-    const response = await this.agent.chat(messages, options);
+    // Inject agent identity so LLM debug logger can record this call
+    const mergedOptions = { _agentId: this.id, _agentName: this.name, ...options };
+    const response = await this.agent.chat(messages, mergedOptions);
     this._trackUsage(response.usage);
     return response;
   }
@@ -235,9 +237,38 @@ export class Employee {
       await this._ensureSession();
       this._sessionMessageCount++;
     }
-    const response = await this.agent.chatWithTools(messages, toolExecutor, options);
+    // Inject agent identity so LLM debug logger can record this call
+    const mergedOptions = { _agentId: this.id, _agentName: this.name, ...options };
+    const response = await this.agent.chatWithTools(messages, toolExecutor, mergedOptions);
     this._trackUsage(response.usage);
     return response;
+  }
+
+  /**
+   * Stream chat via the agent — returns an async generator yielding delta tokens.
+   * Only supported for LLM agents (not web/cli).
+   * @param {Array} messages
+   * @param {object} [options]
+   * @yields {{ type: 'delta'|'thinking'|'done', content: string }}
+   */
+  async *chatStream(messages, options = {}) {
+    // Inject agent identity so LLM debug logger can record this call
+    const mergedOptions = { _agentId: this.id, _agentName: this.name, ...options };
+    if (typeof this.agent.chatStream !== 'function') {
+      // Fallback: non-streaming chat wrapped as a single yield
+      const response = await this.chat(messages, mergedOptions);
+      yield { type: 'delta', content: response.content };
+      yield { type: 'done', content: response.content, usage: response.usage || {} };
+      return;
+    }
+    let finalContent = '';
+    for await (const chunk of this.agent.chatStream(messages, mergedOptions)) {
+      if (chunk.type === 'done') {
+        finalContent = chunk.content;
+        this._trackUsage(chunk.usage);
+      }
+      yield chunk;
+    }
   }
 
   // ======================== Toolkit & MessageBus ========================

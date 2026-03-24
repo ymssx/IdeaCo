@@ -74,9 +74,10 @@ export function formatTime(time, t = (k) => k) {
  * 共享消息气泡组件
  * 支持 Markdown 渲染、文件引用、action 标签
  */
-export function MessageBubble({ isMe, avatar, name, content, time, action, subject, agentId, onClickAvatar, bossAvatar, onViewDepartment, onViewRequirement }) {
+export function MessageBubble({ isMe, avatar, name, content, time, action, subject, agentId, onClickAvatar, bossAvatar, onViewDepartment, onViewRequirement, channel }) {
   const { t } = useI18n();
   const { cleanContent, fileRefs } = parseFileReferences(content);
+  const isWeixin = isMe && channel === 'weixin';
   return (
     <div className={`flex gap-2 ${isMe ? 'flex-row-reverse' : ''}`}>
       {!isMe ? (
@@ -98,9 +99,12 @@ export function MessageBubble({ isMe, avatar, name, content, time, action, subje
         )
       )}
       <div className={`max-w-[min(70%,560px)] ${isMe ? 'items-end' : 'items-start'}`}>
-        {/* Name + time */}
+        {/* Name + time + channel badge */}
         <div className={`flex items-center gap-2 mb-0.5 ${isMe ? 'flex-row-reverse' : ''}`}>
           <span className="text-[10px] text-[var(--muted)]">{name}</span>
+          {isWeixin && (
+            <span className="text-[10px] text-green-400 bg-green-900/30 px-1.5 py-0.5 rounded">WeChat</span>
+          )}
           {time && (
             <span className="text-[10px] text-[var(--muted)]/60">
               {formatTime(time, t)}
@@ -116,7 +120,9 @@ export function MessageBubble({ isMe, avatar, name, content, time, action, subje
         {/* Bubble */}
         <div className={`rounded-2xl px-3 py-2 text-sm leading-relaxed ${
           isMe
-            ? 'bg-[var(--accent)] text-white rounded-br-sm'
+            ? isWeixin
+              ? 'bg-[#57c457] text-white rounded-br-sm'
+              : 'bg-[var(--accent)] text-white rounded-br-sm'
             : 'bg-[var(--card)] border border-[var(--border)] rounded-bl-sm'
         }`}>
           <div className="break-words chat-markdown">

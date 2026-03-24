@@ -27,6 +27,7 @@ import { auditLogger, AuditCategory, AuditLevel } from '../system/audit.js';
 import { chatStore } from '../agent/chat-store.js';
 import { cliBackendRegistry } from '../agent/cli-agent/backends/index.js';
 import { groupChatLoop } from './group-chat-loop.js';
+import { channelRegistry } from '../channel/index.js';
 import { buildRhetoricPrompt } from './workforce/management-rhetoric.js';
 import { getAppLanguageName } from '../utils/app-language.js';
 
@@ -180,11 +181,13 @@ export class Company {
    * @param {string} message - Boss's message
    * @returns {Promise<object>} Secretary's reply
    */
-  async chatWithSecretary(message) {
+  async chatWithSecretary(message, options = {}) {
     const bossMsg = {
       role: 'boss',
       content: message,
       time: new Date(),
+      ...(options.channel ? { channel: options.channel } : {}),
+      ...(options.platformUser ? { platformUser: options.platformUser } : {}),
     };
     this.chatHistory.push(bossMsg);
     // Persist to file storage
@@ -219,7 +222,7 @@ ${deptContext}
 Recent conversation:
 ${chatContext}
 
-Boss's latest message: ${message}
+Boss's latest message${options.channel ? ` (via ${options.channel} channel` + (options.platformUser ? `, user: ${options.platformUser}` : '') + `)` : ''}: ${message}
 
 You MUST reply with a JSON object (return JSON only, no other text):
 {
@@ -565,6 +568,15 @@ Rules:
   }
 
   /**
+   * Paginated secretary chat history from file-based chat store.
+   * @param {{ before?: string, limit?: number }} opts
+   * @returns {{ messages: Array, hasMore: boolean, total: number }}
+   */
+  getSecretaryChatPage({ before = null, limit = 30 } = {}) {
+    return chatStore.getMessagesPage(this.chatSessionId, { before, limit });
+  }
+
+  /**
    * Get chat history with a specific agent
    * @param {string} agentId - Agent ID
    * @param {number} limit - Max messages to return
@@ -871,7 +883,26 @@ Rules:
       companyName: this.name, bossName: this.bossName,
     });
 
-    console.log('⚡ Distilled subsystems initialized (hooks, cron, plugins, sessions)');
+    // 8. Initialize channel registry - wire up message handler
+    //    Route inbound channel messages through Secretary and return replies
+    channelRegistry.setMessageHandler(async (inbound) => {
+      try {
+        const reply = await this.chatWithSecretary(
+          inbound.content,
+          {
+            channel: inbound.channelId,
+            platformUser: inbound.platformUserName,
+          }
+        );
+        return reply.content || 'Sorry, I am unable to process your message at this time.';
+      } catch (err) {
+        console.error(`[Channel] Failed to process message:`, err.message);
+        return 'The system is busy, please try again later.';
+      }
+    });
+    this.channelRegistry = channelRegistry;
+
+    console.log('⚡ Distilled subsystems initialized (hooks, cron, plugins, sessions, channels)');
   }
 
   _log(action, detail) {
@@ -2190,6 +2221,7 @@ Reply in the same language the Boss used. Be concise but warm.`
       boss: this.bossName,
       bossAvatar: this.bossAvatar,
       secretary: {
+        id: this.secretary.id,
         name: this.secretary.name,
         avatar: this.secretary.avatar,
         gender: this.secretary.gender,
@@ -2405,6 +2437,7 @@ const dept = this.findDepartment(departmentId);
       progressReports: this.progressReports.slice(-30),
       logs: this.logs.slice(-100),
       secretary: {
+        id: this.secretary.id,
         name: this.secretary.name,
         avatar: this.secretary.avatar,
         signature: this.secretary.signature,
@@ -2419,6 +2452,7 @@ const dept = this.findDepartment(departmentId);
       teams: this.teamManager.serialize(),
       cronJobs: cronScheduler.serialize(),
       cliBackends: cliBackendRegistry.serialize(),
+      channels: channelRegistry.serialize(),
       savedAt: new Date(),
     };
   }
@@ -2469,6 +2503,10 @@ const dept = this.findDepartment(departmentId);
       }
     }
 
+    // Restore secretary ID so LLM logs directory stays consistent across restarts
+    if (data.secretary?.id) {
+      company.secretary.id = data.secretary.id;
+    }
     // Restore secretary token usage
     if (data.secretary?.tokenUsage) {
       Object.assign(company.secretary.tokenUsage, data.secretary.tokenUsage);
@@ -2628,6 +2666,15 @@ const dept = this.findDepartment(departmentId);
       company.providerRegistry.syncCLIBackends(cliBackendRegistry);
       reapplyCLIConfigs();
     }).catch(() => {});
+
+    // Restore channel installations
+    if (data.channels) {
+      channelRegistry.restore(data.channels).then(() => {
+        console.log(`📡 [Deserialize] Channel restoration completed (${Object.keys(data.channels).length} channel(s))`);
+      }).catch(err => {
+        console.warn('[Deserialize] Channel restoration failed:', err.message);
+      });
+    }
 
     // Re-start group chat loop for all restored agents
     // (_initSubsystems ran during constructor when departments were still empty,

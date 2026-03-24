@@ -1,12 +1,14 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useStore } from '@/lib/client-store';
 import { getAvatarUrl } from '@/lib/avatar';
 import AgentDetailModal from './AgentDetailModal';
 import { useI18n } from '@/lib/i18n';
 import GroupChatView from './GroupChatView';
 import { MessageBubble, ChatInput, TaskStatusPanel, formatTime } from './ChatShared';
+import SecretaryChatView from './SecretaryChatView';
+import AgentChatView from './AgentChatView';
 import CachedAvatar from './CachedAvatar';
 
 /**
@@ -17,9 +19,9 @@ export default function Mailbox() {
   const { t } = useI18n();
   const {
     company, fetchCompany,
-    chatWithSecretary, chatOpen, setChatOpen,
+    chatOpen, setChatOpen,
     navigateToRequirement, fetchRequirements, fetchRequirementDetail,
-    chatWithAgent, fetchAgentChatHistory, markAgentChatRead,
+    markAgentChatRead,
     sendGroupChatMessage,
     sendDeptGroupChatMessage, fetchDeptGroupChat,
   } = useStore();
@@ -27,8 +29,7 @@ export default function Mailbox() {
   const [activeChat, setActiveChat] = useState(null); // { type: 'secretary' } | { type: 'agent-chat', agentId, ... }
   const [inputText, setInputText] = useState('');
   const [sending, setSending] = useState(false);
-  const [sendingTargetId, setSendingTargetId] = useState(null); // 追踪正在发送消息的目标ID，防止typing状态串台
-  const [secretaryHistory, setSecretaryHistory] = useState([]);
+  const [sendingTargetId, setSendingTargetId] = useState(null); // Track which target is being sent to, prevent typing state leaking
   const [selectedAgent, setSelectedAgent] = useState(null); // View employee detail
   const [chatFilter, setChatFilter] = useState('all'); // Chat filter: all | group | private | important
   const [requirements, setRequirements] = useState([]); // Requirements list (for group chat sessions)
@@ -36,18 +37,18 @@ export default function Mailbox() {
   const [reqChatDetail, setReqChatDetail] = useState(null); // Requirement group chat detail
   const [activeDeptChat, setActiveDeptChat] = useState(null); // Current active department group chat
   const [deptChatDetail, setDeptChatDetail] = useState(null); // Department group chat detail
-  const [agentChatMessages, setAgentChatMessages] = useState([]); // Agent 1-on-1 chat messages
-  const [agentChatLoading, setAgentChatLoading] = useState(false); // Agent chat loading state
-  const [showGroupMembers, setShowGroupMembers] = useState(false); // 群聊成员弹窗
+  const [showGroupMembers, setShowGroupMembers] = useState(false); // Group member popup
   const reqChatPollRef = useRef(null);
-  const agentChatPollRef = useRef(null);
   const messagesEndRef = useRef(null);
-  const activeChatRef = useRef(null); // 追踪当前活跃的聊天对象，防止异步消息串台
+
+  // Memoize stable references for secretary/boss data to prevent
+  // re-render cascade when fetchCompany refreshes every 5s.
+  const secretary = useMemo(() => company?.secretary, [company?.secretary?.name, company?.secretary?.avatar, company?.secretary?.signature]);
+  const bossName = company?.boss;
+  const bossAvatar = company?.bossAvatar;
+  const agentChatSessions = company?.agentChatSessions || [];
 
   if (!company) return null;
-
-  const secretary = company.secretary;
-  const agentChatSessions = company.agentChatSessions || [];
 
   // 构建 agentId -> agentName 映射（用于 @[id] 渲染）
   const agentMap = {};
@@ -59,7 +60,7 @@ for (const agent of (dept.members || dept.agents || [])) {
     }
   }
 
-  // 定时刷新 company 状态，确保新的 agentChatSessions（如 onboarding 打招呼）能及时出现
+  // Refresh full company state periodically (for agentChatSessions, departments, etc.)
   const companyPollRef = useRef(null);
   useEffect(() => {
     companyPollRef.current = setInterval(() => {
@@ -68,14 +69,18 @@ for (const agent of (dept.members || dept.agents || [])) {
     return () => clearInterval(companyPollRef.current);
   }, []);
 
+  // Secretary chat polling is now handled internally by SecretaryChatView
+
   // Load requirements list (for group chat sessions)
+  // NOTE: uses [] dependency — requirements have their own 10s poll interval,
+  // no need to re-trigger when company object refreshes every 5s.
   useEffect(() => {
     fetchRequirements().then(setRequirements);
     const timer = setInterval(() => {
       fetchRequirements().then(setRequirements);
     }, 10000);
     return () => clearInterval(timer);
-  }, [company]);
+  }, []);
 
   // Requirement group chat polling
   useEffect(() => {
@@ -126,57 +131,26 @@ for (const agent of (dept.members || dept.agents || [])) {
     };
   }, [activeDeptChat]);
 
-  // Agent 1-on-1 chat polling（和群聊一样，3秒轮询）
-  useEffect(() => {
-    if (agentChatPollRef.current) clearInterval(agentChatPollRef.current);
-    if (activeChat?.type === 'agent-chat' && activeChat.agentId) {
-      const agentId = activeChat.agentId;
-      agentChatPollRef.current = setInterval(() => {
-        // 只在不是正在发送消息时才轮询，避免和发送逻辑冲突
-        if (!sending) {
-          fetchAgentChatHistory(agentId).then(msgs => {
-            // 只有当前仍在同一会话时才更新
-            if (activeChatRef.current?.agentId === agentId && msgs.length > 0) {
-              setAgentChatMessages(prev => {
-                // 只有消息数量变化时才更新，避免无谓的 re-render
-                if (prev.length !== msgs.length) {
-                  return msgs;
-                }
-                return prev;
-              });
-            }
-          });
-        }
-      }, 3000);
-    }
-    return () => {
-      if (agentChatPollRef.current) clearInterval(agentChatPollRef.current);
-    };
-  }, [activeChat?.type === 'agent-chat' ? activeChat?.agentId : null, sending]);
+  // Agent 1-on-1 chat polling is now handled internally by AgentChatView
 
-  // Sync secretary chat history
-  useEffect(() => {
-    if (company?.chatHistory) {
-      setSecretaryHistory(company.chatHistory);
-    }
-  }, [company?.chatHistory]);
+  // Secretary chat history sync is now handled internally by SecretaryChatView
 
-  // Track whether we should auto-scroll (only on initial load / conversation switch)
-  const shouldAutoScrollRef = useRef(true);
-
-  // Auto scroll to bottom: ONLY on conversation switch or initial load
+  // Auto scroll to bottom: ONLY on conversation switch or initial load.
+  // Secretary and agent-chat scrolling are handled internally by their own View components.
+  const hasInitialScrolledRef = useRef(null); // tracks which chat we already scrolled for
   useEffect(() => {
-    shouldAutoScrollRef.current = true;
-  }, [activeChat]);
-
-  useEffect(() => {
-    if (shouldAutoScrollRef.current) {
+    // Secretary and agent chats have their own scroll management
+    if (activeChat?.type === 'secretary' || activeChat?.type === 'agent-chat') return;
+    // Build a stable key for the current chat
+    const chatKey = activeChat ? JSON.stringify(activeChat) : null;
+    if (chatKey && chatKey !== hasInitialScrolledRef.current) {
+      hasInitialScrolledRef.current = chatKey;
+      // Scroll to bottom on first entry into this conversation
       setTimeout(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-      }, 50);
-      shouldAutoScrollRef.current = false;
+        messagesEndRef.current?.scrollIntoView({ behavior: 'instant' });
+      }, 80);
     }
-  }, [activeChat, secretaryHistory, reqChatDetail, agentChatMessages]);
+  }, [activeChat]);
 
   // Close ChatPanel when secretary is selected to avoid conflict
   useEffect(() => {
@@ -186,6 +160,7 @@ for (const agent of (dept.members || dept.agents || [])) {
   }, [activeChat, chatOpen, setChatOpen]);
 
   // Build conversation list: sorted by latest message time
+  const secretaryHistory = company?.chatHistory || [];
   const allConversations = buildConversations(secretary, secretaryHistory, requirements, t, agentChatSessions, company?.departments || []);
 
   // Filter conversations by category
@@ -197,64 +172,24 @@ for (const agent of (dept.members || dept.agents || [])) {
     return true;
   });
 
-  // Send message
+  // Send message (only for group chats — secretary & agent 1-on-1 are handled by their own View components)
   const handleSend = async () => {
     if (!inputText.trim() || sending) return;
     const text = inputText.trim();
     setInputText('');
     setSending(true);
-    // 记录当前发送目标，防止切换聊天后typing状态串台
-    const currentTargetId = activeChat?.type === 'secretary' ? 'secretary'
-      : activeChat?.type === 'agent-chat' ? activeChat.agentId
-      : activeChat?.type === 'requirement' ? activeChat.id : null;
+    const currentTargetId = activeChat?.type === 'requirement' ? activeChat.id : null;
     setSendingTargetId(currentTargetId);
 
-    // 用户发消息后立即滚动到底部
-    setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+    // Scroll to bottom after sending a message
+    setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 80);
 
     try {
-      if (activeChat?.type === 'secretary') {
-// Optimistic update for boss message
-        setSecretaryHistory(prev => [...prev, {
-          role: 'boss', content: text, time: new Date().toISOString(),
-        }]);
-        await chatWithSecretary(text);
-        // Secretary replies sync via useEffect
-      } else if (activeChat?.type === 'requirement') {
-        // 群聊发送由 GroupChatView 组件内部管理，此处不再处理
-      } else if (activeChat?.type === 'agent-chat') {
-        // Agent 1-on-1 chat
-        const targetAgentId = activeChat.agentId; // 捕获当前发送目标
-        const optimisticMsg = { role: 'boss', content: text, time: new Date().toISOString() };
-        setAgentChatMessages(prev => [...prev, optimisticMsg]);
-        try {
-          const data = await chatWithAgent(targetAgentId, text);
-          // 只有当前仍在同一会话时才更新消息
-          if (activeChatRef.current?.agentId === targetAgentId) {
-            if (data.chatHistory) {
-              setAgentChatMessages(data.chatHistory);
-            } else if (data.reply) {
-              setAgentChatMessages(prev => [...prev, {
-                role: 'agent', content: data.reply.reply, time: data.reply.time,
-              }]);
-            }
-          }
-        } catch (err) {
-          if (activeChatRef.current?.agentId === targetAgentId) {
-            setAgentChatMessages(prev => [...prev, {
-              role: 'agent', content: `😵 ${t('agentChat.error')}: ${err.message}`, time: new Date().toISOString(),
-            }]);
-          }
-        }
+      if (activeChat?.type === 'requirement') {
+        // Group chat send is managed by GroupChatView internally
       }
     } catch (e) {
-      if (activeChat?.type === 'secretary') {
-        setSecretaryHistory(prev => [...prev, {
-          role: 'secretary',
-          content: `${t('chat.errorPrefix')}${e.message}`,
-          time: new Date().toISOString(),
-        }]);
-      }
+      // errors handled per-chat-type above
     }
     setSending(false);
     setSendingTargetId(null);
@@ -292,22 +227,12 @@ for (const agent of (dept.members || dept.agents || [])) {
       });
       setActiveReqChat(null);
       setActiveDeptChat(null);
-      // 标记为已读（持久化到后端）
+      // Mark as read (persisted to backend)
       markAgentChatRead(conv.agentId);
-      // 加载聊天历史
-      setAgentChatLoading(true);
-      fetchAgentChatHistory(conv.agentId).then(msgs => {
-        setAgentChatMessages(msgs);
-        setAgentChatLoading(false);
-      }).catch(() => setAgentChatLoading(false));
+      // Chat history loading is now handled internally by AgentChatView
     }
     setInputText('');
   };
-
-  // 同步 activeChatRef
-  useEffect(() => {
-    activeChatRef.current = activeChat;
-  }, [activeChat]);
 
   return (
     <div className="flex h-full animate-fade-in">
@@ -439,7 +364,7 @@ for (const agent of (dept.members || dept.agents || [])) {
             </div>
           </div>
         ) : activeChat.type === 'secretary' ? (
-          /* Secretary chat */
+          /* Secretary chat — uses shared SecretaryChatView */
           <>
             {/* Secretary chat header */}
             <div className="flex items-center gap-3 px-4 py-3 border-b border-white/[0.06] bg-[var(--card)]">
@@ -460,72 +385,13 @@ for (const agent of (dept.members || dept.agents || [])) {
               </div>
             </div>
 
-            {/* Secretary messages area */}
-            <div className="flex-1 overflow-auto px-4 py-3 space-y-3">
-              {secretaryHistory.length === 0 && (
-                <div className="text-center py-12">
-                  <div className="text-4xl mb-2">💬</div>
-                  <p className="text-sm text-[var(--muted)]">{t('mailbox.chatHint', { name: secretary?.name || t('setup.defaultSecretary') })}</p>
-                  <div className="mt-3 space-y-1 max-w-xs mx-auto">
-                    {t('chat.suggestions').map((q, i) => (
-                      <button
-                        key={i}
-                        className="block w-full text-xs text-left px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-[var(--muted)] hover:text-white transition-all"
-                        onClick={() => setInputText(q)}
-                      >
-                        💡 {q}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {secretaryHistory.map((msg, i) => (
-                <MessageBubble
-                  key={i}
-                  isMe={msg.role === 'boss'}
-                  avatar={msg.role === 'secretary' ? (secretary?.avatar || getAvatarUrl('secretary')) : null}
-                  name={msg.role === 'boss' ? company.boss : (secretary?.name || t('setup.defaultSecretary'))}
-                  content={msg.content}
-                  time={msg.time}
-                  action={msg.action}
-                  agentId={null}
-                  onClickAvatar={null}
-                  bossAvatar={company?.bossAvatar}
-                />
-              ))}
-
-              {sending && sendingTargetId === 'secretary' && (
-                <div className="flex gap-2">
-                  <img
-                src={secretary?.avatar || getAvatarUrl('secretary')}
-                alt="secretary"
-                    className="w-8 h-8 rounded-full bg-[var(--border)] shrink-0"
-                  />
-                  <div className="bg-[var(--card)] border border-[var(--border)] rounded-2xl rounded-bl-sm px-3 py-2 text-sm">
-<span className="animate-pulse text-[var(--muted)]">{t('chat.typing')}</span>
-                  </div>
-                </div>
-              )}
-
-              <div ref={messagesEndRef} />
-            </div>
-
-            {/* Task status panel */}
-            <TaskStatusPanel />
-
-            {/* Secretary input box */}
-            <ChatInput
-              value={inputText}
-              onChange={setInputText}
-              onSend={handleSend}
-              onKeyDown={handleKeyDown}
-              sending={sending}
-              placeholder={t('chat.inputPlaceholder', { name: secretary?.name || t('setup.defaultSecretary') })}
+            {/* Secretary chat body — shared component (manages its own scroll internally) */}
+            <SecretaryChatView
+              active={activeChat?.type === 'secretary'}
             />
           </>
         ) : activeChat?.type === 'agent-chat' ? (
-          /* Agent 1-on-1 private chat */
+          /* Agent 1-on-1 private chat — uses shared AgentChatView */
           <>
             {/* Agent chat header */}
             <div className="flex items-center gap-3 px-4 py-3 border-b border-white/[0.06] bg-[var(--card)]">
@@ -556,61 +422,14 @@ for (const agent of (dept.members || dept.agents || [])) {
               </div>
             </div>
 
-            {/* Agent chat messages */}
-            <div className="flex-1 overflow-auto px-4 py-3 space-y-3">
-              {agentChatLoading ? (
-                <div className="text-center text-[var(--muted)] py-8">
-                  <div className="text-2xl animate-pulse">💬</div>
-                  <p className="text-xs mt-2">{t('common.loading')}</p>
-                </div>
-              ) : agentChatMessages.length === 0 ? (
-                <div className="text-center text-[var(--muted)] py-8">
-                  <div className="text-3xl">👋</div>
-                  <p className="text-sm mt-2">{t('agentChat.empty', { name: activeChat.agentName })}</p>
-                </div>
-              ) : (
-                agentChatMessages.map((msg, i) => (
-                  <MessageBubble
-                    key={i}
-                    isMe={msg.role === 'boss'}
-                    avatar={msg.role !== 'boss' ? activeChat.agentAvatar : null}
-                    name={msg.role === 'boss' ? company.boss : activeChat.agentName}
-                    content={msg.content}
-                    time={msg.time}
-                    agentId={msg.role !== 'boss' ? activeChat.agentId : null}
-                    onClickAvatar={setSelectedAgent}
-                    bossAvatar={company?.bossAvatar}
-                  />
-                ))
-              )}
-
-              {sending && sendingTargetId === activeChat.agentId && (
-                <div className="flex gap-2">
-                  {activeChat.agentAvatar ? (
-                    <CachedAvatar src={activeChat.agentAvatar} alt="" className="w-8 h-8 rounded-full bg-[var(--border)] shrink-0" />
-                  ) : (
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-xs shrink-0">💬</div>
-                  )}
-                  <div className="bg-[var(--card)] border border-[var(--border)] rounded-2xl rounded-bl-sm px-3 py-2 text-sm">
-                    <span className="animate-pulse text-[var(--muted)]">{t('agentChat.typing')}</span>
-                  </div>
-                </div>
-              )}
-
-              <div ref={messagesEndRef} />
-            </div>
-
-            {/* Task status panel */}
-            <TaskStatusPanel />
-
-            {/* Agent chat input */}
-            <ChatInput
-              value={inputText}
-              onChange={setInputText}
-              onSend={handleSend}
-              onKeyDown={handleKeyDown}
-              sending={sending}
-              placeholder={t('agentChat.inputPlaceholder', { name: activeChat.agentName })}
+            {/* Agent chat body — shared component (manages its own scroll internally) */}
+            <AgentChatView
+              active={activeChat?.type === 'agent-chat'}
+              agentId={activeChat.agentId}
+              agentName={activeChat.agentName}
+              agentAvatar={activeChat.agentAvatar}
+              agentRole={activeChat.agentRole}
+              onClickAvatar={setSelectedAgent}
             />
           </>
         ) : activeChat?.type === 'requirement' && reqChatDetail ? (

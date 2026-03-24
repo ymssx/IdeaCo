@@ -203,9 +203,117 @@ chatPanelWidth: 380,
   fetchCompany: async () => {
     try {
       const data = await apiCall('/company');
-      set({ company: normalizeCompanyAvatars(data.data), initialized: true });
+      const newCompany = normalizeCompanyAvatars(data.data);
+
+      // Read current state WITHOUT triggering set()
+      const state = get();
+      const old = state.company;
+
+      if (!old) {
+        set({ company: newCompany, initialized: true });
+        return;
+      }
+
+      // Shallow-compare key fields to decide if company actually changed.
+      // If nothing meaningful changed, skip set() entirely so zustand
+      // does NOT notify any subscribers — preventing unnecessary re-renders.
+      const chatHistoryChanged = (old.chatHistory?.length ?? 0) !== (newCompany.chatHistory?.length ?? 0);
+      const agentSessionsChanged = (old.agentChatSessions?.length ?? 0) !== (newCompany.agentChatSessions?.length ?? 0);
+      const deptsChanged = (old.departments?.length ?? 0) !== (newCompany.departments?.length ?? 0);
+      const bossChanged = old.boss !== newCompany.boss || old.bossAvatar !== newCompany.bossAvatar;
+      const secChanged = old.secretary?.name !== newCompany.secretary?.name
+        || old.secretary?.avatar !== newCompany.secretary?.avatar
+        || old.secretary?.signature !== newCompany.secretary?.signature;
+      const balanceChanged = old.balance !== newCompany.balance;
+      const talentChanged = (old.talentMarket?.length ?? 0) !== (newCompany.talentMarket?.length ?? 0);
+      const nameChanged = old.name !== newCompany.name;
+
+      // Also check if any department's groupChat or member count changed
+      let deptContentChanged = false;
+      if (!deptsChanged && old.departments) {
+        for (let i = 0; i < old.departments.length; i++) {
+          const od = old.departments[i];
+          const nd = newCompany.departments?.[i];
+          if (!nd || od.id !== nd.id
+            || (od.groupChat?.length ?? 0) !== (nd.groupChat?.length ?? 0)
+            || (od.members?.length ?? 0) !== (nd.members?.length ?? 0)
+            || od.status !== nd.status) {
+            deptContentChanged = true;
+            break;
+          }
+        }
+      }
+
+      const hasChanges = chatHistoryChanged || agentSessionsChanged || deptsChanged
+        || deptContentChanged || bossChanged || secChanged || balanceChanged
+        || talentChanged || nameChanged;
+
+      if (!hasChanges) {
+        // Nothing meaningful changed — do NOT call set(), no re-render at all
+        if (!state.initialized) set({ initialized: true });
+        return;
+      }
+
+      // Preserve chatHistory reference when messages haven't changed
+      if (!chatHistoryChanged && old.chatHistory) {
+        newCompany.chatHistory = old.chatHistory;
+      }
+      set({ company: newCompany, initialized: true });
     } catch (e) {
       set({ error: e.message, initialized: true });
+    }
+  },
+
+  /**
+   * Lightweight poll: fetch only secretary chat history (avoids heavy getFullState).
+   * Updates company.chatHistory in-place so Mailbox picks it up via the existing useEffect.
+   */
+  fetchSecretaryChatHistory: async () => {
+    try {
+      const data = await apiCall('/chat/history');
+      const msgs = data.data;
+      if (!msgs) return;
+      const state = get();
+      if (!state.company) return;
+      // Only update if message count actually changed
+      if (state.company.chatHistory?.length === msgs.length) return;
+      set({ company: { ...state.company, chatHistory: msgs } });
+    } catch {
+      // Silently ignore — the heavy fetchCompany poll is still running as fallback
+    }
+  },
+
+  /**
+   * Paginated secretary chat: load a page of messages.
+   * @param {{ before?: string, limit?: number }} opts
+   * @returns {{ messages: Array, hasMore: boolean, total: number }}
+   */
+  fetchSecretaryChatPage: async ({ before = null, limit = 30 } = {}) => {
+    try {
+      const params = new URLSearchParams();
+      if (before) params.set('before', before);
+      params.set('limit', String(limit));
+      const data = await apiCall(`/chat/history?${params.toString()}`);
+      return {
+        messages: data.data || [],
+        hasMore: !!data.hasMore,
+        total: data.total || 0,
+      };
+    } catch {
+      return { messages: [], hasMore: false, total: 0 };
+    }
+  },
+
+  /**
+   * Lightweight poll: fetch only messages newer than `after` timestamp.
+   * Returns an array of new messages (empty if none).
+   */
+  pollSecretaryNewMessages: async (after) => {
+    try {
+      const data = await apiCall(`/chat/history?after=${encodeURIComponent(after)}`);
+      return data.data || [];
+    } catch {
+      return [];
     }
   },
 
@@ -451,6 +559,92 @@ chatPanelWidth: 380,
         }
       }
       set({ error: e.message });
+      throw e;
+    }
+  },
+
+  // === Streaming Chat with Secretary ===
+  streamingContent: '',    // Accumulated streamed content text
+  streamingThinking: '',   // Accumulated thinking/reasoning text
+  isStreaming: false,       // Whether a stream is currently active
+
+  chatWithSecretaryStream: async (message, { onDelta, onThinking, onDone, onError } = {}) => {
+    set({ streamingContent: '', streamingThinking: '', isStreaming: true });
+    const lang = getCurrentLang();
+
+    try {
+      const res = await fetch(`${API_BASE}/chat/stream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-App-Lang': lang },
+        body: JSON.stringify({ message }),
+      });
+
+      if (!res.ok) {
+        let errMsg = `Server error (${res.status})`;
+        try {
+          const errData = await res.json();
+          errMsg = errData.error || errMsg;
+        } catch {}
+        throw new Error(errMsg);
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let finalReply = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        // Parse SSE events from buffer
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || ''; // Keep incomplete last line in buffer
+
+        let currentEvent = null;
+        for (const line of lines) {
+          if (line.startsWith('event: ')) {
+            currentEvent = line.slice(7).trim();
+          } else if (line.startsWith('data: ') && currentEvent) {
+            try {
+              const data = JSON.parse(line.slice(6));
+
+              if (currentEvent === 'delta') {
+                set(state => ({ streamingContent: state.streamingContent + data.content }));
+                if (onDelta) onDelta(data.content);
+              } else if (currentEvent === 'thinking') {
+                set(state => ({ streamingThinking: state.streamingThinking + data.content }));
+                if (onThinking) onThinking(data.content);
+              } else if (currentEvent === 'done') {
+                finalReply = data.reply;
+                if (onDone) onDone(data.reply);
+              } else if (currentEvent === 'error') {
+                if (onError) onError(data.message);
+              }
+            } catch {}
+            currentEvent = null;
+          } else if (line === '') {
+            currentEvent = null;
+          }
+        }
+      }
+
+      set({ isStreaming: false });
+
+      // Refresh company state to get updated chat history + trigger action processing
+      await get().fetchCompany();
+
+      // If the reply has a running task, start polling
+      if (finalReply?.action?.taskId && finalReply?.action?.taskStatus === 'running') {
+        get()._pollTaskStatus(finalReply.action.taskId);
+      }
+
+      return finalReply;
+    } catch (e) {
+      set({ isStreaming: false, error: e.message });
+      if (onError) onError(e.message);
       throw e;
     }
   },
@@ -768,6 +962,54 @@ chatPanelWidth: 380,
     }
   },
 
+  // === Channels (Multi-channel messaging system) ===
+  fetchChannels: async () => {
+    try {
+      const data = await apiCall('/channels');
+      return data.data;
+    } catch (e) {
+      return { adapters: [], channels: [], stats: {} };
+    }
+  },
+
+  installChannel: async (adapterId, config = {}) => {
+    try {
+      const data = await apiCall('/channels', {
+        method: 'POST',
+        body: JSON.stringify({ adapterId, config }),
+      });
+      return data.data;
+    } catch (e) {
+      set({ error: e.message });
+      throw e;
+    }
+  },
+
+  manageChannel: async (channelId, action, config = null) => {
+    try {
+      const body = { action };
+      if (config) body.config = config;
+      const data = await apiCall(`/channels/${channelId}`, {
+        method: 'PUT',
+        body: JSON.stringify(body),
+      });
+      return data.data;
+    } catch (e) {
+      set({ error: e.message });
+      throw e;
+    }
+  },
+
+  uninstallChannel: async (channelId) => {
+    try {
+      const data = await apiCall(`/channels/${channelId}`, { method: 'DELETE' });
+      return data;
+    } catch (e) {
+      set({ error: e.message });
+      throw e;
+    }
+  },
+
   // === CLI Backends ===
   fetchCLIBackends: async () => {
     try {
@@ -874,6 +1116,41 @@ chatPanelWidth: 380,
       const data = await apiCall(`/agents/${agentId}/chat?limit=${limit}`);
       return data.data || [];
     } catch (e) {
+      return [];
+    }
+  },
+
+  /**
+   * Paginated agent chat: load a page of messages.
+   * @param {string} agentId
+   * @param {{ before?: string, limit?: number }} opts
+   * @returns {{ messages: Array, hasMore: boolean, total: number }}
+   */
+  fetchAgentChatPage: async (agentId, { before = null, limit = 30 } = {}) => {
+    try {
+      const params = new URLSearchParams();
+      if (before) params.set('before', before);
+      params.set('limit', String(limit));
+      const data = await apiCall(`/agents/${agentId}/chat?${params.toString()}`);
+      return {
+        messages: data.data || [],
+        hasMore: !!data.hasMore,
+        total: data.total || 0,
+      };
+    } catch {
+      return { messages: [], hasMore: false, total: 0 };
+    }
+  },
+
+  /**
+   * Lightweight poll: fetch only agent chat messages newer than `after` timestamp.
+   * Returns an array of new messages (empty if none).
+   */
+  pollAgentNewMessages: async (agentId, after) => {
+    try {
+      const data = await apiCall(`/agents/${agentId}/chat?after=${encodeURIComponent(after)}`);
+      return data.data || [];
+    } catch {
       return [];
     }
   },

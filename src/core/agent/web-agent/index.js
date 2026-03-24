@@ -156,10 +156,11 @@ export class WebAgent extends BaseAgent {
         );
       }
 
-      // Feed tool results back as user message
+      // Feed tool results back with clear instruction to summarize
+      const resultsPayload = callResultTexts.join('\n\n');
       conversationMessages.push({
         role: 'user',
-        content: callResultTexts.join('\n\n'),
+        content: `The tool(s) you requested have been executed. Here are the results:\n\n${resultsPayload}\n\nPlease use the tool results above to give a complete, helpful answer to the user's original question. Do NOT call any more tools — just answer directly.`,
       });
     }
 
@@ -202,11 +203,13 @@ ${toolDescriptions}`;
 
   /**
    * Parse tool calls from LLM text response.
-   * Looks for ```tool_call blocks.
+   * Looks for ```tool_call blocks, DSML-style blocks, and other XML tool call formats.
    */
   _parseToolCalls(content) {
     if (!content) return null;
     const calls = [];
+
+    // 1. Standard ```tool_call blocks
     const regex = /```tool_call\s*\n([\s\S]*?)```/g;
     let match;
     while ((match = regex.exec(content)) !== null) {
@@ -219,6 +222,40 @@ ${toolDescriptions}`;
         // Skip malformed tool calls
       }
     }
+
+    // 2. DSML format: <｜DSML｜function_calls> ... </｜DSML｜function_calls>
+    const dsmlBlockRegex = /<[｜|]DSML[｜|]function_calls>([\s\S]*?)(?:<\/[｜|]DSML[｜|]function_calls>|$)/g;
+    let blockMatch;
+    while ((blockMatch = dsmlBlockRegex.exec(content)) !== null) {
+      const block = blockMatch[1];
+      const invokeRegex = /<[｜|]DSML[｜|]invoke\s+name="([^"]+)"[^>]*>([\s\S]*?)(?:<\/[｜|]DSML[｜|]invoke>|$)/g;
+      let invokeMatch;
+      while ((invokeMatch = invokeRegex.exec(block)) !== null) {
+        const toolName = invokeMatch[1];
+        const paramsBlock = invokeMatch[2];
+        const args = {};
+        const paramRegex = /<[｜|]DSML[｜|]parameter\s+name="([^"]+)"[^>]*>([\s\S]*?)(?:<\/[｜|]DSML[｜|]parameter>|$)/g;
+        let paramMatch;
+        while ((paramMatch = paramRegex.exec(paramsBlock)) !== null) {
+          const paramValue = paramMatch[2].trim();
+          try { args[paramMatch[1]] = JSON.parse(paramValue); } catch { args[paramMatch[1]] = paramValue; }
+        }
+        if (toolName) calls.push({ name: toolName, args });
+      }
+    }
+
+    // 3. XML <function_call>JSON</function_call> and <tool_call>JSON</tool_call>
+    for (const tag of ['function_call', 'tool_call']) {
+      const xmlRegex = new RegExp(`<${tag}>([\\s\\S]*?)(?:<\\/${tag}>|$)`, 'g');
+      let xmlMatch;
+      while ((xmlMatch = xmlRegex.exec(content)) !== null) {
+        try {
+          const parsed = JSON.parse(xmlMatch[1].trim());
+          if (parsed.name) calls.push({ name: parsed.name, args: parsed.arguments || parsed.args || {} });
+        } catch { /* skip */ }
+      }
+    }
+
     return calls.length > 0 ? calls : null;
   }
 

@@ -10,6 +10,93 @@ import { getAppLanguageName, buildLanguageInstruction } from '../utils/app-langu
 
 
 /**
+ * Incremental JSON "content" field extractor.
+ * As raw JSON tokens stream in, this class tracks whether we're inside the
+ * `"content": "..."` value and yields the decoded text characters.
+ *
+ * State machine:
+ *   SCANNING → found `"content"` key → AWAIT_COLON → AWAIT_QUOTE → INSIDE_VALUE → done
+ */
+class JSONContentExtractor {
+  constructor() {
+    this.state = 'SCANNING'; // SCANNING | AWAIT_COLON | AWAIT_QUOTE | INSIDE_VALUE | DONE
+    this.buffer = '';
+    this.escapeNext = false;
+  }
+
+  /**
+   * Feed a chunk of raw JSON text. Returns any decoded "content" value text,
+   * or empty string if nothing to emit yet.
+   */
+  feed(chunk) {
+    if (this.state === 'DONE') return '';
+
+    let output = '';
+    for (const ch of chunk) {
+      switch (this.state) {
+        case 'SCANNING':
+          this.buffer += ch;
+          // Look for `"content"` key (with possible whitespace)
+          if (this.buffer.endsWith('"content"') || this.buffer.endsWith('"content" ')) {
+            this.state = 'AWAIT_COLON';
+            this.buffer = '';
+          }
+          // Keep buffer bounded — only need last 12 chars to detect the key
+          if (this.buffer.length > 20) {
+            this.buffer = this.buffer.slice(-15);
+          }
+          break;
+
+        case 'AWAIT_COLON':
+          if (ch === ':') {
+            this.state = 'AWAIT_QUOTE';
+          } else if (ch !== ' ' && ch !== '\n' && ch !== '\r' && ch !== '\t') {
+            // Not a colon — false alarm, go back to scanning
+            this.state = 'SCANNING';
+            this.buffer = '';
+          }
+          break;
+
+        case 'AWAIT_QUOTE':
+          if (ch === '"') {
+            this.state = 'INSIDE_VALUE';
+          } else if (ch !== ' ' && ch !== '\n' && ch !== '\r' && ch !== '\t') {
+            // Value is not a string — go back to scanning
+            this.state = 'SCANNING';
+            this.buffer = '';
+          }
+          break;
+
+        case 'INSIDE_VALUE':
+          if (this.escapeNext) {
+            // Handle JSON escape sequences
+            switch (ch) {
+              case 'n': output += '\n'; break;
+              case 't': output += '\t'; break;
+              case '"': output += '"'; break;
+              case '\\': output += '\\'; break;
+              case '/': output += '/'; break;
+              default: output += ch; break;
+            }
+            this.escapeNext = false;
+          } else if (ch === '\\') {
+            this.escapeNext = true;
+          } else if (ch === '"') {
+            // End of content string
+            this.state = 'DONE';
+            return output;
+          } else {
+            output += ch;
+          }
+          break;
+      }
+    }
+    return output;
+  }
+}
+
+
+/**
  * Secretary's Dedicated HR Assistant
  * Handles recruitment operations, talent market search, and recall
  */
@@ -211,6 +298,79 @@ When communicating with the boss, you need to:
   }
 
   async _llmHandleBossMessage(message, company) {
+    const { messages, secretaryChatGroupId } = this._buildBossMessageContext(message, company);
+    const response = await this.chat(messages, { temperature: 0.8, maxTokens: 2048 });
+    return this._parseSecretaryResponse(response.content, message, company, secretaryChatGroupId);
+  }
+
+  // ======================== Boss Message Handling (Streaming) ========================
+
+  /**
+   * Streaming version of handleBossMessage.
+   * Yields SSE-compatible chunks as the LLM generates tokens.
+   * The "content" field is extracted incrementally from the JSON output.
+   *
+   * @param {string} message - Boss message
+   * @param {object} company - Company instance
+   * @yields {{ event: string, data: object }}
+   *   - { event: 'thinking', data: { content } }      — reasoning/chain-of-thought token
+   *   - { event: 'delta',    data: { content } }      — incremental content text
+   *   - { event: 'done',     data: { reply } }        — final parsed reply (same as non-streaming)
+   *   - { event: 'error',    data: { message } }      — error occurred
+   */
+  async *handleBossMessageStream(message, company) {
+    if (!this.canChat()) {
+      yield { event: 'error', data: { message: 'Secretary AI is not configured.' } };
+      return;
+    }
+
+    // Build the same messages as _llmHandleBossMessage
+    const { messages, secretaryChatGroupId } = this._buildBossMessageContext(message, company);
+
+    let fullContent = '';
+    // Track whether we're inside the "content" JSON field for incremental extraction
+    let contentExtractor = new JSONContentExtractor();
+
+    try {
+      // Yield thinking/delta chunks as they arrive
+      for await (const chunk of this.chatStream(messages, { temperature: 0.8, maxTokens: 2048 })) {
+        if (chunk.type === 'thinking') {
+          yield { event: 'thinking', data: { content: chunk.content } };
+        } else if (chunk.type === 'delta') {
+          fullContent += chunk.content;
+          // Try to extract "content" field text incrementally
+          const extracted = contentExtractor.feed(chunk.content);
+          if (extracted) {
+            yield { event: 'delta', data: { content: extracted } };
+          }
+        } else if (chunk.type === 'done') {
+          // Stream finished — parse the complete JSON and do post-processing
+          fullContent = chunk.content || fullContent;
+        }
+      }
+
+      // Post-process: parse JSON, handle memory/relationship ops, fix dept IDs
+      const reply = this._parseSecretaryResponse(fullContent, message, company, secretaryChatGroupId);
+      yield { event: 'done', data: { reply } };
+    } catch (err) {
+      console.error(`❌ [Secretary] Stream error:`, err.message);
+      // If we got partial content, try to salvage it
+      if (fullContent.length > 0) {
+        try {
+          const reply = this._parseSecretaryResponse(fullContent, message, company, secretaryChatGroupId);
+          yield { event: 'done', data: { reply } };
+          return;
+        } catch {}
+      }
+      yield { event: 'error', data: { message: err.message } };
+    }
+  }
+
+  /**
+   * Build the message context for boss message handling.
+   * Extracted from _llmHandleBossMessage so it can be shared with the streaming variant.
+   */
+  _buildBossMessageContext(message, company) {
     this.memory.consolidateMemories();
 
     const deptCount = company.departments.size;
@@ -225,17 +385,28 @@ When communicating with the boss, you need to:
     const agentCount = departments.reduce((s, d) => s + d.memberCount, 0);
     const talentCount = company.talentMarket.listAvailable().length;
 
+    // Wrap non-boss messages back into JSON so the LLM sees consistent JSON
+    // output across conversation turns and doesn't drift into plain text.
+    const _wrapHistoryContent = (h) => {
+      if (h.role === 'boss') return h.content;
+      // If the stored content already looks like JSON, use as-is
+      const trimmed = (h.content || '').trim();
+      if (trimmed.startsWith('{') && trimmed.endsWith('}')) return trimmed;
+      // Wrap plain-text secretary reply back into minimal JSON envelope
+      return JSON.stringify({ content: h.content, action: h.action || null });
+    };
+
     let recentHistory = [];
     try {
       const recentMessages = chatStore.getRecentMessages(company.chatSessionId, 10);
       recentHistory = recentMessages.map(h => ({
         role: h.role === 'boss' ? 'user' : 'assistant',
-        content: h.content,
+        content: _wrapHistoryContent(h),
       }));
     } catch (e) {
       recentHistory = (company.chatHistory || []).slice(-10).map(h => ({
         role: h.role === 'boss' ? 'user' : 'assistant',
-        content: h.content,
+        content: _wrapHistoryContent(h),
       }));
     }
 
@@ -254,8 +425,6 @@ When communicating with the boss, you need to:
     } catch (e) {}
 
     const secretaryPrompt = this.prompt || '';
-
-    // Build HR context: available job templates + enabled providers
     const availableRoles = Object.values(JobTemplates).map(t => ({
       id: t.id, title: t.title, category: t.category,
     }));
@@ -274,11 +443,198 @@ When communicating with the boss, you need to:
       }
     } catch {}
 
-    // Build memory context using the unified Memory system
     const secretaryChatGroupId = `secretary-boss-chat`;
     const memorySection = this.memory.buildMemoryContext(secretaryChatGroupId);
 
-    const systemPrompt = `You are "${this.name}", the personal secretary of ${company.bossName || 'the Boss'}.
+    // Reuse the exact same system prompt from _llmHandleBossMessage
+    // (extracted here to avoid duplication, but keeping it inline for now due to template literals)
+    const systemPrompt = this._buildSecretarySystemPrompt({
+      company, secretaryPrompt, memorySection, searchContextSection,
+      deptCount, departments, agentCount, talentCount,
+      availableRoles, availableCategories, capabilitiesSection,
+    });
+
+    const messages = [
+      { role: 'system', content: systemPrompt },
+      ...recentHistory,
+      { role: 'user', content: message },
+    ];
+
+    return { messages, secretaryChatGroupId };
+  }
+
+  /**
+   * Parse the full secretary JSON response, process memory/relationship ops, fix dept IDs.
+   * Shared by both streaming and non-streaming paths.
+   */
+  _parseSecretaryResponse(rawContent, message, company, secretaryChatGroupId) {
+    try {
+      const parsed = robustJSONParse(rawContent);
+      let result = { content: parsed.content || rawContent, action: parsed.action || null };
+
+      console.log(`🤖 [Secretary-LLM] action type: ${result.action?.type || 'null'}, departmentId: ${result.action?.departmentId || 'N/A'}`);
+
+      if (parsed.memorySummary) {
+        this.memory.updateHistorySummary(secretaryChatGroupId, parsed.memorySummary);
+        console.log(`  📜 [Secretary] History summary updated`);
+      }
+      if (parsed.memoryOps && Array.isArray(parsed.memoryOps)) {
+        const memResult = this.memory.processMemoryOps(parsed.memoryOps);
+        if (memResult.added + memResult.updated + memResult.deleted > 0) {
+          console.log(`  🧠 [Secretary] Memory: +${memResult.added} ~${memResult.updated} -${memResult.deleted}`);
+        }
+      }
+      if (parsed.relationshipOps && Array.isArray(parsed.relationshipOps)) {
+        const relResult = this.memory.processRelationshipOps(parsed.relationshipOps);
+        if (relResult.updated > 0) {
+          console.log(`  👥 [Secretary] Relationship updates: ${relResult.updated}`);
+        }
+      }
+
+      // Fix department ID inconsistencies
+      this._fixDepartmentId(result, company);
+      return result;
+    } catch (parseError) {
+      console.warn('⚠️ Secretary JSON parse failed:', parseError.message, '\nRaw reply:', rawContent.slice(0, 200));
+      return this._faultTolerantParse(rawContent, message, company, secretaryChatGroupId);
+    }
+  }
+
+  /**
+   * Fix department ID issues in the parsed result.
+   */
+  _fixDepartmentId(result, company) {
+    if (result.action?.type === 'task_assigned' && result.action.departmentId) {
+      const deptById = company.departments.get(result.action.departmentId);
+      if (!deptById) {
+        const deptIdValue = result.action.departmentId;
+        const deptNameValue = result.action.departmentName || deptIdValue;
+        let foundDept = null;
+        for (const dept of company.departments.values()) {
+          if (dept.name === deptIdValue || dept.name === deptNameValue ||
+              dept.name.includes(deptIdValue) || deptIdValue.includes(dept.name)) {
+            foundDept = dept; break;
+          }
+        }
+        if (foundDept) {
+          console.log(`🔧 Fixed departmentId: "${deptIdValue}" → "${foundDept.id}" (${foundDept.name})`);
+          result.action.departmentId = foundDept.id;
+          result.action.departmentName = foundDept.name;
+        } else {
+          console.warn(`⚠️ LLM returned departmentId "${deptIdValue}" doesn't match any department, clearing action`);
+          result.action = null;
+        }
+      } else {
+        const contentLower = (result.content || '').toLowerCase();
+        const actionDeptName = deptById.name.toLowerCase();
+        let contentMentionedDept = null;
+        for (const dept of company.departments.values()) {
+          if (dept.id !== deptById.id && contentLower.includes(dept.name.toLowerCase())) {
+            contentMentionedDept = dept; break;
+          }
+        }
+        if (contentMentionedDept && !contentLower.includes(actionDeptName)) {
+          console.log(`🔧 Consistency fix: content mentions "${contentMentionedDept.name}" but action points to "${deptById.name}", using content as source of truth`);
+          result.action.departmentId = contentMentionedDept.id;
+          result.action.departmentName = contentMentionedDept.name;
+        }
+      }
+    }
+  }
+
+  /**
+   * Fault-tolerant parse for malformed JSON responses.
+   */
+  _faultTolerantParse(rawContent, message, company, secretaryChatGroupId) {
+    let displayContent = rawContent;
+    const contentFieldMatch = rawContent.match(/"content"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+    if (contentFieldMatch) {
+      try { displayContent = JSON.parse('"' + contentFieldMatch[1] + '"'); }
+      catch { displayContent = contentFieldMatch[1].replace(/\\n/g, '\n').replace(/\\"/g, '"'); }
+    }
+
+    let action = null;
+    const actionTypeMatch = rawContent.match(/"type"\s*:\s*"(task_assigned|need_new_department|create_department|progress_report|secretary_handle)"/);
+    if (actionTypeMatch) {
+      const actionType = actionTypeMatch[1];
+      if (actionType === 'task_assigned') {
+        const deptNameMatch = rawContent.match(/"departmentName"\s*:\s*"([^"]+)"/);
+        if (deptNameMatch) {
+          const targetName = deptNameMatch[1];
+          for (const dept of company.departments.values()) {
+            if (dept.name === targetName || dept.name.includes(targetName) || targetName.includes(dept.name)) {
+              const titleMatch = rawContent.match(/"taskTitle"\s*:\s*"([^"]+)"/);
+              const descMatch = rawContent.match(/"taskDescription"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+              action = {
+                type: 'task_assigned', departmentId: dept.id, departmentName: dept.name,
+                taskTitle: titleMatch ? titleMatch[1] : message.slice(0, 50),
+                taskDescription: descMatch ? descMatch[1].replace(/\\n/g, '\n') : message,
+              }; break;
+            }
+          }
+        }
+      } else if (actionType === 'create_department') {
+        const deptNameMatch = rawContent.match(/"departmentName"\s*:\s*"([^"]+)"/);
+        const missionMatch = rawContent.match(/"mission"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+        action = {
+          type: 'create_department',
+          departmentName: deptNameMatch ? deptNameMatch[1] : '',
+          mission: missionMatch ? missionMatch[1].replace(/\\n/g, '\n') : message,
+        };
+      } else if (actionType === 'need_new_department') {
+        const missionMatch = rawContent.match(/"suggestedMission"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+        action = { type: 'need_new_department', suggestedMission: missionMatch ? missionMatch[1].replace(/\\n/g, '\n') : message };
+      } else if (actionType === 'secretary_handle') {
+        const descMatch = rawContent.match(/"taskDescription"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+        action = { type: 'secretary_handle', taskDescription: descMatch ? descMatch[1].replace(/\\n/g, '\n') : message };
+      } else if (actionType === 'progress_report') {
+        action = { type: 'progress_report' };
+      }
+    }
+
+    // Safety net: if the LLM returned plain text that looks like a task
+    // acknowledgement but no action was extracted, auto-degrade to secretary_handle
+    // so the task actually gets executed instead of producing an empty response.
+    if (!action && message) {
+      const lower = (displayContent || '').toLowerCase();
+      const isAcknowledgement = /\b(let me|i'll|i will|one moment|checking|looking|right away|handle it|on it)\b/i.test(lower);
+      const isQuestion = /[?？]/.test(message);
+      const hasActionVerb = /[\u5e2e\u6211\u67e5\u770b\u5206\u6790\u5199\u505a\u641c\u7d22\u627e]|help|check|look up|write|analyze|search|find|build|create|run|execute|what|how|tell me|show me/i.test(message);
+      if (isAcknowledgement || isQuestion || hasActionVerb) {
+        console.log(`  🔄 [Secretary-FaultTolerant] No action found in malformed response, auto-degrading to secretary_handle`);
+        action = { type: 'secretary_handle', taskDescription: message };
+      }
+    }
+
+    let result = { content: displayContent, action };
+    console.log(`🤖 [Secretary-LLM-FaultTolerant] action type: ${result.action?.type || 'null'}`);
+
+    // Try to extract memory ops from malformed JSON
+    try {
+      const summaryMatch = rawContent.match(/"memorySummary"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+      if (summaryMatch) {
+        this.memory.updateHistorySummary(secretaryChatGroupId, summaryMatch[1].replace(/\\n/g, '\n'));
+      }
+      const memOpsMatch = rawContent.match(/"memoryOps"\s*:\s*(\[\s*\{[\s\S]*?\}\s*\])/);
+      if (memOpsMatch) {
+        const ops = JSON.parse(memOpsMatch[1]);
+        if (Array.isArray(ops)) {
+          this.memory.processMemoryOps(ops);
+        }
+      }
+    } catch {}
+
+    return result;
+  }
+
+  /**
+   * Build the secretary system prompt.
+   * Extracted to be shared by streaming and non-streaming paths.
+   */
+  _buildSecretarySystemPrompt({ company, secretaryPrompt, memorySection, searchContextSection,
+    deptCount, departments, agentCount, talentCount,
+    availableRoles, availableCategories, capabilitiesSection }) {
+    return `You are "${this.name}", the personal secretary of ${company.bossName || 'the Boss'}.
 ${secretaryPrompt ? `\nYour core persona: ${secretaryPrompt}\n` : ''}
 Your personality: smart, efficient, approachable. Communicate with the boss like a real, thoughtful secretary — natural, warm, not robotic.
 ${memorySection}
@@ -400,149 +756,6 @@ When the boss asks about progress/status/reports, return progress_report
 8. **Critical - Action Required for Tasks**: If the boss's message expresses ANY intent to get work done (in any language), you MUST return an action. Analyze the semantic meaning, not just keywords. For example: "help me build a website", "write a report", "analyze the data" — ALL of these require an action, regardless of what language they are expressed in.
 9. **Critical - Language Agnostic**: The boss may speak in any language (Chinese, English, Japanese, etc.). You must understand the intent regardless of language and return the correct structured action.
 10. **Critical - Response Language**: You MUST write ALL your "content" text in ${getAppLanguageName()}. The boss expects replies in ${getAppLanguageName()}.`;
-    const messages = [
-      { role: 'system', content: systemPrompt },
-      ...recentHistory,
-      { role: 'user', content: message },
-    ];
-
-    const response = await this.chat(messages, { temperature: 0.8, maxTokens: 2048 });
-
-    try {
-      const parsed = robustJSONParse(response.content);
-      let result = { content: parsed.content || response.content, action: parsed.action || null };
-
-      console.log(`🤖 [Secretary-LLM] action type: ${result.action?.type || 'null'}, departmentId: ${result.action?.departmentId || 'N/A'}`);
-
-      // Process rolling history summary (new Memory system)
-      if (parsed.memorySummary) {
-        this.memory.updateHistorySummary(secretaryChatGroupId, parsed.memorySummary);
-        console.log(`  📜 [Secretary] History summary updated`);
-      }
-
-      // Process memory operations (new unified format)
-      if (parsed.memoryOps && Array.isArray(parsed.memoryOps)) {
-        const memResult = this.memory.processMemoryOps(parsed.memoryOps);
-        if (memResult.added + memResult.updated + memResult.deleted > 0) {
-          console.log(`  🧠 [Secretary] Memory: +${memResult.added} ~${memResult.updated} -${memResult.deleted}`);
-        }
-      }
-
-      // Process relationship impressions
-      if (parsed.relationshipOps && Array.isArray(parsed.relationshipOps)) {
-        const relResult = this.memory.processRelationshipOps(parsed.relationshipOps);
-        if (relResult.updated > 0) {
-          console.log(`  👥 [Secretary] Relationship updates: ${relResult.updated}`);
-        }
-      }
-
-      if (result.action?.type === 'task_assigned' && result.action.departmentId) {
-        const deptById = company.departments.get(result.action.departmentId);
-        if (!deptById) {
-          const deptIdValue = result.action.departmentId;
-          const deptNameValue = result.action.departmentName || deptIdValue;
-          let foundDept = null;
-          for (const dept of company.departments.values()) {
-            if (dept.name === deptIdValue || dept.name === deptNameValue ||
-                dept.name.includes(deptIdValue) || deptIdValue.includes(dept.name)) {
-              foundDept = dept; break;
-            }
-          }
-          if (foundDept) {
-            console.log(`🔧 Fixed departmentId: "${deptIdValue}" → "${foundDept.id}" (${foundDept.name})`);
-            result.action.departmentId = foundDept.id;
-            result.action.departmentName = foundDept.name;
-          } else {
-            console.warn(`⚠️ LLM returned departmentId "${deptIdValue}" doesn't match any department, clearing action`);
-            result.action = null;
-          }
-        } else {
-          const contentLower = (result.content || '').toLowerCase();
-          const actionDeptName = deptById.name.toLowerCase();
-          let contentMentionedDept = null;
-          for (const dept of company.departments.values()) {
-            if (dept.id !== deptById.id && contentLower.includes(dept.name.toLowerCase())) {
-              contentMentionedDept = dept; break;
-            }
-          }
-          if (contentMentionedDept && !contentLower.includes(actionDeptName)) {
-            console.log(`🔧 Consistency fix: content mentions "${contentMentionedDept.name}" but action points to "${deptById.name}", using content as source of truth`);
-            result.action.departmentId = contentMentionedDept.id;
-            result.action.departmentName = contentMentionedDept.name;
-          }
-        }
-      }
-
-      return result;
-    } catch (parseError) {
-      console.warn('⚠️ Secretary JSON parse failed:', parseError.message, '\nRaw reply:', response.content.slice(0, 200));
-
-      let displayContent = response.content;
-      const contentFieldMatch = response.content.match(/"content"\s*:\s*"((?:[^"\\]|\\.)*)"/);
-      if (contentFieldMatch) {
-        try { displayContent = JSON.parse('"' + contentFieldMatch[1] + '"'); }
-        catch { displayContent = contentFieldMatch[1].replace(/\\n/g, '\n').replace(/\\"/g, '"'); }
-      }
-
-      let action = null;
-      const actionTypeMatch = response.content.match(/"type"\s*:\s*"(task_assigned|need_new_department|create_department|progress_report|secretary_handle)"/);
-      if (actionTypeMatch) {
-        const actionType = actionTypeMatch[1];
-        if (actionType === 'task_assigned') {
-          const deptNameMatch = response.content.match(/"departmentName"\s*:\s*"([^"]+)"/);
-          if (deptNameMatch) {
-            const targetName = deptNameMatch[1];
-            for (const dept of company.departments.values()) {
-              if (dept.name === targetName || dept.name.includes(targetName) || targetName.includes(dept.name)) {
-                const titleMatch = response.content.match(/"taskTitle"\s*:\s*"([^"]+)"/);
-                const descMatch = response.content.match(/"taskDescription"\s*:\s*"((?:[^"\\]|\\.)*)"/);
-                action = {
-                  type: 'task_assigned', departmentId: dept.id, departmentName: dept.name,
-                  taskTitle: titleMatch ? titleMatch[1] : message.slice(0, 50),
-                  taskDescription: descMatch ? descMatch[1].replace(/\\n/g, '\n') : message,
-                }; break;
-              }
-            }
-          }
-        } else if (actionType === 'create_department') {
-          const deptNameMatch = response.content.match(/"departmentName"\s*:\s*"([^"]+)"/);
-          const missionMatch = response.content.match(/"mission"\s*:\s*"((?:[^"\\]|\\.)*)"/);
-          action = {
-            type: 'create_department',
-            departmentName: deptNameMatch ? deptNameMatch[1] : '',
-            mission: missionMatch ? missionMatch[1].replace(/\\n/g, '\n') : message,
-          };
-        } else if (actionType === 'need_new_department') {
-          const missionMatch = response.content.match(/"suggestedMission"\s*:\s*"((?:[^"\\]|\\.)*)"/);
-          action = { type: 'need_new_department', suggestedMission: missionMatch ? missionMatch[1].replace(/\\n/g, '\n') : message };
-        } else if (actionType === 'secretary_handle') {
-          const descMatch = response.content.match(/"taskDescription"\s*:\s*"((?:[^"\\]|\\.)*)"/);
-          action = { type: 'secretary_handle', taskDescription: descMatch ? descMatch[1].replace(/\\n/g, '\n') : message };
-        } else if (actionType === 'progress_report') {
-          action = { type: 'progress_report' };
-        }
-      }
-
-      let result = { content: displayContent, action };
-      console.log(`🤖 [Secretary-LLM-FaultTolerant] action type: ${result.action?.type || 'null'}`);
-
-      // Try to extract memory ops from malformed JSON (fault-tolerant)
-      try {
-        const summaryMatch = response.content.match(/"memorySummary"\s*:\s*"((?:[^"\\]|\\.)*)"/);
-        if (summaryMatch) {
-          this.memory.updateHistorySummary(secretaryChatGroupId, summaryMatch[1].replace(/\\n/g, '\n'));
-        }
-        const memOpsMatch = response.content.match(/"memoryOps"\s*:\s*(\[\s*\{[\s\S]*?\}\s*\])/);
-        if (memOpsMatch) {
-          const ops = JSON.parse(memOpsMatch[1]);
-          if (Array.isArray(ops)) {
-            this.memory.processMemoryOps(ops);
-          }
-        }
-      } catch {}
-
-      return result;
-    }
   }
 
   // ======================== Direct Task Execution ========================

@@ -1,11 +1,15 @@
 /**
- * SkillMarketplace — Client for the open-source ClawHub skill marketplace.
+ * SkillMarketplace — Client for the real ClawHub skill registry.
  *
- * Allows browsing, searching, and installing skills from the public registry.
- * Installed skills are saved to data/skills/marketplace/{slug}/SKILL.md
+ * ClawHub (https://clawhub.ai) is the public skill registry for OpenClaw.
+ * Real API v1 endpoints:
+ *   GET  /api/v1/search?q=...&limit=...          → { results: [{ slug, displayName, summary, score, updatedAt }] }
+ *   GET  /api/v1/skills/{slug}                    → { skill, latestVersion, owner, moderation }
+ *   GET  /api/v1/download?slug=...&version=...    → ZIP binary
+ *   GET  /api/v1/skills?limit=...&sort=...        → { items: [...], nextCursor }
+ *
+ * Installed skills are saved to data/skills/marketplace/{slug}/
  * and registered in the global SkillRegistry with source: 'marketplace'.
- *
- * ClawHub API: https://clawhub.com (public registry for OpenClaw skills)
  */
 
 import fs from 'fs';
@@ -18,9 +22,9 @@ const MARKETPLACE_SKILLS_DIR = path.join(
   'marketplace'
 );
 
-const CLAWHUB_API = 'https://clawhub.com/api';
+// Real ClawHub registry base URL
+const CLAWHUB_BASE = 'https://clawhub.ai';
 
-// Ensure directory exists
 function ensureDir(dir) {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
@@ -28,12 +32,12 @@ function ensureDir(dir) {
 }
 
 /**
- * SkillMarketplace
+ * SkillMarketplace — thin client over the real ClawHub v1 API.
  */
 export class SkillMarketplace {
   constructor(opts = {}) {
     this.storePath = opts.storePath || MARKETPLACE_SKILLS_DIR;
-    this.registryUrl = opts.registryUrl || CLAWHUB_API;
+    this.registryUrl = opts.registryUrl || CLAWHUB_BASE;
     this.timeout = opts.timeout || 15000;
     ensureDir(this.storePath);
   }
@@ -41,22 +45,18 @@ export class SkillMarketplace {
   // ---- Browse & Search ----
 
   /**
-   * Search the ClawHub marketplace.
+   * Search the ClawHub marketplace using the real /api/v1/search endpoint.
    * @param {string} query - Search query
    * @param {object} [opts] - { page, limit, category }
    * @returns {object} { skills, total, page }
    */
   async search(query = '', opts = {}) {
-    const { page = 1, limit = 20, category } = opts;
+    const { page = 1, limit = 20 } = opts;
     try {
-      const params = new URLSearchParams({
-        q: query,
-        page: String(page),
-        limit: String(limit),
-      });
-      if (category) params.set('category', category);
+      const params = new URLSearchParams({ q: query || 'openclaw', limit: String(limit) });
 
-      const response = await fetch(`${this.registryUrl}/skills/search?${params}`, {
+      const response = await fetch(`${this.registryUrl}/api/v1/search?${params}`, {
+        headers: { Accept: 'application/json' },
         signal: AbortSignal.timeout(this.timeout),
       });
 
@@ -65,37 +65,68 @@ export class SkillMarketplace {
       }
 
       const data = await response.json();
+      const results = (data.results || []).map(s => this._normalizeSearchResult(s));
+
       return {
-        skills: (data.skills || data.results || []).map(s => this._normalizeMarketplaceEntry(s)),
-        total: data.total || 0,
-        page: data.page || page,
+        skills: results,
+        total: results.length,
+        page,
       };
     } catch (e) {
-      // If API is unreachable, return empty results instead of crashing
       console.warn(`ClawHub search failed: ${e.message}`);
       return { skills: [], total: 0, page };
     }
   }
 
   /**
-   * Get featured/popular skills from the marketplace.
+   * Get popular/featured skills from the marketplace.
+   * ClawHub has no dedicated "featured" endpoint, so we search with a broad
+   * query and rely on the default relevance ranking.
    * @returns {object[]}
    */
   async featured() {
     try {
-      const response = await fetch(`${this.registryUrl}/skills/featured`, {
-        signal: AbortSignal.timeout(this.timeout),
-      });
+      const response = await fetch(
+        `${this.registryUrl}/api/v1/search?q=openclaw+skill&limit=12`,
+        {
+          headers: { Accept: 'application/json' },
+          signal: AbortSignal.timeout(this.timeout),
+        }
+      );
 
       if (!response.ok) {
         throw new Error(`ClawHub API returned ${response.status}`);
       }
 
       const data = await response.json();
-      return (data.skills || data.results || []).map(s => this._normalizeMarketplaceEntry(s));
+      return (data.results || []).map(s => this._normalizeSearchResult(s));
     } catch (e) {
       console.warn(`ClawHub featured fetch failed: ${e.message}`);
       return [];
+    }
+  }
+
+  // ---- Skill Detail ----
+
+  /**
+   * Fetch full skill metadata from ClawHub.
+   * GET /api/v1/skills/{slug}
+   * @param {string} slug
+   * @returns {object|null}
+   */
+  async getSkillDetail(slug) {
+    try {
+      const response = await fetch(
+        `${this.registryUrl}/api/v1/skills/${encodeURIComponent(slug)}`,
+        {
+          headers: { Accept: 'application/json' },
+          signal: AbortSignal.timeout(this.timeout),
+        }
+      );
+      if (!response.ok) return null;
+      return await response.json();
+    } catch {
+      return null;
     }
   }
 
@@ -103,73 +134,128 @@ export class SkillMarketplace {
 
   /**
    * Install a skill from the marketplace.
-   * @param {string} slug - Skill slug/ID from ClawHub
+   *
+   * Flow:
+   * 1. GET /api/v1/skills/{slug}  → metadata + latestVersion
+   * 2. GET /api/v1/download?slug=...&version=...  → ZIP containing SKILL.md + files
+   * 3. Extract ZIP to disk, parse SKILL.md, register in SkillRegistry
+   *
+   * @param {string} slug - Skill slug from ClawHub
    * @param {string} [version='latest']
    * @returns {object} Installed skill info
    */
   async install(slug, version = 'latest') {
-    // Fetch skill content from ClawHub
-    let skillData;
+    // Step 1: fetch metadata
+    const detail = await this.getSkillDetail(slug);
+    if (!detail) {
+      throw new Error(`Skill "${slug}" not found on ClawHub`);
+    }
+
+    const skillMeta = detail.skill || {};
+    const latestVersion = detail.latestVersion || {};
+    const owner = detail.owner || {};
+    const moderation = detail.moderation || {};
+
+    // Block malware-flagged skills
+    if (moderation.isMalwareBlocked) {
+      throw new Error(`Skill "${slug}" is blocked as malicious and cannot be installed`);
+    }
+
+    const resolvedVersion = version === 'latest'
+      ? (latestVersion.version || '1.0.0')
+      : version;
+
+    // Step 2: download ZIP
+    let zipBuffer;
     try {
-      const response = await fetch(`${this.registryUrl}/skills/${slug}?version=${version}`, {
-        signal: AbortSignal.timeout(this.timeout),
+      const dlUrl = `${this.registryUrl}/api/v1/download?slug=${encodeURIComponent(slug)}&version=${encodeURIComponent(resolvedVersion)}`;
+      const response = await fetch(dlUrl, {
+        signal: AbortSignal.timeout(this.timeout * 2), // longer timeout for downloads
       });
-
       if (!response.ok) {
-        throw new Error(`ClawHub API returned ${response.status} for skill "${slug}"`);
+        throw new Error(`Download returned ${response.status}`);
       }
-
-      skillData = await response.json();
+      zipBuffer = Buffer.from(await response.arrayBuffer());
     } catch (e) {
-      throw new Error(`Failed to fetch skill "${slug}" from marketplace: ${e.message}`);
+      throw new Error(`Failed to download skill "${slug}": ${e.message}`);
     }
 
-    // Extract SKILL.md content
-    const markdown = skillData.content || skillData.skillMd || '';
-    if (!markdown) {
-      throw new Error(`Skill "${slug}" has no SKILL.md content`);
-    }
-
+    // Step 3: extract ZIP to disk
     const id = `marketplace-${slug}`;
-
-    // Save to disk
     const skillDir = path.join(this.storePath, id);
     ensureDir(skillDir);
-    const filePath = path.join(skillDir, 'SKILL.md');
-    fs.writeFileSync(filePath, markdown, 'utf-8');
+
+    // Use fflate for ZIP extraction (lightweight, no native deps)
+    let extracted = false;
+    try {
+      const { unzipSync } = await import('fflate');
+      const files = unzipSync(new Uint8Array(zipBuffer));
+      for (const [name, content] of Object.entries(files)) {
+        // Skip directories and hidden files
+        if (name.endsWith('/') || name.startsWith('.') || name.startsWith('__')) continue;
+        const targetPath = path.join(skillDir, name);
+        ensureDir(path.dirname(targetPath));
+        fs.writeFileSync(targetPath, Buffer.from(content));
+      }
+      extracted = true;
+    } catch (e) {
+      // Fallback: save raw zip and try to extract SKILL.md manually
+      console.warn(`ZIP extraction failed for "${slug}", saving raw: ${e.message}`);
+    }
+
+    // If ZIP extraction failed, check if it's actually raw markdown
+    const skillFile = path.join(skillDir, 'SKILL.md');
+    if (!extracted || !fs.existsSync(skillFile)) {
+      // Maybe the download returned raw content, not a ZIP
+      const content = zipBuffer.toString('utf-8');
+      if (content.includes('---') || content.includes('#')) {
+        fs.writeFileSync(skillFile, content, 'utf-8');
+      } else {
+        throw new Error(`Skill "${slug}" has no extractable SKILL.md content`);
+      }
+    }
+
+    // Step 4: parse SKILL.md and register
+    const markdown = fs.readFileSync(skillFile, 'utf-8');
+    const { frontmatter, body } = parseSkillMarkdown(markdown);
+
+    // Normalize tags — ClawHub returns tags as { tagName: version } object
+    const rawTags = skillMeta.tags || frontmatter.tags || {};
+    let tags;
+    if (typeof rawTags === 'object' && !Array.isArray(rawTags)) {
+      tags = Object.keys(rawTags);
+    } else if (typeof rawTags === 'string') {
+      tags = rawTags.split(',').map(t => t.trim()).filter(Boolean);
+    } else {
+      tags = Array.isArray(rawTags) ? rawTags : [];
+    }
 
     // Save metadata alongside
     const metaPath = path.join(skillDir, 'metadata.json');
     fs.writeFileSync(metaPath, JSON.stringify({
       slug,
-      version: skillData.version || version,
+      version: resolvedVersion,
       installedAt: new Date().toISOString(),
-      sourceUrl: `https://clawhub.com/skills/${slug}`,
-      author: skillData.author || 'Unknown',
-      downloads: skillData.downloads || 0,
+      sourceUrl: `${this.registryUrl}/skills/${slug}`,
+      author: owner.displayName || owner.handle || 'Unknown',
+      downloads: skillMeta.stats?.downloads || 0,
+      stars: skillMeta.stats?.stars || 0,
+      moderation: moderation.verdict || 'unknown',
     }, null, 2), 'utf-8');
-
-    // Parse and register
-    const { frontmatter, body } = parseSkillMarkdown(markdown);
-    const tags = (frontmatter.tags || skillData.tags || '')
-      .toString()
-      .split(',')
-      .map(t => t.trim())
-      .filter(Boolean);
 
     const definition = new SkillDefinition({
       id,
-      name: frontmatter.name || skillData.name || slug,
-      description: frontmatter.description || skillData.description || '',
-      category: frontmatter.category || skillData.category || SkillCategory.CODING,
-      icon: frontmatter.icon || skillData.icon || '📦',
+      name: frontmatter.name || skillMeta.displayName || slug,
+      description: frontmatter.description || skillMeta.summary || '',
+      category: frontmatter.category || SkillCategory.CODING,
+      icon: frontmatter.icon || '📦',
       tags,
-      author: frontmatter.author || skillData.author || 'ClawHub',
-      version: skillData.version || frontmatter.version || '1.0.0',
+      author: owner.displayName || owner.handle || frontmatter.author || 'ClawHub',
+      version: resolvedVersion,
       body,
       source: SkillSource.MARKETPLACE,
-      sourceUrl: `https://clawhub.com/skills/${slug}`,
-      filePath,
+      sourceUrl: `${this.registryUrl}/skills/${slug}`,
+      filePath: skillFile,
     });
 
     skillRegistry.upsert(definition);
@@ -196,10 +282,8 @@ export class SkillMarketplace {
       throw new Error(`Not a marketplace skill: ${skillId}`);
     }
 
-    // Remove from registry
     skillRegistry.unregister(skillId);
 
-    // Remove from disk
     const skillDir = path.join(this.storePath, skillId);
     if (fs.existsSync(skillDir)) {
       fs.rmSync(skillDir, { recursive: true, force: true });
@@ -218,7 +302,6 @@ export class SkillMarketplace {
       throw new Error(`Not a marketplace skill: ${skillId}`);
     }
 
-    // Extract original slug from id (strip 'marketplace-' prefix)
     const slug = skillId.replace(/^marketplace-/, '');
     return this.install(slug, 'latest');
   }
@@ -231,7 +314,6 @@ export class SkillMarketplace {
    */
   listInstalled() {
     return skillRegistry.getBySource(SkillSource.MARKETPLACE).map(s => {
-      // Try to read metadata
       let meta = {};
       const metaPath = path.join(this.storePath, s.definition.id, 'metadata.json');
       try {
@@ -252,6 +334,7 @@ export class SkillMarketplace {
         version: s.definition.version,
         sourceUrl: s.definition.sourceUrl,
         downloads: meta.downloads || 0,
+        stars: meta.stars || 0,
         installedAt: meta.installedAt || null,
       };
     });
@@ -277,7 +360,6 @@ export class SkillMarketplace {
         const markdown = fs.readFileSync(skillFile, 'utf-8');
         const { frontmatter, body } = parseSkillMarkdown(markdown);
 
-        // Read metadata if available
         let meta = {};
         const metaPath = path.join(this.storePath, entry.name, 'metadata.json');
         try {
@@ -286,10 +368,15 @@ export class SkillMarketplace {
           }
         } catch {}
 
-        const tags = (frontmatter.tags || '')
-          .split(',')
-          .map(t => t.trim())
-          .filter(Boolean);
+        const rawTags = frontmatter.tags || '';
+        let tags;
+        if (typeof rawTags === 'object' && !Array.isArray(rawTags)) {
+          tags = Object.keys(rawTags);
+        } else if (typeof rawTags === 'string') {
+          tags = rawTags.split(',').map(t => t.trim()).filter(Boolean);
+        } else {
+          tags = Array.isArray(rawTags) ? rawTags : [];
+        }
 
         const definition = new SkillDefinition({
           id: entry.name,
@@ -316,30 +403,47 @@ export class SkillMarketplace {
     }
 
     if (loaded > 0) {
-      console.log(`📦 Loaded ${loaded} marketplace skill(s) from disk`);
+      console.log(`Loaded ${loaded} marketplace skill(s) from disk`);
     }
   }
 
   // ---- Private helpers ----
 
   /**
-   * Normalize a marketplace API response entry into a consistent format.
+   * Normalize a ClawHub /api/v1/search result entry into our UI format.
+   * Real shape: { slug, displayName, summary, score, updatedAt }
    */
-  _normalizeMarketplaceEntry(raw) {
+  _normalizeSearchResult(raw) {
+    const slug = raw.slug || raw.id || '';
     return {
-      slug: raw.slug || raw.id || raw.name,
-      name: raw.name || raw.slug,
-      description: raw.description || '',
+      slug,
+      name: raw.displayName || raw.name || slug,
+      description: raw.summary || raw.description || '',
       category: raw.category || 'coding',
-      icon: raw.icon || raw.emoji || '📦',
-      author: raw.author || raw.owner || 'Unknown',
-      version: raw.version || '1.0.0',
-      downloads: raw.downloads || raw.installs || 0,
-      stars: raw.stars || raw.likes || 0,
-      tags: Array.isArray(raw.tags) ? raw.tags : (raw.tags || '').split(',').map(t => t.trim()).filter(Boolean),
-      url: raw.url || `https://clawhub.com/skills/${raw.slug || raw.id}`,
-      installed: !!skillRegistry.get(`marketplace-${raw.slug || raw.id}`),
+      icon: raw.icon || '📦',
+      author: raw.author || raw.owner?.handle || 'Unknown',
+      version: raw.version || '',
+      downloads: raw.stats?.downloads || raw.downloads || 0,
+      stars: raw.stats?.stars || raw.stars || 0,
+      tags: this._extractTags(raw.tags),
+      url: `${this.registryUrl}/skills/${slug}`,
+      installed: !!skillRegistry.get(`marketplace-${slug}`),
     };
+  }
+
+  /**
+   * Extract tags from ClawHub format.
+   * ClawHub tags can be: { tagName: version } object, comma-separated string, or array.
+   */
+  _extractTags(rawTags) {
+    if (!rawTags) return [];
+    if (typeof rawTags === 'object' && !Array.isArray(rawTags)) {
+      return Object.keys(rawTags);
+    }
+    if (typeof rawTags === 'string') {
+      return rawTags.split(',').map(t => t.trim()).filter(Boolean);
+    }
+    return Array.isArray(rawTags) ? rawTags : [];
   }
 }
 

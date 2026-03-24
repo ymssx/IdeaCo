@@ -6,12 +6,114 @@ import { useI18n } from '@/lib/i18n';
 import ProviderGrid from './ProviderGrid';
 
 /**
+ * QRLoginModal - WeChat QR code login modal with auto-polling
+ */
+function QRLoginModal({ channelId, qrCodeUrl, loginState: initialLoginState, error: initialError, manageChannel, onClose, t }) {
+  const [loginState, setLoginState] = useState(initialLoginState || 'qr_pending');
+  const [error, setError] = useState(initialError);
+  const [currentQrUrl, setCurrentQrUrl] = useState(qrCodeUrl);
+  const [windowOpened, setWindowOpened] = useState(false);
+
+  // Auto-open QR page in new browser window on mount or when URL changes
+  useEffect(() => {
+    if (currentQrUrl && !windowOpened) {
+      window.open(currentQrUrl, 'wechat_qr_login', 'width=500,height=600,scrollbars=yes');
+      setWindowOpened(true);
+    }
+  }, [currentQrUrl, windowOpened]);
+
+  useEffect(() => {
+    if (loginState === 'logged_in' || error) return;
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const status = await manageChannel(channelId, 'login-status');
+        if (status) {
+          if (status.loginState) setLoginState(status.loginState);
+          if (status.qrCodeUrl && status.qrCodeUrl !== currentQrUrl) {
+            setCurrentQrUrl(status.qrCodeUrl);
+            setWindowOpened(false); // Allow re-opening for refreshed QR
+          }
+          if (status.error) {
+            setError(status.error);
+            clearInterval(pollInterval);
+          }
+          if (status.loginState === 'logged_in' || status.channelState === 'connected') {
+            setLoginState('logged_in');
+            clearInterval(pollInterval);
+          }
+        }
+      } catch {
+        // Polling error - ignore and retry
+      }
+    }, 2000);
+
+    return () => clearInterval(pollInterval);
+  }, [channelId, loginState, error, manageChannel, currentQrUrl]);
+
+  const handleOpenQrPage = () => {
+    if (currentQrUrl) {
+      window.open(currentQrUrl, 'wechat_qr_login', 'width=500,height=600,scrollbars=yes');
+      setWindowOpened(true);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 !m-0" onClick={onClose}>
+      <div className="card max-w-sm w-full mx-4 space-y-4 text-center" onClick={e => e.stopPropagation()}>
+        <h3 className="text-lg font-semibold">💬 {t('systemSettings.qrLogin.title')}</h3>
+
+        {loginState === 'logged_in' ? (
+          <div className="py-6 space-y-3">
+            <div className="text-4xl">✅</div>
+            <p className="text-sm text-green-400">{t('systemSettings.qrLogin.success')}</p>
+            <button onClick={onClose} className="btn-primary text-sm">{t('common.close')}</button>
+          </div>
+        ) : error ? (
+          <div className="py-6 space-y-3">
+            <div className="text-4xl">❌</div>
+            <p className="text-sm text-red-400">{error}</p>
+            <button onClick={onClose} className="btn-secondary text-sm">{t('common.close')}</button>
+          </div>
+        ) : (
+          <>
+            {currentQrUrl ? (
+              <div className="flex flex-col items-center gap-4 py-4">
+                <div className="text-4xl">🌐</div>
+                <p className="text-sm text-[var(--muted)]">{t('systemSettings.qrLogin.openedInBrowser')}</p>
+                {loginState === 'scanned' ? (
+                  <div className="flex items-center gap-2 text-yellow-400 text-sm">
+                    <span className="animate-pulse">📱</span>
+                    <span>{t('systemSettings.qrLogin.scanned')}</span>
+                  </div>
+                ) : (
+                  <p className="text-xs text-[var(--muted)] animate-pulse">{t('systemSettings.qrLogin.waiting')}</p>
+                )}
+                <button onClick={handleOpenQrPage} className="btn-secondary text-xs">
+                  {t('systemSettings.qrLogin.openQrPage')}
+                </button>
+              </div>
+            ) : (
+              <div className="py-8">
+                <div className="animate-spin text-2xl mb-2">⏳</div>
+                <p className="text-xs text-[var(--muted)]">{t('systemSettings.qrLogin.generating')}</p>
+              </div>
+            )}
+            <button onClick={onClose} className="btn-secondary text-xs">{t('common.cancel')}</button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
  * SystemMonitor - Operational dashboard for enterprise subsystems
  * User-facing: manage cron jobs, toggle plugins, view system health
  */
 export default function SystemMonitor({ embedded = false }) {
   const { t } = useI18n();
-  const { company, fetchCronJobs, createCronJob, manageCronJob, fetchPlugins, managePlugin, fetchSkills, manageSkill, createCustomSkill, updateCustomSkill, deleteCustomSkill, getCustomSkillRaw, searchMarketplace, installMarketplaceSkill, uninstallMarketplaceSkill, fetchKnowledge, searchKnowledge, manageKnowledge, fetchSystemStatus, factoryReset } = useStore();
+  const { company, fetchCronJobs, createCronJob, manageCronJob, fetchPlugins, managePlugin, fetchSkills, manageSkill, createCustomSkill, updateCustomSkill, deleteCustomSkill, getCustomSkillRaw, searchMarketplace, installMarketplaceSkill, uninstallMarketplaceSkill, fetchKnowledge, searchKnowledge, manageKnowledge, fetchSystemStatus, factoryReset, fetchChannels, installChannel, manageChannel, uninstallChannel } = useStore();
   const [activeSection, setActiveSection] = useState('providers');
   const [cronData, setCronData] = useState({ summary: {}, jobs: [] });
   const [plugins, setPlugins] = useState([]);
@@ -36,6 +138,12 @@ export default function SystemMonitor({ embedded = false }) {
   const [kbSearchResults, setKbSearchResults] = useState(null);
 
   // Danger zone state
+  // Channel state
+  const [channelData, setChannelData] = useState({ adapters: [], channels: [], stats: {} });
+  const [channelConfigTarget, setChannelConfigTarget] = useState(null);
+  const [channelConfig, setChannelConfig] = useState({});
+  const [qrLoginModal, setQrLoginModal] = useState(null); // { channelId, qrCodeUrl, loginState, error }
+
   const [showFactoryReset, setShowFactoryReset] = useState(false);
   const [factoryResetInput, setFactoryResetInput] = useState('');
   const [factoryResetting, setFactoryResetting] = useState(false);
@@ -46,16 +154,17 @@ export default function SystemMonitor({ embedded = false }) {
 
   const refresh = useCallback(async () => {
     setLoading(true);
-    const [cron, plug, sk, kb, status] = await Promise.all([
-      fetchCronJobs(), fetchPlugins(), fetchSkills(), fetchKnowledge(), fetchSystemStatus(),
+    const [cron, plug, sk, kb, status, ch] = await Promise.all([
+      fetchCronJobs(), fetchPlugins(), fetchSkills(), fetchKnowledge(), fetchSystemStatus(), fetchChannels(),
     ]);
     setCronData(cron || { summary: {}, jobs: [] });
     setPlugins(plug || []);
     setSkills(sk || []);
     setKnowledge(kb || { bases: [], stats: {} });
     setSystemStatus(status);
+    setChannelData(ch || { adapters: [], channels: [], stats: {} });
     setLoading(false);
-  }, [fetchCronJobs, fetchPlugins, fetchSkills, fetchKnowledge, fetchSystemStatus]);
+  }, [fetchCronJobs, fetchPlugins, fetchSkills, fetchKnowledge, fetchSystemStatus, fetchChannels]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -250,6 +359,7 @@ export default function SystemMonitor({ embedded = false }) {
     { id: 'plugins', icon: '🧩', label: t('systemSettings.cards.plugins') },
     { id: 'skills', icon: '📚', label: t('systemSettings.cards.skills') },
     { id: 'knowledge', icon: '🧠', label: t('systemSettings.cards.knowledge') },
+    { id: 'channels', icon: '📡', label: t('systemSettings.cards.channels') },
     { id: 'health', icon: '💓', label: t('systemSettings.health.title') },
     { id: 'danger', icon: '⚠️', label: t('systemSettings.dangerZone.title') },
   ];
@@ -837,6 +947,173 @@ export default function SystemMonitor({ embedded = false }) {
               <p className="text-xs mt-1">{t('systemSettings.kbDetail.noKBHint')}</p>
             </div>
           )}
+        </div>
+      )}
+
+      {/* === CHANNELS SECTION === */}
+      {activeSection === 'channels' && (
+        <div className="space-y-4">
+          {/* Stats */}
+          <div className="grid grid-cols-4 gap-4">
+            <StatCard icon="📡" label={t('systemSettings.channelStats.available')} value={channelData.adapters?.length || 0} />
+            <StatCard icon="🔌" label={t('systemSettings.channelStats.installed')} value={channelData.channels?.length || 0} />
+            <StatCard icon="✅" label={t('systemSettings.channelStats.connected')} value={channelData.stats?.connectedChannels || 0} color="text-green-400" />
+            <StatCard icon="💬" label={t('systemSettings.channelStats.messages')} value={(channelData.stats?.totalMessagesIn || 0) + (channelData.stats?.totalMessagesOut || 0)} />
+          </div>
+
+          {/* Available Adapters */}
+          <div className="card">
+            <h3 className="text-sm font-semibold mb-3">{t('systemSettings.channelSection.availableTitle')}</h3>
+            <div className="space-y-2">
+              {(channelData.adapters || []).map(adapter => {
+                const installed = channelData.channels?.find(ch => ch.id === adapter.id);
+                return (
+                  <div key={adapter.id} className="flex items-center gap-3 p-3 rounded-lg bg-white/5 hover:bg-white/10 transition-all">
+                    <span className="text-2xl">{adapter.icon}</span>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-sm">{adapter.name}</span>
+                        <span className="text-[10px] text-[var(--muted)] px-1.5 py-0.5 rounded bg-white/5">{adapter.transport}</span>
+                      </div>
+                      <p className="text-xs text-[var(--muted)] mt-0.5">{adapter.description}</p>
+                    </div>
+                    {installed ? (
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs px-2 py-1 rounded ${
+                          installed.state === 'connected' ? 'bg-green-900/30 text-green-400' :
+                          installed.state === 'error' ? 'bg-red-900/30 text-red-400' :
+                          installed.state === 'connecting' ? 'bg-yellow-900/30 text-yellow-400' :
+                          'bg-white/10 text-[var(--muted)]'
+                        }`}>
+                          {installed.state === 'connected' ? '🟢 ' : installed.state === 'error' ? '🔴 ' : installed.state === 'connecting' ? '🟡 ' : '⚪ '}
+                          {t(`systemSettings.channelState.${installed.state}`) || installed.state}
+                        </span>
+                        {installed.state === 'connected' ? (
+                          <button
+                            onClick={async () => { try { await manageChannel(adapter.id, 'disable'); await refresh(); } catch {} }}
+                            className="text-xs px-2.5 py-1 rounded bg-red-900/20 text-red-400 hover:bg-red-900/40 transition-all"
+                          >{t('systemSettings.channelActions.disconnect')}</button>
+                        ) : installed.state === 'connecting' ? (
+                          <button
+                            onClick={async () => {
+                              try {
+                                const statusResult = await manageChannel(adapter.id, 'login-status');
+                                if (statusResult?.qrCodeUrl) {
+                                  setQrLoginModal({ channelId: adapter.id, qrCodeUrl: statusResult.qrCodeUrl, loginState: statusResult.loginState || 'qr_pending', error: null });
+                                }
+                              } catch {}
+                            }}
+                            className="text-xs px-2.5 py-1 rounded bg-yellow-900/20 text-yellow-400 hover:bg-yellow-900/40 transition-all animate-pulse"
+                          >{t('systemSettings.qrLogin.title')}</button>
+                        ) : installed.state === 'error' || installed.state === 'disconnected' || installed.state === 'configured' || installed.state === 'installed' ? (
+                          <div className="flex gap-1">
+                            <button
+                              onClick={() => { setChannelConfigTarget(installed); setChannelConfig(installed.config || {}); }}
+                              className="text-xs px-2.5 py-1 rounded bg-white/10 text-[var(--muted)] hover:bg-white/20 transition-all"
+                            >{t('common.configure')}</button>
+                            <button
+                              onClick={async () => {
+                                try {
+                                  const result = await manageChannel(adapter.id, 'enable');
+                                  // If channel needs QR login (WeChat), open QR modal
+                                  if (result?.loginStatus?.loginState === 'qr_pending' && result?.loginStatus?.qrCodeUrl) {
+                                    setQrLoginModal({ channelId: adapter.id, qrCodeUrl: result.loginStatus.qrCodeUrl, loginState: 'qr_pending', error: null });
+                                  } else {
+                                    await refresh();
+                                  }
+                                } catch (err) {
+                                  // If already connecting (QR pending), try to get QR status
+                                  try {
+                                    const statusResult = await manageChannel(adapter.id, 'login-status');
+                                    if (statusResult?.qrCodeUrl) {
+                                      setQrLoginModal({ channelId: adapter.id, qrCodeUrl: statusResult.qrCodeUrl, loginState: statusResult.loginState || 'qr_pending', error: null });
+                                    }
+                                  } catch {}
+                                }
+                              }}
+                              className="text-xs px-2.5 py-1 rounded bg-[var(--accent)]/20 text-[var(--accent)] hover:bg-[var(--accent)]/30 transition-all"
+                            >{t('systemSettings.channelActions.connect')}</button>
+                          </div>
+                        ) : null}
+                        <button
+                          onClick={async () => { if (confirm(t('systemSettings.channelActions.confirmUninstall'))) { try { await uninstallChannel(adapter.id); await refresh(); } catch {} } }}
+                          className="text-xs px-2 py-1 rounded text-red-400/60 hover:text-red-400 hover:bg-red-900/20 transition-all"
+                        >🗑️</button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={async () => { try { await installChannel(adapter.id); await refresh(); } catch {} }}
+                        className="text-xs px-3 py-1.5 rounded bg-[var(--accent)]/10 text-[var(--accent)] hover:bg-[var(--accent)]/20 transition-all"
+                      >{t('systemSettings.channelActions.install')}</button>
+                    )}
+                  </div>
+                );
+              })}
+              {(!channelData.adapters || channelData.adapters.length === 0) && (
+                <p className="text-sm text-[var(--muted)] text-center py-4">{t('systemSettings.channelSection.noAdapters')}</p>
+              )}
+            </div>
+          </div>
+
+          {/* Installed channels detail - error info */}
+          {channelData.channels?.filter(ch => ch.error).map(ch => (
+            <div key={ch.id} className="card border-red-500/20">
+              <div className="flex items-center gap-2 text-red-400 text-sm">
+                <span>❌</span>
+                <span className="font-medium">{ch.name}</span>
+                <span className="text-xs text-red-400/70">— {ch.error}</span>
+              </div>
+            </div>
+          ))}
+
+          {/* Channel config modal */}
+          {channelConfigTarget && (
+            <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 !m-0" onClick={() => setChannelConfigTarget(null)}>
+              <div className="card max-w-md w-full mx-4 space-y-4" onClick={e => e.stopPropagation()}>
+                <h3 className="text-lg font-semibold">{t('systemSettings.channelConfig.title', { name: channelConfigTarget.name })}</h3>
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <input type="checkbox" id="ch-auto-reply" checked={channelConfig.autoReply !== false} onChange={e => setChannelConfig({ ...channelConfig, autoReply: e.target.checked })} />
+                    <label htmlFor="ch-auto-reply" className="text-sm text-[var(--muted)]">{t('systemSettings.channelConfig.autoReply')}</label>
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2 pt-2">
+                  <button className="btn-secondary text-sm" onClick={() => setChannelConfigTarget(null)}>{t('common.cancel')}</button>
+                  <button className="btn-primary text-sm" onClick={async () => {
+                    try {
+                      await manageChannel(channelConfigTarget.id, 'configure', channelConfig);
+                      setChannelConfigTarget(null);
+                      await refresh();
+                    } catch {}
+                  }}>{t('common.save')}</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* QR code login modal */}
+          {qrLoginModal && (
+            <QRLoginModal
+              channelId={qrLoginModal.channelId}
+              qrCodeUrl={qrLoginModal.qrCodeUrl}
+              loginState={qrLoginModal.loginState}
+              error={qrLoginModal.error}
+              manageChannel={manageChannel}
+              onClose={() => { setQrLoginModal(null); refresh(); }}
+              t={t}
+            />
+          )}
+
+          {/* Setup guide */}
+          <div className="card bg-gradient-to-r from-blue-900/10 to-purple-900/10 border-blue-500/20">
+            <h4 className="text-sm font-semibold mb-2">📖 {t('systemSettings.channelSection.guideTitle')}</h4>
+            <div className="text-xs text-[var(--muted)] space-y-1.5">
+              <p>1. {t('systemSettings.channelSection.guideStep1')}</p>
+              <p>2. {t('systemSettings.channelSection.guideStep2')}</p>
+              <p>3. {t('systemSettings.channelSection.guideStep3')}</p>
+              <p>4. {t('systemSettings.channelSection.guideStep4')}</p>
+            </div>
+          </div>
         </div>
       )}
 

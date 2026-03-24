@@ -212,6 +212,63 @@ export class ChatStore {
   }
 
   /**
+   * Paginated read: return `limit` messages whose time is strictly before `beforeTime`.
+   * If `beforeTime` is null, returns the most recent `limit` messages (like getRecentMessages).
+   * Returns { messages, hasMore } where hasMore indicates if there are older messages.
+   * @param {string} sessionId
+   * @param {object} opts - { before?: string (ISO time), limit?: number }
+   * @returns {{ messages: Array, hasMore: boolean, total: number }}
+   */
+  getMessagesPage(sessionId, { before = null, limit = 30 } = {}) {
+    const dir = getSessionDir(sessionId);
+    if (!fs.existsSync(dir)) return { messages: [], hasMore: false, total: 0 };
+
+    const chunks = listChunkFiles(dir);
+    if (chunks.length === 0) return { messages: [], hasMore: false, total: 0 };
+
+    // Read ALL messages (from all chunks) — we need them in chronological order
+    // For very large histories this could be optimized, but secretary chat is capped ~50 in memory
+    // and the chunk files keep things manageable
+    const allMessages = [];
+    for (const chunk of chunks) {
+      const chunkPath = path.join(dir, chunk);
+      allMessages.push(...readChunkFile(chunkPath));
+    }
+
+    const total = allMessages.length;
+
+    if (!before) {
+      // No cursor — return the last `limit` messages
+      const start = Math.max(0, total - limit);
+      return {
+        messages: allMessages.slice(start),
+        hasMore: start > 0,
+        total,
+      };
+    }
+
+    // Find the index of the first message with time >= beforeTime
+    // Messages are chronological, so we find the cutoff point
+    const beforeDate = new Date(before).getTime();
+    let cutoff = total;
+    for (let i = total - 1; i >= 0; i--) {
+      const msgTime = allMessages[i].time ? new Date(allMessages[i].time).getTime() : 0;
+      if (msgTime < beforeDate) {
+        cutoff = i + 1;
+        break;
+      }
+      if (i === 0) cutoff = 0;
+    }
+
+    const start = Math.max(0, cutoff - limit);
+    return {
+      messages: allMessages.slice(start, cutoff),
+      hasMore: start > 0,
+      total,
+    };
+  }
+
+  /**
    * Keyword search over historical messages
    * Searches all chunks for messages containing the keywords, for providing Agent context
    * 

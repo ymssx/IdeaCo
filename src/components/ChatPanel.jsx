@@ -1,25 +1,21 @@
 'use client';
 
-import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { useState, useRef, useMemo, useCallback } from 'react';
 import { useStore } from '@/lib/client-store';
 import { getAvatarUrl } from '@/lib/avatar';
 import { useI18n } from '@/lib/i18n';
-import { MessageBubble, ChatInput, TaskStatusPanel } from './ChatShared';
 import ProvidersBoard from './ProvidersBoard';
+import SecretaryChatView from './SecretaryChatView';
 
 export default function ChatPanel() {
   const {
-    company, chatWithSecretary,
+    company,
     chatOpen, setChatOpen,
     chatPanelWidth, setChatPanelWidth,
     navigateToDepartment, navigateToRequirement,
   } = useStore();
   const { t } = useI18n();
-  const [message, setMessage] = useState('');
-  const [sending, setSending] = useState(false);
-  const [localHistory, setLocalHistory] = useState([]);
   const [showProviders, setShowProviders] = useState(false);
-  const messagesEndRef = useRef(null);
   const panelRef = useRef(null);
   const isResizingRef = useRef(false);
 
@@ -29,20 +25,6 @@ export default function ChatPanel() {
     if (!dashboard) return false;
     return Object.values(dashboard).some(cat => cat.enabled > 0);
   }, [company?.providerDashboard]);
-
-  useEffect(() => {
-    if (company?.chatHistory) {
-      setLocalHistory(company.chatHistory);
-    }
-  }, [company?.chatHistory]);
-
-  useEffect(() => {
-    if (chatOpen) {
-      setTimeout(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-      }, 50);
-    }
-  }, [localHistory, chatOpen]);
 
   // Drag-to-resize logic
   const handleMouseDown = useCallback((e) => {
@@ -74,33 +56,6 @@ export default function ChatPanel() {
   if (!company || !chatOpen) return null;
 
   const secretary = company.secretary;
-
-  const handleSend = async () => {
-    if (!message.trim() || sending) return;
-    const msg = message.trim();
-    setMessage('');
-    setSending(true);
-
-    setLocalHistory(prev => [...prev, { role: 'boss', content: msg, time: new Date().toISOString() }]);
-
-    try {
-      await chatWithSecretary(msg);
-    } catch (e) {
-      setLocalHistory(prev => [...prev, {
-        role: 'secretary',
-        content: `${t('chat.errorPrefix')}${e.message}`,
-        time: new Date().toISOString(),
-      }]);
-    }
-    setSending(false);
-  };
-
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  };
 
   return (
     <div
@@ -163,75 +118,13 @@ export default function ChatPanel() {
             </div>
           )}
         </div>
-      ) : (<>
-      {/* Messages area */}
-      <div className="flex-1 overflow-auto p-3 space-y-3">
-        {localHistory.length === 0 && (
-          <div className="text-center py-8">
-            <div className="text-4xl mb-2">💬</div>
-            <p className="text-sm text-[var(--muted)]">
-              {t('chat.welcome', { name: secretary?.name || t('setup.defaultSecretary') })}
-            </p>
-            <div className="mt-3 space-y-1">
-              {t('chat.suggestions').map((q, i) => (
-                <button
-                  key={i}
-                  className="block w-full text-xs text-left px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-[var(--muted)] hover:text-white transition-all"
-                  onClick={() => { setMessage(q); }}
-                >
-                  💡 {q}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {localHistory.map((msg, i) => (
-          <MessageBubble
-            key={i}
-            isMe={msg.role === 'boss'}
-            avatar={msg.role === 'secretary' ? (secretary?.avatar || getAvatarUrl('secretary')) : null}
-            name={msg.role === 'boss' ? company.boss : (secretary?.name || t('setup.defaultSecretary'))}
-            content={msg.content}
-            time={msg.time}
-            action={msg.action}
-            agentId={null}
-            onClickAvatar={null}
-            bossAvatar={company?.bossAvatar}
-            onViewDepartment={navigateToDepartment}
-            onViewRequirement={navigateToRequirement}
-          />
-        ))}
-
-        {sending && (
-          <div className="flex gap-2">
-            <img
-              src={secretary?.avatar || getAvatarUrl('secretary')}
-              alt={t('chat.secretary')}
-              className="w-7 h-7 rounded-full bg-[var(--border)] shrink-0"
-            />
-            <div className="bg-[var(--card)] border border-[var(--border)] rounded-2xl rounded-bl-sm px-3 py-2 text-sm">
-              <span className="animate-pulse text-[var(--muted)]">{t('chat.typing')}</span>
-            </div>
-          </div>
-        )}
-
-        <div ref={messagesEndRef} />
-      </div>
-
-      {/* Task status panel */}
-      <TaskStatusPanel />
-
-      {/* Input area */}
-      <ChatInput
-        value={message}
-        onChange={setMessage}
-        onSend={handleSend}
-        onKeyDown={handleKeyDown}
-        sending={sending}
-        placeholder={t('chat.inputPlaceholder', { name: secretary?.name || t('setup.defaultSecretary') })}
-      />
-      </>)}
+      ) : (
+        <SecretaryChatView
+          active={chatOpen}
+          onViewDepartment={navigateToDepartment}
+          onViewRequirement={navigateToRequirement}
+        />
+      )}
 
       {/* Resize handle on the right edge */}
       <div

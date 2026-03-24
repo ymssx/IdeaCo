@@ -30,6 +30,13 @@ export default function AgentDetailModal({ agentId, onClose }) {
   const [agentSkillsData, setAgentSkillsData] = useState(null);
   const [skillsLoading, setSkillsLoading] = useState(false);
 
+  // LLM Logs tab state
+  const [llmLogs, setLlmLogs] = useState(null); // { logs: [], total: 0 }
+  const [llmLogsLoading, setLlmLogsLoading] = useState(false);
+  const [selectedLogId, setSelectedLogId] = useState(null);
+  const [selectedLogDetail, setSelectedLogDetail] = useState(null);
+  const [logDetailLoading, setLogDetailLoading] = useState(false);
+
   useEffect(() => {
     (async () => {
       setLoadingDetail(true);
@@ -117,6 +124,7 @@ export default function AgentDetailModal({ agentId, onClose }) {
     { id: 'soul', label: t('agent.tabs.soul') },
     { id: 'work', label: t('agent.tabs.work') },
     { id: 'usage', label: t('agent.tabs.usage') },
+    { id: 'llmLogs', label: t('agent.tabs.llmLogs') },
   ];
 
   return (
@@ -635,6 +643,44 @@ export default function AgentDetailModal({ agentId, onClose }) {
             </div>
           )}
 
+          {activeTab === 'llmLogs' && (
+            <LLMLogsTab
+              agentId={agentId}
+              logs={llmLogs}
+              loading={llmLogsLoading}
+              selectedLogId={selectedLogId}
+              selectedLogDetail={selectedLogDetail}
+              logDetailLoading={logDetailLoading}
+              onLoad={async () => {
+                setLlmLogsLoading(true);
+                try {
+                  const res = await fetch(`/api/agents/${agentId}/llm-logs?limit=50&offset=0`);
+                  const data = await res.json();
+                  setLlmLogs(data);
+                } catch { setLlmLogs({ logs: [], total: 0 }); }
+                setLlmLogsLoading(false);
+              }}
+              onSelectLog={async (logId) => {
+                if (logId === selectedLogId) { setSelectedLogId(null); setSelectedLogDetail(null); return; }
+                setSelectedLogId(logId);
+                setLogDetailLoading(true);
+                try {
+                  const res = await fetch(`/api/agents/${agentId}/llm-logs?logId=${logId}`);
+                  const data = await res.json();
+                  setSelectedLogDetail(data);
+                } catch { setSelectedLogDetail(null); }
+                setLogDetailLoading(false);
+              }}
+              onClear={async () => {
+                await fetch(`/api/agents/${agentId}/llm-logs`, { method: 'DELETE' });
+                setLlmLogs({ logs: [], total: 0 });
+                setSelectedLogId(null);
+                setSelectedLogDetail(null);
+              }}
+              t={t}
+            />
+          )}
+
           {activeTab === 'usage' && (
             <div className="space-y-4 animate-fade-in">
               <div className="grid grid-cols-2 gap-3">
@@ -698,6 +744,185 @@ export default function AgentDetailModal({ agentId, onClose }) {
             onClose={() => setShowSpy(false)}
           />
         )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * LLMLogsTab — 开发模式下查看员工的LLM调用日志（完整输入输出）
+ */
+function LLMLogsTab({ agentId, logs, loading, selectedLogId, selectedLogDetail, logDetailLoading, onLoad, onSelectLog, onClear, t }) {
+  useEffect(() => {
+    if (!logs && !loading) onLoad();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="text-center py-8 text-[var(--muted)] animate-fade-in">
+        <div className="animate-spin text-2xl mb-2">⏳</div>
+        <p className="text-xs">{t('common.loading')}</p>
+      </div>
+    );
+  }
+
+  if (!logs || logs.logs.length === 0) {
+    return (
+      <div className="text-center py-8 text-[var(--muted)] animate-fade-in">
+        <div className="text-3xl mb-2">📋</div>
+        <p className="text-sm">{t('agent.llmLogs.empty')}</p>
+        <p className="text-xs mt-1 text-[var(--muted)]">{t('agent.llmLogs.emptyHint')}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3 animate-fade-in">
+      {/* 头部信息 */}
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-[var(--muted)]">
+          {t('agent.llmLogs.totalCount', { n: logs.total })}
+        </span>
+        <div className="flex gap-2">
+          <button
+            onClick={onLoad}
+            className="text-[10px] px-2 py-1 rounded bg-white/5 text-[var(--muted)] hover:bg-white/10 transition-colors"
+          >
+            🔄 {t('agent.llmLogs.refresh')}
+          </button>
+          <button
+            onClick={() => { if (confirm(t('agent.llmLogs.clearConfirm'))) onClear(); }}
+            className="text-[10px] px-2 py-1 rounded bg-red-900/20 text-red-400 hover:bg-red-900/30 transition-colors"
+          >
+            🗑 {t('agent.llmLogs.clear')}
+          </button>
+        </div>
+      </div>
+
+      {/* 日志列表 */}
+      <div className="space-y-1.5 max-h-[50vh] overflow-auto">
+        {logs.logs.map((log) => (
+          <div key={log.id}>
+            {/* 日志条目 */}
+            <button
+              onClick={() => onSelectLog(log.id)}
+              className={`w-full text-left p-3 rounded-lg border transition-all ${
+                selectedLogId === log.id
+                  ? 'border-[var(--accent)]/50 bg-[var(--accent)]/5'
+                  : 'border-[var(--border)] bg-[var(--background)] hover:border-[var(--accent)]/30'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-mono text-[var(--accent)]">{log.model}</span>
+                  {log.streamed && <span className="text-[8px] bg-cyan-900/30 text-cyan-400 px-1 py-0.5 rounded">STREAM</span>}
+                  {log.error && <span className="text-[8px] bg-red-900/30 text-red-400 px-1 py-0.5 rounded">ERROR</span>}
+                </div>
+                <span className="text-[10px] text-[var(--muted)]">{log.latency}ms</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-[var(--muted)]">
+                  {new Date(log.timestamp).toLocaleString()} · {log.messageCount} msgs
+                  {log.usage?.total_tokens ? ` · ${log.usage.total_tokens} tokens` : ''}
+                </span>
+                <span className="text-[10px] text-[var(--muted)]">{selectedLogId === log.id ? '▲' : '▼'}</span>
+              </div>
+              {log.outputPreview && (
+                <div className="text-[10px] text-[var(--muted)] mt-1 truncate">
+                  {log.outputPreview}
+                </div>
+              )}
+            </button>
+
+            {/* 展开的日志详情 */}
+            {selectedLogId === log.id && (
+              <div className="mt-1 border border-[var(--border)] rounded-lg overflow-hidden">
+                {logDetailLoading ? (
+                  <div className="p-4 text-center text-[var(--muted)]">
+                    <span className="animate-spin inline-block">⏳</span> {t('common.loading')}
+                  </div>
+                ) : selectedLogDetail ? (
+                  <div className="divide-y divide-[var(--border)]">
+                    {/* 输入 - Messages */}
+                    <div className="p-3">
+                      <h5 className="text-xs font-bold text-green-400 mb-2">📥 {t('agent.llmLogs.input')} ({selectedLogDetail.input?.messages?.length || 0} messages)</h5>
+                      <div className="space-y-1.5 max-h-80 overflow-auto">
+                        {(selectedLogDetail.input?.messages || []).map((msg, i) => (
+                          <div key={i} className={`rounded-lg p-2 text-xs ${
+                            msg.role === 'system' ? 'bg-purple-900/15 border border-purple-500/10' :
+                            msg.role === 'assistant' ? 'bg-blue-900/15 border border-blue-500/10' :
+                            msg.role === 'tool' ? 'bg-orange-900/15 border border-orange-500/10' :
+                            'bg-white/5 border border-white/10'
+                          }`}>
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className={`text-[10px] font-bold uppercase ${
+                                msg.role === 'system' ? 'text-purple-400' :
+                                msg.role === 'assistant' ? 'text-blue-400' :
+                                msg.role === 'tool' ? 'text-orange-400' :
+                                'text-green-400'
+                              }`}>{msg.role}</span>
+                              {msg.tool_call_id && <span className="text-[8px] text-[var(--muted)]">tool_call_id: {msg.tool_call_id}</span>}
+                            </div>
+                            <pre className="whitespace-pre-wrap break-words font-mono text-[11px] text-[var(--foreground)] max-h-40 overflow-auto">
+                              {typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content, null, 2)}
+                            </pre>
+                            {msg.tool_calls && (
+                              <div className="mt-1 text-[10px] text-orange-400">
+                                🔧 Tool calls: {msg.tool_calls.map(tc => tc.function?.name).join(', ')}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                      {/* Tools definitions */}
+                      {selectedLogDetail.input?.tools?.length > 0 && (
+                        <details className="mt-2">
+                          <summary className="text-[10px] text-[var(--muted)] cursor-pointer hover:text-white">
+                            🔧 {t('agent.llmLogs.toolDefs')} ({selectedLogDetail.input.tools.length})
+                          </summary>
+                          <pre className="mt-1 text-[10px] font-mono text-[var(--muted)] bg-[var(--background)] rounded p-2 max-h-40 overflow-auto">
+                            {JSON.stringify(selectedLogDetail.input.tools, null, 2)}
+                          </pre>
+                        </details>
+                      )}
+                    </div>
+
+                    {/* 输出 - Response */}
+                    <div className="p-3">
+                      <h5 className="text-xs font-bold text-blue-400 mb-2">📤 {t('agent.llmLogs.output')}</h5>
+                      {selectedLogDetail.error ? (
+                        <div className="bg-red-900/15 border border-red-500/10 rounded-lg p-2 text-xs text-red-400">
+                          ❌ {selectedLogDetail.error}
+                        </div>
+                      ) : (
+                        <pre className="whitespace-pre-wrap break-words font-mono text-[11px] text-[var(--foreground)] bg-blue-900/10 border border-blue-500/10 rounded-lg p-2 max-h-60 overflow-auto">
+                          {typeof selectedLogDetail.output === 'string'
+                            ? selectedLogDetail.output
+                            : JSON.stringify(selectedLogDetail.output, null, 2)}
+                        </pre>
+                      )}
+                    </div>
+
+                    {/* 元信息 */}
+                    <div className="p-3 bg-[var(--background)]">
+                      <div className="flex flex-wrap gap-3 text-[10px] text-[var(--muted)]">
+                        <span>🏷 {selectedLogDetail.providerId}</span>
+                        <span>🧠 {selectedLogDetail.model}</span>
+                        <span>⏱ {selectedLogDetail.latency}ms</span>
+                        {selectedLogDetail.usage?.total_tokens && <span>🔢 {selectedLogDetail.usage.total_tokens} tokens</span>}
+                        {selectedLogDetail.options?.temperature !== undefined && <span>🌡 temp={selectedLogDetail.options.temperature}</span>}
+                        {selectedLogDetail.options?.hasTools && <span>🔧 {selectedLogDetail.options.toolCount} tools</span>}
+                        {selectedLogDetail.streamed && <span>📡 streamed</span>}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-4 text-center text-[var(--muted)] text-xs">{t('agent.llmLogs.loadError')}</div>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );

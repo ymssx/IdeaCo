@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useI18n } from '@/lib/i18n';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -208,17 +208,72 @@ export default function GroupChatView({
   const [inputText, setInputText] = useState('');
   const [sending, setSending] = useState(false);
   const [optimisticMessages, setOptimisticMessages] = useState([]);
+  const [isAtBottom, setIsAtBottom] = useState(true);
+  const [newMsgCount, setNewMsgCount] = useState(0);
   const internalChatEndRef = useRef(null);
   const chatEndRef = externalChatEndRef || internalChatEndRef;
+  const scrollContainerRef = useRef(null);
+  const isAtBottomRef = useRef(true);
+  const prevMsgCountRef = useRef(0);
 
-  // 自动滚动到底部：仅首次进入时
+  // How close to the bottom (px) to consider "at bottom"
+  const BOTTOM_THRESHOLD = 80;
+
+  // Keep ref in sync
+  useEffect(() => { isAtBottomRef.current = isAtBottom; }, [isAtBottom]);
+
+  // Scroll position tracking
+  const checkIfAtBottom = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return true;
+    return el.scrollHeight - el.scrollTop - el.clientHeight < BOTTOM_THRESHOLD;
+  }, []);
+
+  const scrollToBottom = useCallback((behavior = 'instant') => {
+    chatEndRef.current?.scrollIntoView({ behavior });
+    setIsAtBottom(true);
+    setNewMsgCount(0);
+  }, []);
+
+  // Scroll event handler
+  const handleScroll = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const atBottom = checkIfAtBottom();
+    if (atBottom !== isAtBottomRef.current) {
+      setIsAtBottom(atBottom);
+      if (atBottom) setNewMsgCount(0);
+    }
+  }, [checkIfAtBottom]);
+
+  // Initial scroll to bottom on first load
   const hasInitialScrolled = useRef(false);
   useEffect(() => {
     if (!hasInitialScrolled.current && groupChat.length > 0) {
       hasInitialScrolled.current = true;
-      setTimeout(() => {
-        chatEndRef.current?.scrollIntoView({ behavior: 'auto' });
-      }, 80);
+      requestAnimationFrame(() => {
+        scrollToBottom('instant');
+      });
+    }
+  }, [groupChat.length]);
+
+  // When new messages arrive from polling, handle scroll behavior
+  useEffect(() => {
+    const currentCount = groupChat.length;
+    const prevCount = prevMsgCountRef.current;
+    prevMsgCountRef.current = currentCount;
+
+    if (currentCount > prevCount && prevCount > 0) {
+      // New messages arrived via polling
+      if (isAtBottomRef.current) {
+        // User is at bottom — auto-scroll to show new messages
+        requestAnimationFrame(() => {
+          chatEndRef.current?.scrollIntoView({ behavior: 'instant' });
+        });
+      } else {
+        // User has scrolled up — don't disturb, show unread count
+        setNewMsgCount(c => c + (currentCount - prevCount));
+      }
     }
   }, [groupChat.length]);
 
@@ -367,16 +422,16 @@ export default function GroupChatView({
     };
     setOptimisticMessages(prev => [...prev, optimisticMsg]);
 
-    // 立即滚动到底部
-    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+    // Scroll to bottom immediately
+    requestAnimationFrame(() => scrollToBottom('smooth'));
 
     try {
       await onSendMessage(requirementId, msg);
       if (fetchDetail) await fetchDetail(requirementId);
       // API返回后清除乐观消息（真实数据已通过去重机制自动覆盖）
       setOptimisticMessages([]);
-      // 再次滚动（leader回复可能已加入）
-      setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+      // Scroll again (leader reply may have been added)
+      requestAnimationFrame(() => scrollToBottom('smooth'));
     } catch (err) {
       console.error('Send message failed:', err);
       setOptimisticMessages(prev => [...prev, {
@@ -427,7 +482,11 @@ content: `⚠️ ${t('mailbox.sendFailed')}: ${err.message}`,
 
   return (
     <div className={`flex flex-col ${embedded ? 'flex-1 min-h-0' : ''}`}>
-      <div className={`${embedded ? 'flex-1 overflow-auto' : ''} p-4 space-y-3`}>
+      <div
+        ref={scrollContainerRef}
+        className={`${embedded ? 'flex-1 overflow-auto' : ''} p-4 space-y-3`}
+        onScroll={handleScroll}
+      >
         {isEmpty ? (
           <div className="flex items-center justify-center py-16 text-[var(--muted)]">
             <div className="text-center">
@@ -578,7 +637,20 @@ content: `⚠️ ${t('mailbox.sendFailed')}: ${err.message}`,
         <div ref={chatEndRef} />
       </div>
 
-      {/* 心流中的员工提示条 — 轻量：只显示谁在思考/谁刚思考完，点名字看详情 */}
+      {/* "Jump to bottom" / "New messages" floating button */}
+      {!isAtBottom && groupChat.length > 0 && (
+        <div className="relative">
+          <button
+            onClick={() => scrollToBottom('smooth')}
+            className="absolute bottom-2 right-4 z-10 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[var(--accent)] text-white text-xs font-medium shadow-lg hover:opacity-90 transition-all animate-fade-in"
+          >
+            {newMsgCount > 0 ? `${t('chat.newMessages')} (${newMsgCount})` : t('chat.scrollToBottom')}
+            <span className="text-sm">↓</span>
+          </button>
+        </div>
+      )}
+
+      {/* Active thinking agents indicator bar — lightweight: shows who is thinking / just finished */}
       {activeThinking.length > 0 && (() => {
         const thinking = activeThinking.filter(a => a.status === 'thinking');
         const done = activeThinking.filter(a => a.status === 'done');

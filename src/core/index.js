@@ -35,6 +35,9 @@ export { ChatStore, chatStore } from './agent/chat-store.js';
 export { CLIBackendRegistry, cliBackendRegistry, CLIBackendState } from './agent/cli-agent/backends/index.js';
 export { GroupChatLoop, groupChatLoop } from './organization/group-chat-loop.js';
 export { TeamManager, Team, Sprint, SprintStatus } from './organization/team.js';
+// Channel system (extensible multi-channel messaging)
+export { BaseChannel, ChannelState, ChannelRegistry, channelRegistry, InboundMessage, OutboundMessage } from './channel/index.js';
+export { WeixinChannel } from './channel/index.js';
 // Prompt locale is now English-only (see core/prompts.js).
 // Kept as no-op stubs for API backward compatibility.
 export function setPromptLocale(_locale) { /* no-op: English only */ }
