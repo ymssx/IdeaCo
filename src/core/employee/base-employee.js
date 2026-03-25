@@ -12,7 +12,7 @@ import { EmployeeLifecycle } from './lifecycle.js';
 import { StaminaSystem } from './stamina.js';
 import { getTraitStyle, getAgeStyle } from '../prompts.js';
 import { safeJSONParse, robustJSONParse } from '../utils/json-parse.js';
-import { buildLanguageInstruction, getAppLanguageName } from '../utils/app-language.js';
+import { getAppLanguageName } from '../utils/app-language.js';
 import { EmployeeSkillSet } from './skill/skill-set.js';
 import { skillRegistry } from './skill/registry.js';
 import { registerManagementTools } from './tools/management-tools.js';
@@ -902,14 +902,10 @@ ${scenePrompt}`;
   // ======================== Prompt Building ========================
 
   _buildSystemMessage({ lang } = {}) {
-    // Note: `lang` parameter is deprecated. Language is now read from Company.language
-    //       via the app-language module. Kept for backward compatibility.
-    const { opening: langOpening, closing: langClosing } = buildLanguageInstruction();
+    // Language enforcement is now handled at the LLMClient level (pincer injection).
+    // No need to add it here — it's automatically applied to ALL LLM calls.
 
-    // Language instruction at the very beginning (opening pincer)
-    let systemContent = langOpening;
-
-    systemContent += this.prompt + '\n\n';
+    let systemContent = this.prompt + '\n\n';
 
     if (this.templateId) {
       const archetypePrompt = buildArchetypePrompt(this.templateId);
@@ -945,9 +941,6 @@ ${scenePrompt}`;
     } catch {}
 
     systemContent += this._buildSkillDefine();
-
-    // Enforce response language at the end (closing pincer)
-    systemContent += langClosing;
 
     return systemContent;
   }

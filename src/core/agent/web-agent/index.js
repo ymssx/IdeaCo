@@ -1,6 +1,7 @@
 import { BaseAgent } from '../base-agent.js';
 import { webClientRegistry } from './web-client.js';
 import { ToolLoop } from '../tool-loop.js';
+import { buildLanguageInstruction } from '../../utils/app-language.js';
 
 /**
  * WebAgent — Communication engine powered by browser DOM automation.
@@ -52,7 +53,9 @@ export class WebAgent extends BaseAgent {
     if (!this.isAvailable()) {
       throw new Error(`WebAgent provider "${this.provider?.name}" is not available`);
     }
-    return await webClientRegistry.chat(this.provider.id, messages, {
+    // Inject language enforcement (pincer) — WebAgent doesn't go through LLMClient
+    const langMessages = WebAgent._injectLanguageInstruction(messages);
+    return await webClientRegistry.chat(this.provider.id, langMessages, {
       ...options,
       model: this.provider.webModel || this.provider.model,
       sessionId: this._employeeId || options.sessionId || null,
@@ -158,6 +161,32 @@ You can call multiple tools in one response. After receiving tool results, conti
 Set "actions" to [] when no tool calls are needed.
 
 ${toolDescriptions}`;
+  }
+
+  /**
+   * Inject language enforcement instructions into messages (pincer pattern).
+   * Same logic as LLMClient._injectLanguageInstruction.
+   * @param {Array} messages
+   * @returns {Array}
+   */
+  static _injectLanguageInstruction(messages) {
+    const { opening, closing } = buildLanguageInstruction();
+    const msgs = messages.map(m => ({ ...m }));
+    let firstSysIdx = -1;
+    let lastSysIdx = -1;
+    for (let i = 0; i < msgs.length; i++) {
+      if (msgs[i].role === 'system') {
+        if (firstSysIdx === -1) firstSysIdx = i;
+        lastSysIdx = i;
+      }
+    }
+    if (firstSysIdx === -1) {
+      msgs.unshift({ role: 'system', content: opening + closing });
+    } else {
+      msgs[firstSysIdx] = { ...msgs[firstSysIdx], content: opening + msgs[firstSysIdx].content };
+      msgs[lastSysIdx] = { ...msgs[lastSysIdx], content: msgs[lastSysIdx].content + closing };
+    }
+    return msgs;
   }
 
   // NOTE: All tool execution is now handled by ToolLoop via the unified JSON actions protocol.

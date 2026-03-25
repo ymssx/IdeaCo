@@ -9,6 +9,7 @@ import { auditLogger, AuditCategory, AuditLevel } from '../../system/audit.js';
 import { hookRegistry, HookEvent } from '../../../lib/hooks.js';
 import { logLLMCall } from '../../system/llm-debug-logger.js';
 import { ToolLoop, stripToolCallMarkup as _stripToolCallMarkup } from '../tool-loop.js';
+import { buildLanguageInstruction } from '../../utils/app-language.js';
 
 // NOTE: Embedded tool call parsing, markup stripping, and tool result summarization
 // are now handled by the shared ToolLoop module (../tool-loop.js).
@@ -117,6 +118,55 @@ export class LLMClient {
   }
 
   /**
+   * Inject language enforcement instructions into messages.
+   *
+   * Strategy ("pincer" — opening + closing):
+   * - Prepend the opening instruction to the FIRST system message's content.
+   * - Append the closing instruction to the LAST system message's content.
+   *   If there's only one system message, both wrap that single message.
+   * - If there is no system message at all, insert one at position 0.
+   *
+   * This ensures that no matter which module constructed the messages,
+   * the language requirement is always enforced at both the top and bottom.
+   *
+   * @param {Array<{role: string, content: string}>} messages
+   * @returns {Array<{role: string, content: string}>} A shallow-copied array with language injected
+   */
+  _injectLanguageInstruction(messages) {
+    const { opening, closing } = buildLanguageInstruction();
+    // Shallow copy to avoid mutating the caller's array
+    const msgs = messages.map(m => ({ ...m }));
+
+    // Find first and last system message indices
+    let firstSysIdx = -1;
+    let lastSysIdx = -1;
+    for (let i = 0; i < msgs.length; i++) {
+      if (msgs[i].role === 'system') {
+        if (firstSysIdx === -1) firstSysIdx = i;
+        lastSysIdx = i;
+      }
+    }
+
+    if (firstSysIdx === -1) {
+      // No system message — insert one
+      msgs.unshift({ role: 'system', content: opening + closing });
+    } else {
+      // Prepend opening to first system message
+      msgs[firstSysIdx] = {
+        ...msgs[firstSysIdx],
+        content: opening + msgs[firstSysIdx].content,
+      };
+      // Append closing to last system message
+      msgs[lastSysIdx] = {
+        ...msgs[lastSysIdx],
+        content: msgs[lastSysIdx].content + closing,
+      };
+    }
+
+    return msgs;
+  }
+
+  /**
    * Send chat messages (general text models)
    * 
    * @param {object} provider - Provider config
@@ -131,9 +181,12 @@ export class LLMClient {
     const client = this._getClient(provider);
     const model = getModelName(provider);
 
+    // Inject language enforcement into system messages (pincer)
+    const langMessages = this._injectLanguageInstruction(messages);
+
     const requestParams = {
       model,
-      messages,
+      messages: langMessages,
       temperature: options.temperature ?? 0.7,
       max_tokens: options.maxTokens ?? 4096,
     };
@@ -236,9 +289,12 @@ export class LLMClient {
     const client = this._getClient(provider);
     const model = getModelName(provider);
 
+    // Inject language enforcement into system messages (pincer)
+    const langMessages = this._injectLanguageInstruction(messages);
+
     const requestParams = {
       model,
-      messages,
+      messages: langMessages,
       temperature: options.temperature ?? 0.7,
       max_tokens: options.maxTokens ?? 4096,
       stream: true,
