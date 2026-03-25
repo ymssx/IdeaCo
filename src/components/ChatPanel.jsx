@@ -12,7 +12,6 @@ export default function ChatPanel() {
     company,
     chatOpen, setChatOpen,
     chatPanelWidth, setChatPanelWidth,
-    navigateToDepartment, navigateToRequirement,
   } = useStore();
   const { t } = useI18n();
   const [showProviders, setShowProviders] = useState(false);
@@ -121,8 +120,6 @@ export default function ChatPanel() {
       ) : (
         <SecretaryChatView
           active={chatOpen}
-          onViewDepartment={navigateToDepartment}
-          onViewRequirement={navigateToRequirement}
         />
       )}
 

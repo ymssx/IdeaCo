@@ -6,7 +6,7 @@ import { getAvatarUrl } from '@/lib/avatar';
 import AgentDetailModal from './AgentDetailModal';
 import { useI18n } from '@/lib/i18n';
 import GroupChatView from './GroupChatView';
-import { MessageBubble, ChatInput, TaskStatusPanel, formatTime } from './ChatShared';
+import { MessageBubble, ChatInput, formatTime } from './ChatShared';
 import SecretaryChatView from './SecretaryChatView';
 import AgentChatView from './AgentChatView';
 import CachedAvatar from './CachedAvatar';

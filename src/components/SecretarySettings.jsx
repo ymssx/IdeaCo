@@ -313,7 +313,7 @@ export default function SecretarySettings({ onClose }) {
 {/* Footer actions */}
         <div className="pt-4 border-t border-[var(--border)] flex items-center justify-between">
           <div className="text-xs text-[var(--muted)]">
-            {t('secretarySettings.modelInfo', { provider: secretary.provider, info: ''})} {secretary.hrAssistant ? t('secretarySettings.withHR') : ''}
+            {t('secretarySettings.modelInfo', { provider: secretary.provider, info: ''})}
           </div>
           <div className="flex items-center gap-2">
             {saved && <span className="text-xs text-green-400 animate-fade-in">{t('secretarySettings.saved')}</span>}
@@ -384,11 +384,13 @@ function SecretaryLLMLogs({ agentId, logs, loading, onLoad, onClear, t }) {
             onClick={() => window.open(`/api/agents/${agentId}/llm-logs/view?logId=${encodeURIComponent(log.id)}`, '_blank')}
             className="w-full text-left p-3 rounded-lg border transition-all border-[var(--border)] bg-[var(--background)] hover:border-[var(--accent)]/30"
           >
-            <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center justify-between mb-1">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-mono text-[var(--accent)]">{log.model}</span>
                 {log.streamed && <span className="text-[8px] bg-cyan-900/30 text-cyan-400 px-1 py-0.5 rounded">STREAM</span>}
                 {log.error && <span className="text-[8px] bg-red-900/30 text-red-400 px-1 py-0.5 rounded">ERROR</span>}
+                {log.isSummary && <span className="text-[8px] bg-purple-900/30 text-purple-400 px-1 py-0.5 rounded">TOOL LOOP</span>}
+                {log.toolCallCount > 0 && <span className="text-[8px] bg-orange-900/30 text-orange-400 px-1 py-0.5 rounded">🔧 {log.toolCallCount} tool{log.toolCallCount > 1 ? 's' : ''}</span>}
               </div>
               <span className="text-[10px] text-[var(--muted)]">{log.latency}ms</span>
             </div>
@@ -396,9 +398,15 @@ function SecretaryLLMLogs({ agentId, logs, loading, onLoad, onClear, t }) {
               <span className="text-[10px] text-[var(--muted)]">
                 {new Date(log.timestamp).toLocaleString()} · {log.messageCount} msgs
                 {log.usage?.total_tokens ? ` · ${log.usage.total_tokens} tokens` : ''}
+                {log.iterationsUsed > 0 ? ` · ${log.iterationsUsed} iter` : ''}
               </span>
               <span className="text-[10px] text-[var(--muted)]">↗</span>
             </div>
+            {log.toolCallNames?.length > 0 && (
+              <div className="text-[10px] text-orange-400/70 mt-1 truncate">
+                🔧 {log.toolCallNames.join(', ')}
+              </div>
+            )}
             {log.outputPreview && (
               <div className="text-[10px] text-[var(--muted)] mt-1 truncate">
                 {log.outputPreview}

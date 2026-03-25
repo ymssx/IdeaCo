@@ -11,7 +11,6 @@
 
 import { Employee } from './base-employee.js';
 import { Secretary } from './secretary.js';
-import { HRAssistant } from './hr-assistant.js';
 import { EmployeeLifecycle, InnerMonologue } from './lifecycle.js';
 import { StaminaSystem } from './stamina.js';
 import { EmployeeSkillSet } from './skill/skill-set.js';
@@ -35,4 +34,4 @@ export function deserializeEmployee(data, providerRegistry) {
   return Employee.deserialize(data, providerRegistry);
 }
 
-export { Employee, Secretary, HRAssistant, EmployeeLifecycle, InnerMonologue, StaminaSystem, EmployeeSkillSet };
+export { Employee, Secretary, EmployeeLifecycle, InnerMonologue, StaminaSystem, EmployeeSkillSet };

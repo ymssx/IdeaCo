@@ -2,23 +2,24 @@ import { getCompany } from '@/lib/store';
 import { chatStore } from '@/core/agent/chat-store.js';
 import { getApiT, getLanguageFromRequest } from '@/lib/api-i18n';
 import { setAppLanguage } from '@/core/utils/app-language.js';
-import { processSecretaryAction } from '../action-handler.js';
 import { extractFieldFromPartialJSON } from '@/core/utils/json-parse.js';
 
 /**
  * SSE streaming endpoint for secretary chat.
  *
- * The secretary is just an Employee with a different prompt — streaming is
- * a generic capability provided by Employee.chatStream(). The secretary
- * enables the `contentExtractor` option to extract the "content" field
- * from its structured JSON response in real-time, so the frontend sees
- * clean text instead of raw JSON fragments.
+ * Supports a full tool-call loop:
+ * 1. Stream LLM response (sending delta/thinking events)
+ * 2. Parse structured JSON — if actions[] is non-empty, execute tools
+ * 3. Send tool_call SSE events so the frontend can show progress
+ * 4. Feed tool results back to LLM and stream again (go to step 1)
+ * 5. When actions[] is empty, send the final done event
  *
  * Events:
- *   - thinking: { content }  — chain-of-thought reasoning token
- *   - delta:    { content }  — incremental "content" field text
- *   - done:     { reply }    — final parsed reply (same shape as non-streaming POST /api/chat)
- *   - error:    { message }  — error occurred
+ *   - thinking:  { content }                          — chain-of-thought token
+ *   - delta:     { content }                          — incremental "content" field text
+ *   - tool_call: { tool, args, status, result, error } — tool execution progress
+ *   - done:      { reply }                            — final parsed reply
+ *   - error:     { message }                          — error occurred
  */
 export async function POST(request) {
   const t = getApiT(request);
@@ -48,29 +49,13 @@ export async function POST(request) {
 
   const sec = company.secretary;
 
-  // Fall back to non-streaming if secretary doesn't support streaming
-  // (CLI backend, canChat() false, etc.)
-  if (!sec.canChat() || sec.cliBackend) {
-    try {
-      const reply = await company.chatWithSecretary(message, { lang });
-      processSecretaryAction(reply, message, company, { lang });
-
-      const encoder = new TextEncoder();
-      const body = encoder.encode(`event: done\ndata: ${JSON.stringify({ reply })}\n\n`);
-      return new Response(body, {
-        headers: {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          'Connection': 'keep-alive',
-        },
-      });
-    } catch (err) {
-      const encoder = new TextEncoder();
-      const body = encoder.encode(`event: error\ndata: ${JSON.stringify({ message: err.message })}\n\n`);
-      return new Response(body, {
-        headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' },
-      });
-    }
+  // If secretary can't chat (no provider configured), return error
+  if (!sec.canChat()) {
+    const encoder = new TextEncoder();
+    const body = encoder.encode(`event: error\ndata: ${JSON.stringify({ message: 'Secretary has no AI provider configured.' })}\n\n`);
+    return new Response(body, {
+      headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' },
+    });
   }
 
   // Persist the boss message before streaming starts
@@ -79,15 +64,15 @@ export async function POST(request) {
   chatStore.appendMessage(company.chatSessionId, bossMsg);
 
   // Build context — same as handleBossMessage but we drive the stream ourselves
-  const { messages, secretaryChatGroupId } = sec._buildBossMessageContext(message, company, { lang });
+  const { messages, bossChatGroupId } = sec._buildBossMessageContext(message, company, { lang });
 
-  // The contentExtractor enables real-time JSON "content" field extraction at the
-  // Employee/Agent layer — this is the "switch" the secretary turns on.
   const streamOptions = {
     temperature: 0.8,
     maxTokens: 2048,
     contentExtractor: extractFieldFromPartialJSON,
   };
+
+const MAX_TOOL_ITERATIONS = 999;
 
   // Create a ReadableStream that pushes SSE events
   const stream = new ReadableStream({
@@ -97,60 +82,96 @@ export async function POST(request) {
         controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
       };
 
-      let fullRawContent = '';
+      // Mutable conversation context for multi-turn tool loop
+      const conversationMessages = [...messages];
 
       try {
-        // Stream using the base Employee.chatStream() with contentExtractor
-        for await (const chunk of sec.chatStream(messages, streamOptions)) {
-          if (chunk.type === 'thinking') {
-            send('thinking', { content: chunk.content });
-          } else if (chunk.type === 'delta') {
-            send('delta', { content: chunk.content });
-          } else if (chunk.type === 'done') {
-            fullRawContent = chunk.content || fullRawContent;
+        let finalReply = null;
+
+        for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
+          let fullRawContent = '';
+
+          // Stream the LLM response
+          for await (const chunk of sec.chatStream(conversationMessages, streamOptions)) {
+            if (chunk.type === 'thinking') {
+              send('thinking', { content: chunk.content });
+            } else if (chunk.type === 'delta') {
+              send('delta', { content: chunk.content });
+            } else if (chunk.type === 'done') {
+              fullRawContent = chunk.content || fullRawContent;
+            }
           }
+
+          // Parse the structured response
+          const reply = sec.parseStructuredResponse(fullRawContent, bossChatGroupId);
+
+          // If no actions requested, this is the final response
+          if (!reply.actions || reply.actions.length === 0) {
+            finalReply = reply;
+            break;
+          }
+
+          // --- Tool call loop iteration ---
+          // Append assistant message to conversation
+          conversationMessages.push({
+            role: 'assistant',
+            content: fullRawContent,
+          });
+
+          // Execute each action and send progress events to frontend
+          const toolResultTexts = [];
+          for (const action of reply.actions) {
+            const { tool, args } = action;
+            if (!tool) continue;
+
+            // Notify frontend: tool starting
+            send('tool_call', { tool, args, status: 'start' });
+
+            try {
+              console.log(`  🔧 [${sec.name}] Stream tool: ${tool}(${JSON.stringify(args || {}).slice(0, 100)})`);
+              const result = await sec.toolKit.execute(tool, args || {});
+              console.log(`  ✅ [${sec.name}] Stream tool ${tool} completed`);
+
+              const resultText = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+              toolResultTexts.push(`[Tool Result: ${tool}]\n${resultText}`);
+
+              // Notify frontend: tool done
+              send('tool_call', { tool, args, status: 'done', result: resultText.slice(0, 500) });
+            } catch (err) {
+              console.error(`  ❌ [${sec.name}] Stream tool ${tool} failed:`, err.message);
+              toolResultTexts.push(`[Tool Result: ${tool}]\nTool execution error: ${err.message}`);
+
+              // Notify frontend: tool error
+              send('tool_call', { tool, args, status: 'error', error: err.message });
+            }
+          }
+
+          // Feed tool results back to LLM for the next iteration
+          conversationMessages.push({
+            role: 'user',
+            content: `The tool(s) you requested have been executed. Here are the results:\n\n${toolResultTexts.join('\n\n')}\n\nPlease review the tool results above and continue. If you need to call more tools, include them in your "actions" array. If all tasks are complete, return your final response with an empty "actions" array.`,
+          });
+
+          // Reset streaming content on frontend for the new iteration
+          send('delta', { content: '', reset: true });
         }
 
-        let reply = sec.parseStructuredResponse(fullRawContent, secretaryChatGroupId);
-
-        // Progressive disclosure: query_department → re-stream with details
-        if (reply.action?.type === 'query_department' && reply.action.departmentId) {
-          const dept = company.departments.get(reply.action.departmentId);
-          if (dept) {
-            const memberList = [...dept.agents.values()].map(a =>
-              `  - ${a.name} (${a.role}) [status: ${a.status || 'active'}]`
-            ).join('\n');
-            const deptInfo = `Department "${dept.name}" members:\n${memberList}`;
-
-            messages.push(
-              { role: 'assistant', content: fullRawContent },
-              { role: 'user', content: `[System: Department query result]\n${deptInfo}\n\nNow please respond to the boss's original message with this information.` }
-            );
-
-            fullRawContent = '';
-            for await (const chunk of sec.chatStream(messages, streamOptions)) {
-              if (chunk.type === 'thinking') {
-                send('thinking', { content: chunk.content });
-              } else if (chunk.type === 'delta') {
-                send('delta', { content: chunk.content });
-              } else if (chunk.type === 'done') {
-                fullRawContent = chunk.content || fullRawContent;
-              }
-            }
-            reply = sec.parseStructuredResponse(fullRawContent, secretaryChatGroupId);
-          }
+        // If we exhausted iterations without a final reply, use the last one
+        if (!finalReply) {
+          // One final non-tool call to get summary
+          const fallbackResponse = await sec.chat(conversationMessages, {
+            temperature: 0.8,
+            maxTokens: 2048,
+          });
+          finalReply = sec.parseStructuredResponse(fallbackResponse.content, bossChatGroupId);
         }
 
         // Send the final done event with parsed reply
-        send('done', { reply });
-
-        // Process action and persist
-        processSecretaryAction(reply, message, company, { lang });
+        send('done', { reply: finalReply });
 
         const secretaryMsg = {
           role: 'secretary',
-          content: reply.content,
-          action: reply.action || null,
+          content: finalReply.content,
           time: new Date(),
         };
         company.chatHistory.push(secretaryMsg);
@@ -162,18 +183,7 @@ export async function POST(request) {
         company.save();
       } catch (err) {
         console.error('❌ [Chat Stream] Error:', err.message);
-
-        // Try to salvage partial content
-        if (fullRawContent.length > 0) {
-          try {
-            const reply = sec.parseStructuredResponse(fullRawContent, secretaryChatGroupId);
-            send('done', { reply });
-          } catch {
-            send('error', { message: err.message });
-          }
-        } else {
-          send('error', { message: err.message });
-        }
+        send('error', { message: err.message });
       } finally {
         controller.close();
       }

@@ -150,6 +150,39 @@ export class EmployeeSkillSet {
     return result;
   }
 
+  // ---- Permissions ----
+
+  /**
+   * Get the aggregated set of permissions granted by all enabled/pinned skills.
+   * Permissions come from each skill's `grantedPermissions` array.
+   *
+   * @param {import('./registry.js').SkillRegistry} skillRegistry
+   * @returns {Set<string>} All permissions this employee has
+   */
+  getPermissions(skillRegistry) {
+    const permissions = new Set();
+    const skills = this.resolve(skillRegistry);
+    for (const skill of skills) {
+      if (skill.grantedPermissions) {
+        for (const perm of skill.grantedPermissions) {
+          permissions.add(perm);
+        }
+      }
+    }
+    return permissions;
+  }
+
+  /**
+   * Check if this employee has a specific permission via their skills.
+   *
+   * @param {string} permission - Permission string to check (e.g. 'management.create_department')
+   * @param {import('./registry.js').SkillRegistry} skillRegistry
+   * @returns {boolean}
+   */
+  hasPermission(permission, skillRegistry) {
+    return this.getPermissions(skillRegistry).has(permission);
+  }
+
   /**
    * Get all skill IDs (enabled + pinned) as a flat array.
    * Used for display and backward-compat with the old `this.skills` array.

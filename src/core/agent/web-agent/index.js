@@ -1,5 +1,6 @@
 import { BaseAgent } from '../base-agent.js';
 import { webClientRegistry } from './web-client.js';
+import { ToolLoop } from '../tool-loop.js';
 
 /**
  * WebAgent — Communication engine powered by browser DOM automation.
@@ -82,96 +83,58 @@ export class WebAgent extends BaseAgent {
    * WebAgent's chatWithTools implementation.
    * Since web APIs don't support native function calling, we simulate it
    * by embedding tool definitions in the prompt and parsing structured output.
+   *
+   * Delegates to the shared ToolLoop for the actual loop logic. The ToolLoop's
+   * embedded call parser handles ```tool_call``` blocks, DSML, and XML formats.
    */
   async chatWithTools(messages, toolExecutor, options = {}) {
     if (!this.isAvailable()) {
       throw new Error(`WebAgent provider "${this.provider?.name}" is not available`);
     }
 
-    const maxIterations = options.maxIterations || 5;
-    const onToolCall = options.onToolCall || null;
-    const conversationMessages = [...messages];
-    const toolResults = [];
-
-    // Inject tool definitions into system message
+    // Web agents: inject tool definitions into the system prompt since
+    // the web chat API doesn't support native tool_calls.
+    const messagesWithTools = [...messages];
     const toolDefs = toolExecutor.definitions || [];
     if (toolDefs.length > 0) {
       const toolsPrompt = this._buildToolsPrompt(toolDefs);
-      // Prepend to first system message or add new one
-      const sysIdx = conversationMessages.findIndex(m => m.role === 'system');
+      const sysIdx = messagesWithTools.findIndex(m => m.role === 'system');
       if (sysIdx >= 0) {
-        conversationMessages[sysIdx] = {
-          ...conversationMessages[sysIdx],
-          content: conversationMessages[sysIdx].content + '\n\n' + toolsPrompt,
+        messagesWithTools[sysIdx] = {
+          ...messagesWithTools[sysIdx],
+          content: messagesWithTools[sysIdx].content + '\n\n' + toolsPrompt,
         };
       } else {
-        conversationMessages.unshift({ role: 'system', content: toolsPrompt });
+        messagesWithTools.unshift({ role: 'system', content: toolsPrompt });
       }
     }
 
-    for (let i = 0; i < maxIterations; i++) {
-      // Only force new conversation on the first iteration; subsequent iterations reuse
-      const iterOptions = i === 0 ? options : { ...options, newConversation: false };
-      const response = await this.chat(conversationMessages, iterOptions);
+    // Track iteration for newConversation control
+    let callCount = 0;
+    const loop = new ToolLoop({
+      chatFn: async (msgs, chatOpts) => {
+        const iterOptions = callCount === 0 ? options : { ...options, newConversation: false };
+        callCount++;
+        const response = await this.chat(msgs, { ...chatOpts, ...iterOptions });
+        // Web agents return plain text (no toolCalls field).
+        // ToolLoop's embedded call parser will detect ```tool_call``` blocks etc.
+        return { content: response.content, toolCalls: null, usage: response.usage };
+      },
+      toolExecutor,
+      maxIterations: options.maxIterations || 5,
+      supportsNativeToolCalls: false,
+      taskContext: options.taskContext || null,
+      activeTiers: options.activeTiers || null,
+    });
 
-      // Try to parse tool calls from the response
-      const parsedCalls = this._parseToolCalls(response.content);
-
-      if (!parsedCalls || parsedCalls.length === 0) {
-        // No tool calls found — this is the final response
-        return {
-          content: response.content,
-          toolResults,
-          messages: conversationMessages,
-          usage: response.usage,
-        };
-      }
-
-      // Process extracted tool calls
-      conversationMessages.push({ role: 'assistant', content: response.content });
-
-      const callResultTexts = [];
-      for (const call of parsedCalls) {
-        if (onToolCall) {
-          try { onToolCall({ tool: call.name, args: call.args, status: 'start' }); } catch {}
-        }
-
-        let result;
-        try {
-          result = await toolExecutor.execute(call.name, call.args);
-          toolResults.push({ tool: call.name, args: call.args, result, success: true });
-          if (onToolCall) {
-            try { onToolCall({ tool: call.name, args: call.args, status: 'done', success: true }); } catch {}
-          }
-        } catch (error) {
-          result = `Tool execution error: ${error.message}`;
-          toolResults.push({ tool: call.name, args: call.args, error: error.message, success: false });
-          if (onToolCall) {
-            try { onToolCall({ tool: call.name, args: call.args, status: 'error', error: error.message }); } catch {}
-          }
-        }
-
-        callResultTexts.push(
-          `[Tool Result: ${call.name}]\n${typeof result === 'string' ? result : JSON.stringify(result, null, 2)}`
-        );
-      }
-
-      // Feed tool results back with clear instruction to summarize
-      const resultsPayload = callResultTexts.join('\n\n');
-      conversationMessages.push({
-        role: 'user',
-        content: `The tool(s) you requested have been executed. Here are the results:\n\n${resultsPayload}\n\nPlease review the tool results above. If you need more information or need to run additional tools to complete the task, go ahead and call them. If you have enough information, provide a complete, helpful answer to the user's original question.`,
-      });
-    }
-
-    // Exceeded max iterations — one final call without tool prompt (reuse conversation)
-    const finalResponse = await this.chat(conversationMessages, { ...options, newConversation: false });
-    return {
-      content: finalResponse.content,
-      toolResults,
-      messages: conversationMessages,
-      usage: finalResponse.usage,
-    };
+    return loop.run(messagesWithTools, {
+      temperature: options.temperature,
+      maxTokens: options.maxTokens,
+      _agentId: options._agentId,
+      _agentName: options._agentName,
+      onToolCall: options.onToolCall || null,
+      onLLMCall: options.onLLMCall || null,
+    });
   }
 
   /**
@@ -201,63 +164,8 @@ You can make multiple tool calls in a single response. After receiving tool resu
 ${toolDescriptions}`;
   }
 
-  /**
-   * Parse tool calls from LLM text response.
-   * Looks for ```tool_call blocks, DSML-style blocks, and other XML tool call formats.
-   */
-  _parseToolCalls(content) {
-    if (!content) return null;
-    const calls = [];
-
-    // 1. Standard ```tool_call blocks
-    const regex = /```tool_call\s*\n([\s\S]*?)```/g;
-    let match;
-    while ((match = regex.exec(content)) !== null) {
-      try {
-        const parsed = JSON.parse(match[1].trim());
-        if (parsed.name) {
-          calls.push({ name: parsed.name, args: parsed.args || {} });
-        }
-      } catch {
-        // Skip malformed tool calls
-      }
-    }
-
-    // 2. DSML format: <｜DSML｜function_calls> ... </｜DSML｜function_calls>
-    const dsmlBlockRegex = /<[｜|]DSML[｜|]function_calls>([\s\S]*?)(?:<\/[｜|]DSML[｜|]function_calls>|$)/g;
-    let blockMatch;
-    while ((blockMatch = dsmlBlockRegex.exec(content)) !== null) {
-      const block = blockMatch[1];
-      const invokeRegex = /<[｜|]DSML[｜|]invoke\s+name="([^"]+)"[^>]*>([\s\S]*?)(?:<\/[｜|]DSML[｜|]invoke>|$)/g;
-      let invokeMatch;
-      while ((invokeMatch = invokeRegex.exec(block)) !== null) {
-        const toolName = invokeMatch[1];
-        const paramsBlock = invokeMatch[2];
-        const args = {};
-        const paramRegex = /<[｜|]DSML[｜|]parameter\s+name="([^"]+)"[^>]*>([\s\S]*?)(?:<\/[｜|]DSML[｜|]parameter>|$)/g;
-        let paramMatch;
-        while ((paramMatch = paramRegex.exec(paramsBlock)) !== null) {
-          const paramValue = paramMatch[2].trim();
-          try { args[paramMatch[1]] = JSON.parse(paramValue); } catch { args[paramMatch[1]] = paramValue; }
-        }
-        if (toolName) calls.push({ name: toolName, args });
-      }
-    }
-
-    // 3. XML <function_call>JSON</function_call> and <tool_call>JSON</tool_call>
-    for (const tag of ['function_call', 'tool_call']) {
-      const xmlRegex = new RegExp(`<${tag}>([\\s\\S]*?)(?:<\\/${tag}>|$)`, 'g');
-      let xmlMatch;
-      while ((xmlMatch = xmlRegex.exec(content)) !== null) {
-        try {
-          const parsed = JSON.parse(xmlMatch[1].trim());
-          if (parsed.name) calls.push({ name: parsed.name, args: parsed.arguments || parsed.args || {} });
-        } catch { /* skip */ }
-      }
-    }
-
-    return calls.length > 0 ? calls : null;
-  }
+  // NOTE: _parseToolCalls removed — now handled by the shared ToolLoop's
+  // parseEmbeddedToolCalls (supports ```tool_call```, DSML, XML formats).
 
   getDisplayInfo() {
     return {

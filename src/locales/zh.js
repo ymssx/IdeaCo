@@ -159,6 +159,11 @@ const zh = {
     noMoreHistory: '没有更多消息了',
     scrollToBottom: '回到最新',
     newMessages: '新消息 ↓',
+    toolIteration: '第 {current}/{max} 步',
+    toolMore: '项更多',
+    toolCallArgs: '参数：',
+    toolCallResult: '结果：',
+    toolCallError: '错误：',
   },
   mailbox: {
     title: '💬 消息',

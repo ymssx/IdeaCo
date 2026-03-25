@@ -108,6 +108,57 @@ export async function GET(request, { params }) {
       outputHtml = `<pre style="background:#f0f7ff;padding:12px;border:1px solid #bfdbfe;white-space:pre-wrap;word-break:break-all">${escapeHtml(outputStr)}</pre>`;
     }
 
+    // Build tool results HTML (from ToolLoop execution)
+    let toolResultsHtml = '';
+    const allToolResults = log.toolResults || log.output?.toolResults || [];
+    if (allToolResults.length > 0) {
+      const resultsItems = allToolResults.map((r, idx) => {
+        const statusIcon = r.success ? '✅' : '❌';
+        const statusColor = r.success ? '#16a34a' : '#dc2626';
+        const resultContent = r.success
+          ? (typeof r.result === 'string' ? r.result : JSON.stringify(r.result, null, 2))
+          : (r.error || 'Unknown error');
+        const argsStr = r.args ? JSON.stringify(r.args, null, 2) : '{}';
+        return `<div style="margin-bottom:10px;padding:10px 12px;border-left:4px solid ${statusColor};background:#fafafa">
+  <div style="margin-bottom:4px">${statusIcon} <strong style="color:${statusColor}">${escapeHtml(r.tool || 'unknown')}</strong> <span style="color:#999;font-size:12px">[${idx}]</span></div>
+  <div style="margin-bottom:4px;color:#666;font-size:12px">Args:</div>
+  <pre style="margin:0 0 6px 0;white-space:pre-wrap;word-break:break-all;background:#f5f5f5;padding:6px 8px;font-size:12px">${escapeHtml(argsStr)}</pre>
+  <div style="color:#666;font-size:12px">Result:</div>
+  <pre style="margin:0;white-space:pre-wrap;word-break:break-all;background:${r.success ? '#f0fdf4' : '#fff0f0'};padding:6px 8px;font-size:12px;max-height:300px;overflow:auto">${escapeHtml(resultContent)}</pre>
+</div>`;
+      }).join('\n');
+
+      toolResultsHtml = `
+<hr class="separator">
+<h2 style="padding-bottom:4px;border-bottom:2px solid #ea580c;color:#ea580c">🔧 Tool Execution Results (${allToolResults.length})</h2>
+${resultsItems}`;
+    }
+
+    // Build tool calls HTML (from LLM response)
+    let responseToolCallsHtml = '';
+    if (log.toolCalls && log.toolCalls.length > 0) {
+      const tcItems = log.toolCalls.map((tc, idx) => {
+        const fnName = tc.function?.name || tc.name || 'unknown';
+        const fnArgs = tc.function?.arguments || tc.args || '';
+        let argsFormatted;
+        try {
+          argsFormatted = typeof fnArgs === 'string' ? JSON.stringify(JSON.parse(fnArgs), null, 2) : JSON.stringify(fnArgs, null, 2);
+        } catch {
+          argsFormatted = String(fnArgs);
+        }
+        return `<div style="margin-bottom:8px;padding:8px 10px;border-left:3px solid #ea580c;background:#fff8f0">
+  <strong style="color:#ea580c">${escapeHtml(fnName)}</strong> <span style="color:#999;font-size:12px">[${idx}]${tc.id ? ` id: ${escapeHtml(tc.id)}` : ''}</span>
+  <pre style="margin:4px 0 0 0;white-space:pre-wrap;word-break:break-all;font-size:12px">${escapeHtml(argsFormatted)}</pre>
+</div>`;
+      }).join('\n');
+
+      responseToolCallsHtml = `
+<hr class="separator">
+<h2 style="padding-bottom:4px;border-bottom:2px solid #d97706;color:#d97706">🤖 LLM Tool Calls (${log.toolCalls.length})</h2>
+<p style="color:#666;font-size:12px;margin-bottom:8px">Tool calls requested by the LLM in its response:</p>
+${tcItems}`;
+    }
+
     // Build metadata
     const meta = [
       `Provider: ${escapeHtml(log.providerId || '-')}`,
@@ -117,6 +168,8 @@ export async function GET(request, { params }) {
       log.usage?.total_tokens ? `Tokens: ${log.usage.total_tokens} (prompt: ${log.usage.prompt_tokens || '?'}, completion: ${log.usage.completion_tokens || '?'})` : null,
       log.options?.temperature !== undefined ? `Temperature: ${log.options.temperature}` : null,
       log.options?.hasTools ? `Tools: ${log.options.toolCount}` : null,
+      log.options?.isSummary ? `ToolLoop Summary (${log.options.iterationsUsed} iterations)` : null,
+      allToolResults.length > 0 ? `Tool Calls: ${allToolResults.length}` : null,
     ].filter(Boolean).join('  |  ');
 
     const html = `<!DOCTYPE html>
@@ -161,6 +214,9 @@ export async function GET(request, { params }) {
 
   <h2 style="padding-bottom:4px;border-bottom:2px solid #2563eb;color:#2563eb">📤 Output</h2>
   ${outputHtml}
+
+  ${responseToolCallsHtml}
+  ${toolResultsHtml}
 </body>
 </html>`;
 

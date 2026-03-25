@@ -167,7 +167,7 @@ export class Company {
 
     // Initialize secretary's toolKit so she can use tools (shell, file ops, etc.)
     const secretaryWorkspace = this.workspaceManager.createDepartmentWorkspace('secretary', 'secretary');
-    this.secretary.initToolKit(secretaryWorkspace, this.messageBus);
+    this.secretary.initToolKit(secretaryWorkspace, this.messageBus, { company: this });
 
     this._log('Company founded', `"${this.name}" founded by ${this.bossName}`);
     this._log('Secretary ready', `Secretary ${this.secretary.name} using model ${secretaryProviderConfig.name}`);
@@ -190,101 +190,18 @@ export class Company {
       ...(options.platformUser ? { platformUser: options.platformUser } : {}),
     };
     this.chatHistory.push(bossMsg);
-    // Persist to file storage
     chatStore.appendMessage(this.chatSessionId, bossMsg);
 
-    const sec = this.secretary;
-    const lang = options.lang;
-    let reply;
-
-    // If secretary has CLI backend configured, chat also goes through CLI
-    if (sec.cliBackend) {
-      try {
-        const recentMessages = chatStore.getRecentMessages(this.chatSessionId, 10);
-        const chatContext = recentMessages.slice(-6).map(m =>
-          `${m.role === 'boss' ? 'Boss' : sec.name}: ${m.content}`
-        ).join('\n');
-
-        const departments = [...this.departments.values()].map(d => ({
-          name: d.name, id: d.id, mission: d.mission, status: d.status,
-          memberCount: d.agents.size,
-          leader: d.getLeader()?.name || 'Unassigned',
-        }));
-        const deptContext = departments.length > 0
-          ? departments.map(d => `  🏢 ${d.name} [id:${d.id}] - Mission: ${d.mission} | ${d.memberCount} people | Leader: ${d.leader}`).join('\n')
-          : 'No departments yet.';
-
-        const cliPrompt = `You are "${sec.name}", the personal secretary of "${this.bossName}".
-${sec.prompt ? `Your persona: ${sec.prompt}\n` : ''}
-Current company "${this.name}" status:
-- Departments: ${this.departments.size}
-${deptContext}
-
-Recent conversation:
-${chatContext}
-
-Boss's latest message${options.channel ? ` (via ${options.channel} channel` + (options.platformUser ? `, user: ${options.platformUser}` : '') + `)` : ''}: ${message}
-
-You MUST reply with a JSON object (return JSON only, no other text):
-{
-  "content": "Your natural language reply to the boss (warm, personal, with emoji)",
-  "action": null or one of:
-    - { "type": "secretary_handle", "taskDescription": "detailed task for yourself to execute" } — for simple tasks you can handle alone
-    - { "type": "task_assigned", "departmentId": "real dept id from above", "departmentName": "dept name", "taskTitle": "short title", "taskDescription": "detailed description" } — assign to existing department
-    - { "type": "create_department", "departmentName": "name", "mission": "mission", "members": [{ "templateId": "id", "name": "nickname", "isLeader": true/false, "reportsTo": null or 0 }] } — boss wants to create a new department (design team directly)
-    - { "type": "need_new_department", "suggestedMission": "task description" } — no existing dept can handle this
-    - { "type": "progress_report" } — boss wants progress
-    - null — casual chat, no action needed
-}
-
-Available job templates for team design (create_department): ${JSON.stringify(Object.values(JobTemplates).map(t => ({ id: t.id, title: t.title, category: t.category })))}
-Enabled provider categories: ${[...new Set(this.providerRegistry.listEnabled().map(p => p.category))].join(', ')}
-ONLY use templates whose category has an enabled provider above.
-
-Rules:
-- If boss wants to create a department → create_department (MUST include members array with 2-6 people, first must be project-leader with isLeader=true)
-- If boss gives a task and an existing department matches → task_assigned (use the real departmentId!)
-- If boss gives a simple task you can handle alone → secretary_handle
-- If boss gives a task but no department matches → need_new_department
-- Casual chat → null
-- You MUST write ALL your "content" text in ${lang ? getLanguageNameByCode(lang) : getAppLanguageName()}
-- ALWAYS return valid JSON only, no markdown fences`;
-
-        const cliResult = await cliBackendRegistry.executeTask(
-          sec.cliBackend, sec,
-          { title: `Secretary chat reply`, description: cliPrompt },
-          sec.toolKit?.workspaceDir || process.cwd(), {}, { timeout: 60000 }
-        );
-        const rawOutput = cliResult.output || cliResult.errorOutput || '...';
-
-        reply = this._parseSecretaryJSON(rawOutput, message);
-      } catch (cliErr) {
-        const hasLLM = sec.agent.provider && sec.agent.provider.enabled && sec.agent.provider.apiKey && !sec.agent.provider.apiKey.startsWith('cli');
-        if (hasLLM) {
-          console.warn(`  ⚠️ [Secretary] CLI chat failed, falling back to LLM: ${cliErr.message || cliErr.error}`);
-          reply = await this.secretary.handleBossMessage(message, this, { lang });
-        } else {
-          // No available LLM provider, return CLI error message
-          console.error(`  ❌ [Secretary] CLI chat failed, no LLM fallback available: ${cliErr.message || cliErr.error}`);
-          reply = {
-            content: `⚠️ CLI execution error: ${cliErr.message || 'Unknown error'}. Please check if CodeBuddy CLI is running properly.`,
-            action: null,
-          };
-        }
-      }
-    } else {
-      // Let secretary analyze whether it's task assignment or casual conversation
-      reply = await this.secretary.handleBossMessage(message, this, { lang });
-    }
+    // Secretary is just an employee — delegate entirely to its handleBossMessage.
+    // CLI vs LLM routing, prompt building, tool calls are all handled inside the agent layer.
+    const reply = await this.secretary.handleBossMessage(message, this, { lang: options.lang });
 
     const secretaryMsg = {
       role: 'secretary',
       content: reply.content,
-      action: reply.action || null,
       time: new Date(),
     };
     this.chatHistory.push(secretaryMsg);
-    // Persist to file storage
     chatStore.appendMessage(this.chatSessionId, secretaryMsg);
 
     // Keep only the latest 50 messages in memory (for frontend cache)
@@ -296,99 +213,133 @@ Rules:
     return reply;
   }
 
+  // ======================== Recruitment ========================
+
   /**
-   * Parse secretary's returned JSON (shared by CLI and LLM)
-   * Extracts { content, action } structure from raw text
+   * Execute recruitment based on a team plan.
+   * Searches the talent market for suitable candidates, evaluates
+   * skill match and performance, and decides whether to recall
+   * a former employee or hire a new one.
+   *
+   * @param {object} plan - Team plan with members array
+   * @returns {Array<Employee|null>} Array of recruited employees
    */
-  _parseSecretaryJSON(rawOutput, originalMessage) {
-    try {
-      const parsed = robustJSONParse(rawOutput);
-      const result = {
-        content: parsed.content || rawOutput,
-        action: parsed.action || null,
-      };
+  executeRecruitment(plan) {
+    console.log(`\n\uD83D\uDD14 [HR] Starting recruitment...`);
 
-      // Validate task_assigned departmentId
-      if (result.action?.type === 'task_assigned' && result.action.departmentId) {
-        const deptById = this.departments.get(result.action.departmentId);
-        if (!deptById) {
-          // departmentId invalid, try matching by name
-          const deptIdValue = result.action.departmentId;
-          const deptNameValue = result.action.departmentName || deptIdValue;
-          let foundDept = null;
-          for (const dept of this.departments.values()) {
-            if (dept.name === deptIdValue || dept.name === deptNameValue ||
-                dept.name.includes(deptIdValue) || deptIdValue.includes(dept.name)) {
-              foundDept = dept;
-              break;
-            }
-          }
-          if (foundDept) {
-            console.log(`🔧 [CLI] Fixed departmentId: "${deptIdValue}" → "${foundDept.id}" (${foundDept.name})`);
-            result.action.departmentId = foundDept.id;
-            result.action.departmentName = foundDept.name;
-          } else {
-            console.warn(`⚠️ [CLI] departmentId "${deptIdValue}" doesn't match any department, clearing action`);
-            result.action = null;
-          }
+    const employees = [];
+    const skipped = [];
+
+    for (const memberPlan of plan.members) {
+      console.log(`\n  \uD83D\uDCCC Position: ${memberPlan.templateTitle} (${memberPlan.name})`);
+
+      try {
+        const recruitConfig = this._smartRecruit(
+          { templateId: memberPlan.templateId, name: memberPlan.name, preferRecall: true },
+        );
+        const employee = createEmployee(recruitConfig);
+
+        if (recruitConfig.cliBackend) {
+          console.log(`  \uD83D\uDDA5\uFE0F [${employee.name}] assigned CLI backend: ${recruitConfig.cliBackend}`);
+        }
+
+        if (recruitConfig.isRecalled) {
+          console.log(`  \uD83D\uDD04 [${employee.name}] is a former employee recalled from talent market, carrying original memories`);
+        }
+
+        employees.push(employee);
+      } catch (e) {
+        if (e.message.startsWith('PROVIDER_DISABLED:')) {
+          const parts = e.message.split(':');
+          const category = parts[1];
+          const reason = parts[2];
+          console.log(`  \u26A0\uFE0F [HR] Cannot hire "${memberPlan.templateTitle}": ${reason}`);
+          console.log(`     Hint: Please configure API Key for ${category} type providers first`);
+          skipped.push({ ...memberPlan, reason });
+          employees.push(null);
+        } else {
+          throw e;
         }
       }
-
-      console.log(`🤖 [Secretary-CLI] action type: ${result.action?.type || 'null'}`);
-      return result;
-    } catch (parseError) {
-      console.warn('⚠️ [Secretary-CLI] JSON parse failed, using raw output:', parseError.message);
-      // JSON parse failed, try to extract content field
-      let displayContent = rawOutput;
-      const contentFieldMatch = rawOutput.match(/"content"\s*:\s*"((?:[^"\\]|\\.)*)"/);
-      if (contentFieldMatch) {
-        try {
-          displayContent = JSON.parse('"' + contentFieldMatch[1] + '"');
-        } catch {
-          displayContent = contentFieldMatch[1].replace(/\\n/g, '\n').replace(/\\"/g, '"');
-        }
-      }
-
-      // Try to extract action from raw output
-      let action = null;
-      const actionTypeMatch = rawOutput.match(/"type"\s*:\s*"(task_assigned|need_new_department|create_department|progress_report|secretary_handle)"/);
-      if (actionTypeMatch) {
-        const actionType = actionTypeMatch[1];
-        if (actionType === 'task_assigned') {
-          const deptNameMatch = rawOutput.match(/"departmentName"\s*:\s*"([^"]+)"/);
-          if (deptNameMatch) {
-            for (const dept of this.departments.values()) {
-              if (dept.name === deptNameMatch[1] || dept.name.includes(deptNameMatch[1]) || deptNameMatch[1].includes(dept.name)) {
-                const titleMatch = rawOutput.match(/"taskTitle"\s*:\s*"([^"]+)"/);
-                const descMatch = rawOutput.match(/"taskDescription"\s*:\s*"((?:[^"\\]|\\.)*)"/);
-                action = {
-                  type: 'task_assigned',
-                  departmentId: dept.id,
-                  departmentName: dept.name,
-                  taskTitle: titleMatch ? titleMatch[1] : originalMessage.slice(0, 50),
-                  taskDescription: descMatch ? descMatch[1].replace(/\\n/g, '\n') : originalMessage,
-                };
-                break;
-              }
-            }
-          }
-        } else if (actionType === 'create_department') {
-          const deptNameMatch = rawOutput.match(/"departmentName"\s*:\s*"([^"]+)"/);
-          const missionMatch = rawOutput.match(/"mission"\s*:\s*"((?:[^"\\]|\\.)*)"/);
-          action = { type: 'create_department', departmentName: deptNameMatch?.[1] || '', mission: missionMatch?.[1]?.replace(/\\n/g, '\n') || originalMessage };
-        } else if (actionType === 'need_new_department') {
-          const missionMatch = rawOutput.match(/"suggestedMission"\s*:\s*"((?:[^"\\]|\\.)*)"/);
-          action = { type: 'need_new_department', suggestedMission: missionMatch?.[1]?.replace(/\\n/g, '\n') || originalMessage };
-        } else if (actionType === 'secretary_handle') {
-          const descMatch = rawOutput.match(/"taskDescription"\s*:\s*"((?:[^"\\]|\\.)*)"/);
-          action = { type: 'secretary_handle', taskDescription: descMatch?.[1]?.replace(/\\n/g, '\n') || originalMessage };
-        } else if (actionType === 'progress_report') {
-          action = { type: 'progress_report' };
-        }
-      }
-
-      return { content: displayContent, action };
     }
+
+    const validEmployees = employees.filter(Boolean);
+
+    for (let i = 0; i < plan.members.length; i++) {
+      if (!employees[i]) continue;
+      const memberPlan = plan.members[i];
+      if (memberPlan.reportsTo !== null && employees[memberPlan.reportsTo]) {
+        employees[i].setManager(employees[memberPlan.reportsTo]);
+      }
+    }
+
+    if (skipped.length > 0) {
+      console.log(`\n\u26A0\uFE0F [HR] ${skipped.length} positions skipped due to unconfigured providers:`);
+      skipped.forEach(s => console.log(`   - ${s.templateTitle}: ${s.reason}`));
+    }
+
+    console.log(`\n\u2705 [HR] Recruitment complete! Successfully hired ${validEmployees.length}, skipped ${skipped.length}`);
+    return validEmployees;
+  }
+
+  /**
+   * Smart recruit: decide whether to recall a former employee from the talent
+   * market or hire a new one. Pure logic — no LLM calls.
+   * @private
+   */
+  _smartRecruit({ templateId, name, preferRecall = true }) {
+    if (preferRecall && this.hr.talentMarket) {
+      const template = this.hr.getTemplate(templateId);
+      if (template) {
+        const candidates = this.hr.searchTalentMarket({
+          role: template.title, skills: template.skills,
+        });
+
+        if (candidates.length > 0) {
+          const best = this._pickBestCandidate(candidates, template);
+          if (best) {
+            console.log(`  \uD83D\uDD0D [HR] Found matching candidate in talent market: ${best.name} (${best.role})`);
+            const decision = this._decideRecallOrNew(best, template);
+            if (decision === 'recall') {
+              console.log(`  \u2705 [HR] Decided to recall former employee: ${best.name}`);
+              return this.hr.recallFromMarket(best.id);
+            } else {
+              console.log(`  \uD83C\uDD95 [HR] Decided to hire new (former employee not a good match)`);
+            }
+          }
+        } else {
+          console.log(`  \uD83D\uDD0D [HR] No matching candidates in talent market, will hire new`);
+        }
+      }
+    }
+
+    return this.hr.recruit(templateId, name);
+  }
+
+  /** @private */
+  _pickBestCandidate(candidates, template) {
+    const scored = candidates.map(c => {
+      const allSkills = [...c.skills, ...c.acquiredSkills];
+      const matchCount = template.skills.filter(s =>
+        allSkills.some(cs => cs.includes(s) || s.includes(cs))
+      ).length;
+      const skillScore = matchCount / template.skills.length;
+      const perfScore = c.performanceData?.averageScore ? c.performanceData.averageScore / 100 : 0.5;
+      return { ...c, totalScore: skillScore * 0.6 + perfScore * 0.4 };
+    });
+    scored.sort((a, b) => b.totalScore - a.totalScore);
+    return scored[0] || null;
+  }
+
+  /** @private */
+  _decideRecallOrNew(candidate, template) {
+    if (candidate.performanceData?.averageScore < 50) return 'new';
+    const allSkills = [...candidate.skills, ...candidate.acquiredSkills];
+    const matchCount = template.skills.filter(s =>
+      allSkills.some(cs => cs.includes(s) || s.includes(cs))
+    ).length;
+    if (matchCount >= template.skills.length * 0.5) return 'recall';
+    return 'new';
   }
 
   /**
@@ -448,7 +399,7 @@ Rules:
       + ` You work in the "${targetDept.name}" department.`
       + ` Respond naturally based on your personality and role. Be helpful but stay in character.`
       + memoryContext
-      + `\n\n## Output Format\nYou MUST return a JSON object (JSON only, nothing else):\n{\n  "content": "Your natural language reply",\n  "memorySummary": "A single, complete summary that REPLACES the previous one — cover all important context so far. null if conversation just started.",\n  "memoryOps": [\n    { "op": "add", "type": "long_term", "content": "Important fact about the boss or decision made", "category": "fact", "importance": 8 },\n    { "op": "add", "type": "short_term", "content": "Current topic context", "category": "context", "importance": 5, "ttl": 3600 },\n    { "op": "delete", "id": "mem_id_to_forget" }\n  ],\n  "relationshipOps": [\n    { "employeeId": "boss", "name": "Boss", "impression": "Demanding but fair, values results", "affinity": 65 }\n  ]\n}\n\n## Memory Management\n- memorySummary: Write a single, self-contained summary of the entire conversation so far. This REPLACES any previous summary — include everything important. Keep key info, skip chitchat. null if no old messages.\n- memoryOps: Manage your memory — add important facts/preferences about the boss as long_term, add current topic as short_term. [] if nothing to remember.\n- category: preference | fact | instruction | task | context | relationship | experience\n- importance: 1-10 (higher = more important)\n\n## Relationship Impressions\n- relationshipOps: Update your impression of the boss based on this conversation. Max 30 chars per impression, affinity 1-100 (50=neutral).\n- affinity should change gradually (+/- 5~15 per interaction). Start from 50 if first meeting.\n- Only update when something noteworthy happened. [] if nothing to update.`;
+      + targetAgent._buildBossChatResponseFormat();
 
     const messages = [
       { role: 'system', content: systemMessage },
@@ -799,8 +750,6 @@ Rules:
       } else {
         sec.switchProvider(newProvider);
       }
-      // Sync HR assistant's provider
-      sec.hrAssistant.employee.switchProvider(newProvider);
       this._log('Secretary settings', `Secretary provider switched to: ${newProvider.name}`);
     }
     this._log('Secretary settings', `Updated secretary settings: ${Object.keys(settings).join(', ')}`);
@@ -983,8 +932,8 @@ Rules:
 
     const { teamPlan, name, mission } = plan;
 
-    // Recruit via HR assistant
-    const agents = this.secretary.hrAssistant.executeRecruitment(teamPlan, this.hr);
+    // Recruit via company HR
+    const agents = this.executeRecruitment(teamPlan);
 
     // Create department
     const dept = new Department({ name, mission, company: this.id });
@@ -1080,8 +1029,8 @@ Rules:
       console.log(`   ${prefix} ${m.name} - ${m.templateTitle}`);
     });
 
-    // Recruit via HR assistant
-    const agents = this.secretary.hrAssistant.executeRecruitment(teamPlan, this.hr);
+    // Recruit via company HR
+    const agents = this.executeRecruitment(teamPlan);
 
     // Create department
     const dept = new Department({ name, mission, company: this.id });
@@ -1377,7 +1326,7 @@ const dept = this.findDepartment(departmentId);
         })),
       };
 
-      const agents = this.secretary.hrAssistant.executeRecruitment(hirePlan, this.hr);
+      const agents = this.executeRecruitment(hirePlan);
       for (const agent of agents) {
         if (!agent) continue;
         dept.addAgent(agent);
@@ -2213,11 +2162,10 @@ Reply in the same language the Boss used. Be concise but warm.`
       });
     });
 
-    // Add secretary and HR consumption
+    // Add secretary consumption
     const secUsage = this.secretary.tokenUsage || { totalTokens: 0, totalCost: 0 };
-    const hrUsage = this.secretary.hrAssistant.employee.tokenUsage || { totalTokens: 0, totalCost: 0 };
-    companyTotalTokens += secUsage.totalTokens + hrUsage.totalTokens;
-    companyTotalCost += secUsage.totalCost + hrUsage.totalCost;
+    companyTotalTokens += secUsage.totalTokens;
+    companyTotalCost += secUsage.totalCost;
 
     return {
       id: this.id,
@@ -2252,18 +2200,12 @@ Reply in the same language the Boss used. Be concise but warm.`
             isWeb: true,
           })),
         ],
-        hrAssistant: {
-          name: this.secretary.hrAssistant.employee.name,
-          avatar: this.secretary.hrAssistant.employee.avatar,
-          signature: this.secretary.hrAssistant.employee.signature,
-        },
       },
       departments,
       budget: {
         totalTokens: companyTotalTokens,
         totalCost: Math.round(companyTotalCost * 10000) / 10000,
         secretaryUsage: { ...secUsage },
-        hrUsage: { ...hrUsage },
       },
       mailbox: this.mailbox.slice(-50).map(m => ({
         ...m,
@@ -2449,7 +2391,6 @@ const dept = this.findDepartment(departmentId);
         providerId: this.secretary.getProviderDisplayInfo().id,
         cliBackend: this.secretary.cliBackend || null,
         tokenUsage: { ...this.secretary.tokenUsage },
-        hrTokenUsage: { ...this.secretary.hrAssistant.employee.tokenUsage },
       },
       messageBusMessages: this.messageBus.messages.slice(-500).map(m => m.toJSON()),
       requirements: this.requirementManager.serialize(),
@@ -2516,7 +2457,7 @@ const dept = this.findDepartment(departmentId);
       Object.assign(company.secretary.tokenUsage, data.secretary.tokenUsage);
     }
     if (data.secretary?.hrTokenUsage) {
-      Object.assign(company.secretary.hrAssistant.employee.tokenUsage, data.secretary.hrTokenUsage);
+      // Legacy: hrTokenUsage is no longer tracked separately, ignore
     }
     // Restore secretary custom prompt
     if (data.secretary?.prompt) {

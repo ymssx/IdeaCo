@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getCompany } from '@/core/company.js';
+import { getCompany } from '@/lib/store.js';
 import { skillRegistry } from '@/core/employee/skill/registry.js';
 import { getApiT } from '@/lib/api-i18n';
 

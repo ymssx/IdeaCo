@@ -143,7 +143,7 @@ export class ChatStore {
       id: uuidv4(),
       role: message.role,
       content: message.content,
-      action: message.action || null,
+      actions: message.actions || null,
       time: message.time ? new Date(message.time).toISOString() : new Date().toISOString(),
     };
     // Preserve extended fields for agent-to-agent chat
@@ -450,7 +450,7 @@ export class ChatStore {
       this.appendMessage(sessionId, {
         role: msg.role,
         content: msg.content,
-        action: msg.action || null,
+        actions: msg.actions || null,
         time: msg.time,
       });
     }

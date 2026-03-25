@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useStore } from '@/lib/client-store';
 import { useI18n } from '@/lib/i18n';
-import { MessageBubble, ChatInput, TaskStatusPanel } from './ChatShared';
+import { MessageBubble, ChatInput } from './ChatShared';
 import CachedAvatar from './CachedAvatar';
 
 export default function AgentChatModal({ agentId, agentName, agentAvatar, agentRole, agentSignature, agentDepartment, onClose }) {
@@ -142,9 +142,6 @@ export default function AgentChatModal({ agentId, agentName, agentAvatar, agentR
           )}
           <div ref={messagesEndRef} />
         </div>
-
-        {/* Task status panel - shared */}
-        <TaskStatusPanel />
 
         {/* Input - reuse ChatInput, with negative margin to match card padding */}
         <div className="-mx-4 -mb-4">

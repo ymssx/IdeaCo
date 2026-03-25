@@ -5,7 +5,7 @@
 
 export { Company } from './organization/company.js';
 export { createAgent, deserializeAgent, BaseAgent, LLMAgent, CLIAgent } from './agent/index.js';
-export { Employee, createEmployee, deserializeEmployee, Secretary, HRAssistant } from './employee/index.js';
+export { Employee, createEmployee, deserializeEmployee, Secretary } from './employee/index.js';
 export { Department } from './organization/department.js';
 export { HRSystem, JobTemplates } from './organization/workforce/hr.js';
 export { ProviderRegistry, ModelProviders, JobCategory, JobCategoryLabel } from './organization/workforce/providers.js';

@@ -14,7 +14,8 @@
 
 import fs from 'fs';
 import path from 'path';
-import { SkillDefinition, SkillSource, SkillCategory, parseSkillMarkdown, skillRegistry } from './registry.js';
+import { SkillDefinition, parseSkillMarkdown, skillRegistry } from './registry.js';
+import { SkillSource, SkillCategory } from './constants.js';
 
 const MARKETPLACE_SKILLS_DIR = path.join(
   process.env.IDEACO_DATA_DIR || path.resolve(process.cwd(), 'data'),

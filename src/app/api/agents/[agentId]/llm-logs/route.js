@@ -1,9 +1,9 @@
 /**
- * LLM Debug Logs API — 获取某个员工的LLM调用日志
+ * LLM Debug Logs API — Get LLM call logs for a specific agent.
  * 
- * GET /api/agents/[agentId]/llm-logs?limit=50&offset=0  → 日志列表
- * GET /api/agents/[agentId]/llm-logs?logId=xxx           → 日志详情
- * DELETE /api/agents/[agentId]/llm-logs                   → 清除该员工所有日志
+ * GET /api/agents/[agentId]/llm-logs?limit=50&offset=0  → Log list
+ * GET /api/agents/[agentId]/llm-logs?logId=xxx           → Log detail
+ * DELETE /api/agents/[agentId]/llm-logs                   → Clear all logs for this agent
  */
 import { NextResponse } from 'next/server';
 import { getAgentLogs, getLogDetail, clearAgentLogs } from '@/core/system/llm-debug-logger.js';
@@ -14,7 +14,7 @@ export async function GET(request, { params }) {
     const { searchParams } = new URL(request.url);
     const logId = searchParams.get('logId');
 
-    // 获取单条日志详情
+    // Get single log detail
     if (logId) {
       const detail = getLogDetail(agentId, logId);
       if (!detail) {
@@ -23,7 +23,7 @@ export async function GET(request, { params }) {
       return NextResponse.json(detail);
     }
 
-    // 获取日志列表
+    // Get log list
     const limit = parseInt(searchParams.get('limit') || '50', 10);
     const offset = parseInt(searchParams.get('offset') || '0', 10);
     const result = getAgentLogs(agentId, { limit, offset });

@@ -93,7 +93,7 @@ typing: 'Escribiendo...', thinking: 'Pensando...', inputPlaceholder: 'Dile algo 
     needNewDept: '💡 Sugiere crear nuevo dpto.', progressReport: '📊 Informe de progreso completado',
     creatingDept: '🏗️ Creando departamento: {dept}', planningHiring: '⚙️ Planificando contratación...', deptCreated: '🎉 Departamento "{dept}" creado',
     viewDepartmentBtn: '👀 Ver departamento →', viewRequirementBtn: '📋 Ver requisito →',
-    loadingOlder: 'Cargando mensajes anteriores...', noMoreHistory: 'No hay más mensajes', scrollToBottom: 'Ir al último', newMessages: 'Nuevos mensajes ↓',
+loadingOlder: 'Cargando mensajes anteriores...', noMoreHistory: 'No hay más mensajes', scrollToBottom: 'Ir al último', newMessages: 'Nuevos mensajes ↓', toolIteration: 'Paso {current}/{max}', toolMore: 'más', toolCallArgs: 'Argumentos:', toolCallResult: 'Resultado:', toolCallError: 'Error:',
   },
   mailbox: {
     title: '💬 Mensajes', markAllRead: 'Marcar todo leído',

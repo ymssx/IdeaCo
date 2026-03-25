@@ -58,3 +58,4 @@ export function deserializeAgent(data, providerRegistry) {
 }
 
 export { BaseAgent, LLMAgent, CLIAgent, WebAgent };
+export { ToolLoop, TOOL_TIERS, inferTiersFromContext } from './tool-loop.js';

@@ -212,6 +212,11 @@ When the boss communicates with you, you need to:
     noMoreHistory: 'No more messages',
     scrollToBottom: 'Jump to latest',
     newMessages: 'New messages ↓',
+    toolIteration: 'Step {current}/{max}',
+    toolMore: 'more',
+    toolCallArgs: 'Arguments:',
+    toolCallResult: 'Result:',
+    toolCallError: 'Error:',
   },
 
   // === Mailbox / IM ===

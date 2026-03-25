@@ -12,11 +12,10 @@ export {
   SkillRegistry,
   skillRegistry,
   SkillDefinition,
-  SkillCategory,
-  SkillState,
-  SkillSource,
   parseSkillMarkdown,
 } from './registry.js';
+
+export { SkillCategory, SkillState, SkillSource } from './constants.js';
 
 export { EmployeeSkillSet } from './skill-set.js';
 

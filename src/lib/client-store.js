@@ -534,12 +534,6 @@ chatPanelWidth: 380,
       });
       await get().fetchCompany();
 
-      // If a task is running, start polling
-      const reply = data.data?.reply;
-      if (reply?.action?.taskId && reply?.action?.taskStatus === 'running') {
-        get()._pollTaskStatus(reply.action.taskId);
-      }
-
       return data.data;
     };
 
@@ -566,10 +560,11 @@ chatPanelWidth: 380,
   // === Streaming Chat with Secretary ===
   streamingContent: '',    // Accumulated streamed content text
   streamingThinking: '',   // Accumulated thinking/reasoning text
+  streamingToolCalls: [],  // Tool call progress events [{tool, args, status, result?, error?}]
   isStreaming: false,       // Whether a stream is currently active
 
   chatWithSecretaryStream: async (message, { onDelta, onThinking, onDone, onError } = {}) => {
-    set({ streamingContent: '', streamingThinking: '', isStreaming: true });
+    set({ streamingContent: '', streamingThinking: '', streamingToolCalls: [], isStreaming: true });
     const lang = getCurrentLang();
 
     try {
@@ -612,11 +607,32 @@ chatPanelWidth: 380,
               const data = JSON.parse(line.slice(6));
 
               if (currentEvent === 'delta') {
-                set(state => ({ streamingContent: state.streamingContent + data.content }));
-                if (onDelta) onDelta(data.content);
+                if (data.reset) {
+                  // Reset streaming content for a new tool-loop iteration
+                  set({ streamingContent: '' });
+                } else {
+                  set(state => ({ streamingContent: state.streamingContent + data.content }));
+                  if (onDelta) onDelta(data.content);
+                }
               } else if (currentEvent === 'thinking') {
                 set(state => ({ streamingThinking: state.streamingThinking + data.content }));
                 if (onThinking) onThinking(data.content);
+              } else if (currentEvent === 'tool_call') {
+                set(state => {
+                  const calls = [...state.streamingToolCalls];
+                  if (data.status === 'start') {
+                    calls.push({ tool: data.tool, args: data.args, status: 'running' });
+                  } else {
+                    // Update the matching entry (last one with same tool name that is running)
+                    for (let i = calls.length - 1; i >= 0; i--) {
+                      if (calls[i].tool === data.tool && calls[i].status === 'running') {
+                        calls[i] = { ...calls[i], status: data.status, result: data.result, error: data.error };
+                        break;
+                      }
+                    }
+                  }
+                  return { streamingToolCalls: calls };
+                });
               } else if (currentEvent === 'done') {
                 finalReply = data.reply;
                 if (onDone) onDone(data.reply);
@@ -633,13 +649,8 @@ chatPanelWidth: 380,
 
       set({ isStreaming: false });
 
-      // Refresh company state to get updated chat history + trigger action processing
+      // Refresh company state to get updated chat history
       await get().fetchCompany();
-
-      // If the reply has a running task, start polling
-      if (finalReply?.action?.taskId && finalReply?.action?.taskStatus === 'running') {
-        get()._pollTaskStatus(finalReply.action.taskId);
-      }
 
       return finalReply;
     } catch (e) {
@@ -648,52 +659,6 @@ chatPanelWidth: 380,
       throw e;
     }
   },
-
-  // === Task Status Polling ===
-  runningTaskId: null,
-  taskResult: null,
-
-  _pollTaskStatus: (taskId) => {
-    set({ runningTaskId: taskId, taskResult: null });
-    let unknownCount = 0;
-
-    const poll = async () => {
-      try {
-        const data = await apiCall(`/chat?taskId=${taskId}`);
-        const state = data.data;
-
-        if (state.status === 'completed') {
-          set({ taskResult: state.summary, runningTaskId: null });
-          // Refresh company state to get latest mail and data
-          await get().fetchCompany();
-          return; // Stop polling
-        } else if (state.status === 'failed') {
-          set({ taskResult: { error: state.error }, runningTaskId: null });
-          return; // Stop polling
-        } else if (state.status === 'unknown') {
-          unknownCount++;
-          // Task not found — may have been cleaned up; stop after a few retries
-          if (unknownCount >= 3) {
-            // Task disappeared, treat as completed (result already in chat history)
-            set({ runningTaskId: null });
-            await get().fetchCompany();
-            return;
-          }
-        }
-
-        // Still running, continue polling
-        setTimeout(poll, 3000);
-      } catch {
-        // Polling failed, retry
-        setTimeout(poll, 5000);
-      }
-    };
-
-    // Initial 5-second delay before polling (give the task some execution time)
-    setTimeout(poll, 5000);
-  },
-
-  clearTaskResult: () => set({ taskResult: null, runningTaskId: null }),
 
   // === Cron Jobs ===
   fetchCronJobs: async () => {

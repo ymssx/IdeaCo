@@ -14,6 +14,7 @@ import { safeJSONParse, robustJSONParse } from '../utils/json-parse.js';
 import { buildLanguageInstruction, getAppLanguageName } from '../utils/app-language.js';
 import { EmployeeSkillSet } from './skill/skill-set.js';
 import { skillRegistry } from './skill/registry.js';
+import { registerManagementTools } from './tools/management-tools.js';
 
 // Placeholder signature
 const DEFAULT_SIGNATURE = 'Just arrived, still thinking of what to say...';
@@ -299,13 +300,13 @@ export class Employee {
   /**
    * Parse a structured JSON response from an LLM and process memory/relationship ops.
    *
-   * This is a generic capability available to ALL employees.  The secretary
-   * happens to use it for boss-message replies (with "content" + "action"),
-   * but any employee whose prompt requests structured JSON can use it.
+   * This is a generic capability available to ALL employees.  Any employee
+   * whose prompt requests structured JSON can use it to process memory
+   * and relationship operations from the response.
    *
    * @param {string} rawContent - Raw LLM output (expected to be JSON)
    * @param {string} chatGroupId - Chat group ID for memory context
-   * @returns {{ content: string, action: object|null, [key: string]: any }}
+   * @returns {{ content: string, [key: string]: any }}
    */
   parseStructuredResponse(rawContent, chatGroupId) {
     let parsed;
@@ -313,10 +314,13 @@ export class Employee {
       parsed = robustJSONParse(rawContent);
     } catch (parseError) {
       console.warn(`⚠️ [${this.name}] JSON parse failed:`, parseError.message, '\nRaw reply:', rawContent.slice(0, 200));
-      return { content: rawContent, action: null };
+      return { content: rawContent, actions: [] };
     }
 
-    const result = { content: parsed.content || rawContent, action: parsed.action || null };
+    const result = {
+      content: parsed.content || rawContent,
+      actions: Array.isArray(parsed.actions) ? parsed.actions : [],
+    };
 
     // Process memory summary
     if (parsed.memorySummary) {
@@ -337,14 +341,137 @@ export class Employee {
       }
     }
 
+    if (result.actions.length > 0) {
+      console.log(`  🔧 [${this.name}] Actions requested: ${result.actions.map(a => a.tool).join(', ')}`);
+    }
+
     return result;
+  }
+
+  // ======================== Action Execution ========================
+
+  /**
+   * Execute an array of actions returned by the LLM in its structured JSON response.
+   * Each action is dispatched to the employee's toolKit for execution.
+   *
+   * Actions are the LLM's way of calling tools — the "actions" field in the JSON
+   * response is the tool call protocol. This method sequentially executes each action
+   * and collects results.
+   *
+   * @param {Array<{tool: string, args: object}>} actions - Array of action objects
+   * @returns {Promise<Array<{tool: string, success: boolean, result?: string, error?: string}>>}
+   */
+  async executeActions(actions) {
+    if (!actions || actions.length === 0) return [];
+    if (!this.toolKit) {
+      console.warn(`⚠️ [${this.name}] No toolKit available, cannot execute actions`);
+      return actions.map(a => ({ tool: a.tool, success: false, error: 'No toolKit configured' }));
+    }
+
+    const results = [];
+    for (const action of actions) {
+      const { tool, args } = action;
+      if (!tool) {
+        results.push({ tool: '(unknown)', success: false, error: 'Missing tool name' });
+        continue;
+      }
+
+      try {
+        console.log(`  🔧 [${this.name}] Executing action: ${tool}(${JSON.stringify(args || {}).slice(0, 100)})`);
+        const result = await this.toolKit.execute(tool, args || {});
+        console.log(`  ✅ [${this.name}] Action ${tool} completed`);
+        results.push({ tool, success: true, result });
+      } catch (err) {
+        console.error(`  ❌ [${this.name}] Action ${tool} failed:`, err.message);
+        results.push({ tool, success: false, error: err.message });
+      }
+    }
+
+    return results;
+  }
+
+  // ======================== Chat Context Building ========================
+
+  /**
+   * Build reusable conversational context for any employee chat scenario.
+   * Extracts the common patterns (memory, history, search) that were previously
+   * hardcoded in the secretary's _buildBossMessageContext.
+   *
+   * Any employee (secretary, department lead, etc.) can use this to build
+   * rich context for their conversations.
+   *
+   * @param {string} chatGroupId - Chat group ID for memory context
+   * @param {string} chatSessionId - Chat session ID for history retrieval
+   * @param {string} [currentMessage] - Current message (for semantic search)
+   * @param {object} [options]
+   * @param {number} [options.recentMessageCount=10] - Number of recent messages to include
+   * @param {number} [options.searchResultCount=3] - Number of search results to include
+   * @param {number} [options.searchContextRadius=1] - Context radius for search results
+   * @returns {{ memorySection: string, historySummaryContext: string, recentHistory: Array, searchContextSection: string }}
+   */
+  buildChatContext(chatGroupId, chatSessionId, currentMessage, options = {}) {
+    const {
+      recentMessageCount = 10,
+      searchResultCount = 3,
+      searchContextRadius = 1,
+    } = options;
+
+    // Consolidate memories before building context
+    this.memory.consolidateMemories();
+
+    // Memory context (long-term + short-term memories relevant to this chat)
+    const memorySection = this.memory.buildMemoryContext(chatGroupId);
+
+    // History summary (compressed summary of past conversations)
+    const historySummaryContext = this.memory.buildHistorySummaryContext(chatGroupId);
+
+    // Recent chat history
+    let recentHistory = [];
+    try {
+      const recentMessages = chatStore.getRecentMessages(chatSessionId, recentMessageCount);
+      recentHistory = recentMessages.map(h => ({
+        role: h.role === 'boss' ? 'user' : 'assistant',
+        content: h.content,
+        originalRole: h.role,
+      }));
+    } catch (e) {
+      // Fallback: no history available
+    }
+
+    // Semantic search for related historical context
+    let searchContextSection = '';
+    if (currentMessage) {
+      try {
+        const searchResults = chatStore.searchWithContext(chatSessionId, currentMessage, searchResultCount, searchContextRadius);
+        if (searchResults.length > 0) {
+          searchContextSection = '\n## Related Historical Context (from past conversations)\n';
+          for (const result of searchResults) {
+            const contextStr = result.context.map(m =>
+              `  [${m.role}] ${m.content.slice(0, 150)}${m.content.length > 150 ? '...' : ''}`
+            ).join('\n');
+            searchContextSection += `- Relevance: ${result.score.toFixed(2)}\n${contextStr}\n\n`;
+          }
+        }
+      } catch (e) {
+        // Search not available, skip
+      }
+    }
+
+    return { memorySection, historySummaryContext, recentHistory, searchContextSection };
   }
 
   // ======================== Toolkit & MessageBus ========================
 
-  initToolKit(workspaceDir, messageBus) {
+  initToolKit(workspaceDir, messageBus, { company } = {}) {
     this.messageBus = messageBus;
     this.toolKit = new AgentToolKit(workspaceDir, messageBus, this.id, this.name, this);
+
+    // Auto-register management tools if this employee has the company-management skill.
+    // This is generic — any employee with the skill gets the tools, not just the secretary.
+    if (company && this.skillSet.has('company-management')) {
+      this.company = company;
+      registerManagementTools(this.toolKit, company);
+    }
   }
 
   setMessageBus(messageBus) {
@@ -805,6 +932,12 @@ ${scenePrompt}`;
       systemContent += `\nAll file operations are within your workspace directory. Please actively use tools to produce actual work output.\n`;
       systemContent += `**Efficiency requirement: Plan all needed operations at once and batch related tool calls. However, ALWAYS verify critical results after execution — verification is NOT optional overhead, it is a core part of completing work. After creating files or directories, use file_list or shell_exec ls to confirm they actually exist on disk before reporting completion.**\n`;
 
+      // Generic tool-call enforcement — applies to ALL skills
+      systemContent += `\n**Tool Execution via Actions (CRITICAL)**:\n`;
+      systemContent += `- Your skills grant you specific tools (listed in each skill description above). To call these tools, put them in the "actions" array of your JSON response.\n`;
+      systemContent += `- When a task requires an operation, you MUST include the corresponding tool call in "actions" — not just describe it in text.\n`;
+      systemContent += `- NEVER fabricate or simulate results. If you say "done" without an action, nothing actually happened.\n`;
+
       // Anti-hallucination: ground truth constraints
       systemContent += `\n## Ground Truth Rules (ALWAYS FOLLOW)\n`;
       systemContent += `- **File verification (MANDATORY)**: After writing files or creating directories, you MUST use file_list or file_read to verify they actually exist on disk. A successful tool call does NOT guarantee the result — always confirm. Before claiming any file exists, verify with tools. Never assume.\n`;
@@ -818,11 +951,14 @@ ${scenePrompt}`;
       if (kbPrompt) systemContent += kbPrompt;
     } catch {}
 
-    // Progressive disclosure: inject L1 skill metadata (compact XML)
-    // The agent loads full SKILL.md body on-demand via load_skill tool
+    // Skills prompt with progressive disclosure:
+    // - Pinned skills: L2 body inlined (LLM sees full workflow immediately)
+    // - Other skills: L1 metadata only (loaded on-demand via load_skill tool)
     try {
       const resolvedSkills = this.skillSet.resolve(skillRegistry);
-      const skillsPrompt = skillRegistry.buildSkillsPrompt(resolvedSkills);
+      const skillsPrompt = skillRegistry.buildSkillsPrompt(resolvedSkills, {
+        pinnedSkillIds: this.skillSet.pinnedSkills,
+      });
       if (skillsPrompt) systemContent += skillsPrompt;
     } catch {}
 
@@ -830,6 +966,300 @@ ${scenePrompt}`;
     systemContent += buildLanguageInstruction(lang);
 
     return systemContent;
+  }
+
+  // ======================== Reusable Prompt Fragments ========================
+
+  /**
+   * Build memory management instructions for any structured JSON response.
+   * This is a GENERIC capability — every employee uses memory ops.
+   * Reused by secretary boss-chat, company 1v1 chat, and can be adopted by
+   * lifecycle group-chat prompts in the future.
+   */
+  _buildMemoryInstructions() {
+    return `## Memory Management
+- memorySummary: Write a single, self-contained summary of the entire conversation so far. This REPLACES any previous summary — include everything important. Keep key info, skip chitchat. null if no old messages.
+- memoryOps: Array of memory operations to actively manage your memory:
+  - "add" + "long_term": Important facts, preferences, standing instructions, key decisions (stays forever)
+  - "add" + "short_term": Current task context, temporary info (auto-expires, ttl in seconds, default 24h)
+  - "update": Modify an existing memory by id when info changes — USE THIS to merge similar memories into one
+  - "delete": Remove outdated, incorrect, or redundant memories by id
+  - category: preference | fact | instruction | task | context | relationship | experience | decision
+  - importance: 1-10 (higher = more important, less likely to be forgotten)
+  - Only add memory when something worth remembering happens. Do NOT memorize casual greetings.
+  - ACTIVELY MAINTAIN your memories! Every time you respond:
+    * Look for similar or overlapping memories and MERGE them (delete duplicates, update the remaining one)
+    * DELETE memories that are no longer relevant, outdated, or superseded by newer info
+    * Prefer FEWER, higher-quality memories over many redundant ones
+  - If nothing to add/update/delete, set memoryOps to [].`;
+  }
+
+  /**
+   * Build relationship impression instructions for any structured JSON response.
+   * This is a GENERIC capability — every employee tracks impressions.
+   */
+  _buildRelationshipInstructions() {
+    return `## Relationship Impressions
+- relationshipOps: Update your personal impression of people in this conversation. Max 200 chars per impression. affinity: 1-100 (50=neutral).
+- affinity should change gradually (+/- 5~15 per interaction). Start from 50 if first meeting.
+- Only update when something noteworthy happened. [] if nothing to update.`;
+  }
+
+  /**
+   * Build the structured JSON response format for boss 1v1 chat.
+   * Used by both secretary (handleBossMessage) and company (chatWithAgent).
+   * Subclasses can extend the JSON schema by appending extra fields.
+   *
+   * @param {Object} [options]
+   * @param {string} [options.extraFields] - Additional JSON fields to include in the schema example
+   * @returns {string}
+   */
+  /**
+   * Build a human-readable tool reference from the employee's toolKit definitions.
+   * Converts OpenAI function-calling format into a clear schema description
+   * that LLMs can follow when constructing JSON actions.
+   *
+   * @returns {string} Formatted tool reference section
+   */
+  _buildToolReference() {
+    if (!this.toolKit) return '';
+
+    const defs = this.toolKit.definitions;
+    if (!defs || defs.length === 0) return '';
+
+    const toolDocs = defs.map(def => {
+      const fn = def.function;
+      if (!fn) return null;
+
+      let doc = `### ${fn.name}\n${fn.description || '(no description)'}`;
+
+      const params = fn.parameters;
+      if (params && params.properties && Object.keys(params.properties).length > 0) {
+        const required = new Set(params.required || []);
+        const paramLines = Object.entries(params.properties).map(([name, schema]) => {
+          const req = required.has(name) ? '(required)' : '(optional)';
+          const type = schema.type || 'any';
+          const desc = schema.description || '';
+          // Handle nested object/array types with a compact representation
+          if (type === 'array' && schema.items) {
+            const itemProps = schema.items.properties;
+            if (itemProps) {
+              const itemFields = Object.entries(itemProps).map(([k, v]) => {
+                const itemReq = (schema.items.required || []).includes(k) ? '(required)' : '(optional)';
+                return `      - ${k}: ${v.type || 'any'} ${itemReq} — ${v.description || ''}`;
+              }).join('\n');
+              return `  - ${name}: array ${req} — ${desc}\n    Item fields:\n${itemFields}`;
+            }
+          }
+          return `  - ${name}: ${type} ${req} — ${desc}`;
+        });
+        doc += `\nParameters:\n${paramLines.join('\n')}`;
+      } else {
+        doc += `\nParameters: (none)`;
+      }
+
+      return doc;
+    }).filter(Boolean);
+
+    return `## Tool Reference\nBelow are ALL tools available to you. When calling tools via "actions", use these exact names and parameter schemas.\n\n${toolDocs.join('\n\n')}`;
+  }
+
+  _buildBossChatResponseFormat() {
+    const toolReference = this._buildToolReference();
+
+    return `
+## Structured Response Format (MANDATORY)
+Your reply MUST be a JSON object (return JSON only, nothing else):
+{
+  "content": "Your natural language reply — warm, personal, no rigid templates",
+  "actions": [
+    { "tool": "tool_name", "args": { "param1": "value1", "param2": "value2" } }
+  ],
+  "memorySummary": "A single, complete summary that REPLACES the previous one — cover all important context so far. null if conversation just started.",
+  "memoryOps": [
+    { "op": "add", "type": "long_term", "content": "Important fact or preference", "category": "preference", "importance": 8 },
+    { "op": "add", "type": "short_term", "content": "Current topic context", "category": "context", "importance": 5, "ttl": 3600 },
+    { "op": "update", "id": "existing_mem_id", "content": "Updated content", "importance": 7 },
+    { "op": "delete", "id": "outdated_mem_id" }
+  ],
+  "relationshipOps": [
+    { "employeeId": "boss", "name": "Boss", "impression": "Decisive, prefers concise updates", "affinity": 65 }
+  ]
+}
+
+## Actions — Tool Call Protocol (CRITICAL)
+The "actions" field is how you execute real operations. The system will execute each action,
+feed the results back to you, and you continue until all work is done (like a tool-call loop).
+
+**Protocol:**
+1. You return JSON with "actions" containing tool calls you need.
+2. The system executes those tools and sends you the results.
+3. You review the results and either:
+   - Return more "actions" if additional work is needed, OR
+   - Return "actions": [] when all work is complete.
+4. This loop continues until you return an empty "actions" array.
+
+**Rules:**
+- "actions" is an ARRAY — you can call multiple tools in one response.
+- Set "actions" to [] (empty array) if no tool calls are needed.
+- Each action object: { "tool": "<tool_name>", "args": { <parameters> } }
+  - tool_name must match one of the tools listed in the Tool Reference below.
+  - args must match the tool's parameter schema exactly.
+- The system executes actions in order; results take real effect.
+- **NEVER describe an action in "content" without putting it in "actions"** — text alone does nothing.
+- After actions execute, you will receive the results and can continue working.
+- In your final response (actions: []), summarize what was accomplished in "content".
+
+### Example — Multi-step workflow (tool call loop):
+Step 1 — You return:
+{
+  "content": "Let me check the available role templates first.",
+  "actions": [{ "tool": "list_job_templates", "args": {} }],
+  "memorySummary": "Boss wants a frontend team.",
+  "memoryOps": [], "relationshipOps": []
+}
+Step 2 — System sends you the tool results, then you return:
+{
+  "content": "Great, I'll create the Frontend Dev department now! 🏗️",
+  "actions": [{ "tool": "create_department", "args": {
+    "departmentName": "Frontend Dev", "mission": "Build the website",
+    "members": [
+      { "templateId": "frontend-developer", "name": "Alice", "isLeader": true },
+      { "templateId": "frontend-developer", "name": "Bob" }
+    ]
+  }}],
+  "memorySummary": "Boss wants frontend team. Checked templates, creating department.",
+  "memoryOps": [], "relationshipOps": []
+}
+Step 3 — System confirms creation, then you return:
+{
+  "content": "Done! Frontend Dev department is set up with Alice (lead) and Bob. Ready for tasks! 🚀",
+  "actions": [],
+  "memorySummary": "Created Frontend Dev dept with Alice (lead) and Bob.",
+  "memoryOps": [{ "op": "add", "type": "long_term", "content": "Frontend Dev department created with Alice and Bob", "category": "fact", "importance": 7 }],
+  "relationshipOps": []
+}
+
+### Example — Casual chat (no actions needed):
+{
+  "content": "Good morning, boss! ☀️ Ready to help with anything you need today.",
+  "actions": [],
+  "memorySummary": null,
+  "memoryOps": [],
+  "relationshipOps": []
+}
+
+${toolReference}
+
+${this._buildMemoryInstructions()}
+
+${this._buildRelationshipInstructions()}
+
+## Output Rules
+1. Content should be natural and personal, avoid rigid templates, feel free to add emoji.
+2. Keep replies concise, don't be verbose.
+3. You MUST always return valid JSON. Do NOT wrap it in markdown code fences. Do NOT add any text outside the JSON object. The response must start with { and end with }.
+4. When actions are needed, ALWAYS put them in the "actions" array — never just describe them in text.
+5. After tool results arrive, review them carefully and continue your workflow. Do NOT repeat actions that already succeeded.`;
+  }
+
+  // ======================== Boss 1-on-1 Chat ========================
+
+  /**
+   * Handle an incoming message from the boss in a 1-on-1 chat.
+   * This is a GENERIC Employee capability — any employee can chat with the boss.
+   *
+   * @param {string} message - The boss's message text
+   * @param {object} company - The Company instance (for bossName, chatSessionId)
+   * @param {object} [options]
+   * @param {string} [options.lang] - Language hint
+   * @param {string} [options.conversationContext] - Extra context to inject (e.g. department info)
+   * @returns {Promise<{content: string}>}
+   */
+  async handleBossMessage(message, company, { lang, conversationContext } = {}) {
+    if (!this.canChat()) {
+      if (this.agentType === 'cli') {
+        throw new Error('Employee is in CLI mode and cannot handle boss messages via LLM.');
+      }
+      throw new Error('Employee AI is not configured. Please configure a valid API Key first.');
+    }
+
+    const { messages, bossChatGroupId } = this._buildBossMessageContext(message, company, { lang, conversationContext });
+
+    // Use chatWithTools so the employee can call its tools (management tools, etc.)
+    // No tier restriction — the employee's pinned skills have their full instructions
+    // inlined, so the LLM knows which tools to use and will call them directly.
+    const response = await this.chatWithTools(messages, this.toolKit, {
+      temperature: 0.8,
+      maxTokens: 2048,
+      maxIterations: 5,
+    });
+
+    const reply = this.parseStructuredResponse(response.content, bossChatGroupId);
+
+    // NOTE: Actions are now executed automatically by ToolLoop during its iteration cycle.
+    // The JSON actions protocol is detected by ToolLoop.parseJSONActions(), which executes
+    // the tools and feeds results back to the LLM for continued processing.
+    // No need to call executeActions() here — doing so would double-execute.
+
+    return reply;
+  }
+
+  /**
+   * Build the message array for a boss 1-on-1 chat.
+   * Assembles: system prompt + memory + search context + response format + history + user message.
+   *
+   * Used by both handleBossMessage (non-streaming) and streaming routes.
+   *
+   * @param {string} message - The boss's message text
+   * @param {object} company - The Company instance
+   * @param {object} [options]
+   * @param {string} [options.lang] - Language hint
+   * @param {string} [options.conversationContext] - Extra context to inject
+   * @returns {{ messages: Array, bossChatGroupId: string }}
+   */
+  _buildBossMessageContext(message, company, { lang, conversationContext } = {}) {
+    const bossChatGroupId = `boss-chat-${this.id}`;
+    const chatSessionId = company.chatSessionId || `secretary-boss-chat`;
+
+    // Use generic Employee context builder for memory, history, and search
+    const { memorySection, historySummaryContext, recentHistory, searchContextSection } =
+      this.buildChatContext(bossChatGroupId, chatSessionId, message);
+
+    // Format history (wrap assistant messages as JSON if needed)
+    const formattedHistory = recentHistory.map(h => {
+      if (h.role === 'user') return { role: 'user', content: h.content };
+      const trimmed = (h.content || '').trim();
+      const content = (trimmed.startsWith('{') && trimmed.endsWith('}'))
+        ? trimmed
+        : JSON.stringify({ content: h.content, actions: [] });
+      return { role: 'assistant', content };
+    });
+
+    // Build system prompt: base identity/tools/skills + conversation context + response format
+    const basePrompt = this._buildSystemMessage({ lang });
+    const responseFormat = this._buildBossChatResponseFormat();
+
+    const systemPrompt = `${basePrompt}
+
+## Current Conversation
+You are having a private 1-on-1 conversation with your boss "${company.bossName || 'the Boss'}" at company "${company.name || 'the Company'}".
+${conversationContext || ''}
+${memorySection}
+${searchContextSection}
+${responseFormat}`;
+
+    const userMessage = historySummaryContext
+      ? `${historySummaryContext}\n\n${message}`
+      : message;
+
+    const messages = [
+      { role: 'system', content: systemPrompt },
+      ...formattedHistory,
+      { role: 'user', content: userMessage },
+    ];
+
+    return { messages, bossChatGroupId };
   }
 
   _buildTaskMessage(task) {

@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useStore } from '@/lib/client-store';
 import { useI18n } from '@/lib/i18n';
-import { MessageBubble, ChatInput, TaskStatusPanel } from './ChatShared';
+import { MessageBubble, ChatInput } from './ChatShared';
 import CachedAvatar from './CachedAvatar';
 
 // How many messages to load per page
@@ -357,9 +357,6 @@ export default function AgentChatView({
           </button>
         </div>
       )}
-
-      {/* Task status panel */}
-      <TaskStatusPanel />
 
       {/* Input area */}
       <ChatInput

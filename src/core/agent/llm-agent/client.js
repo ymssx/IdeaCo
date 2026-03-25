@@ -8,122 +8,10 @@ import OpenAI from 'openai';
 import { auditLogger, AuditCategory, AuditLevel } from '../../system/audit.js';
 import { hookRegistry, HookEvent } from '../../../lib/hooks.js';
 import { logLLMCall } from '../../system/llm-debug-logger.js';
+import { ToolLoop, stripToolCallMarkup as _stripToolCallMarkup } from '../tool-loop.js';
 
-/**
- * Parse embedded tool calls from LLM content text.
- * Supports:
- *  - DeepSeek DSML format: <｜DSML｜function_calls>...<｜DSML｜invoke name="tool">...<｜DSML｜parameter name="x">val</｜DSML｜parameter>...
- *  - Generic XML-style: <function_call>{"name":"...","arguments":{...}}</function_call>
- *  - <tool_call>{"name":"...","arguments":{...}}</tool_call>
- *
- * @param {string} content - Raw LLM content
- * @returns {Array<{name: string, args: object}>|null}
- */
-function _parseEmbeddedToolCalls(content) {
-  if (!content) return null;
-  const calls = [];
-
-  // 1. DSML format: <｜DSML｜function_calls> ... </｜DSML｜function_calls>
-  const dsmlBlockRegex = /<[｜|]DSML[｜|]function_calls>([\s\S]*?)(?:<\/[｜|]DSML[｜|]function_calls>|$)/g;
-  let blockMatch;
-  while ((blockMatch = dsmlBlockRegex.exec(content)) !== null) {
-    const block = blockMatch[1];
-    // Parse each <｜DSML｜invoke name="tool_name"> block
-    const invokeRegex = /<[｜|]DSML[｜|]invoke\s+name="([^"]+)"[^>]*>([\s\S]*?)(?:<\/[｜|]DSML[｜|]invoke>|$)/g;
-    let invokeMatch;
-    while ((invokeMatch = invokeRegex.exec(block)) !== null) {
-      const toolName = invokeMatch[1];
-      const paramsBlock = invokeMatch[2];
-      const args = {};
-      // Parse <｜DSML｜parameter name="x" string="true">value</｜DSML｜parameter>
-      const paramRegex = /<[｜|]DSML[｜|]parameter\s+name="([^"]+)"[^>]*>([\s\S]*?)(?:<\/[｜|]DSML[｜|]parameter>|$)/g;
-      let paramMatch;
-      while ((paramMatch = paramRegex.exec(paramsBlock)) !== null) {
-        const paramName = paramMatch[1];
-        const paramValue = paramMatch[2].trim();
-        // Try JSON parse for complex values, otherwise keep as string
-        try { args[paramName] = JSON.parse(paramValue); } catch { args[paramName] = paramValue; }
-      }
-      if (toolName) {
-        calls.push({ name: toolName, args });
-      }
-    }
-  }
-
-  // 2. Generic XML <function_call>JSON</function_call>
-  const fcRegex = /<function_call>([\s\S]*?)(?:<\/function_call>|$)/g;
-  let fcMatch;
-  while ((fcMatch = fcRegex.exec(content)) !== null) {
-    try {
-      const parsed = JSON.parse(fcMatch[1].trim());
-      if (parsed.name) {
-        calls.push({ name: parsed.name, args: parsed.arguments || parsed.args || {} });
-      }
-    } catch { /* skip malformed */ }
-  }
-
-  // 3. Generic XML <tool_call>JSON</tool_call>
-  const tcRegex = /<tool_call>([\s\S]*?)(?:<\/tool_call>|$)/g;
-  let tcMatch;
-  while ((tcMatch = tcRegex.exec(content)) !== null) {
-    try {
-      const parsed = JSON.parse(tcMatch[1].trim());
-      if (parsed.name) {
-        calls.push({ name: parsed.name, args: parsed.arguments || parsed.args || {} });
-      }
-    } catch { /* skip malformed */ }
-  }
-
-  return calls.length > 0 ? calls : null;
-}
-
-/**
- * Strip tool-call markup from LLM output content.
- * Removes DSML blocks, <function_call>, <tool_call> etc. so only natural language text remains.
- *
- * @param {string} text
- * @returns {string}
- */
-function _stripToolCallMarkup(text) {
-  if (!text) return '';
-  let cleaned = text;
-  // DSML blocks (complete - closed tags)
-  cleaned = cleaned.replace(/<[｜|]DSML[｜|]function_calls>[\s\S]*?<\/[｜|]DSML[｜|]function_calls>/g, '');
-  // Also match ASCII pipe variant (closed)
-  cleaned = cleaned.replace(/<\|DSML\|function_calls>[\s\S]*?<\/\|DSML\|function_calls>/g, '');
-  // Trailing incomplete DSML blocks (unclosed, only at the end of the string)
-  // Only strip if the remaining text after the opening tag looks like markup (contains invoke/parameter tags)
-  cleaned = cleaned.replace(/<[｜|]DSML[｜|]function_calls>(?=[\s\S]*<[｜|]DSML[｜|]invoke)[\s\S]*$/g, '');
-  cleaned = cleaned.replace(/<\|DSML\|function_calls>(?=[\s\S]*<\|DSML\|invoke)[\s\S]*$/g, '');
-  // Generic XML-style (closed)
-  cleaned = cleaned.replace(/<function_call>[\s\S]*?<\/function_call>/g, '');
-  cleaned = cleaned.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '');
-  // Trailing incomplete generic XML (only if it looks like a tool call with JSON inside)
-  cleaned = cleaned.replace(/<function_call>\s*\{[\s\S]*$/g, '');
-  cleaned = cleaned.replace(/<tool_call>\s*\{[\s\S]*$/g, '');
-  return cleaned.trim();
-}
-
-/**
- * Build a human-readable summary from tool execution results.
- * Used as fallback when LLM returns empty content after tool calls.
- *
- * @param {Array<{tool: string, args: object, result: any, success: boolean, error?: string}>} results
- * @returns {string}
- */
-function _summarizeToolResults(results) {
-  if (!results || results.length === 0) return '';
-  const parts = [];
-  for (const r of results) {
-    if (r.success && r.result != null) {
-      const text = typeof r.result === 'string' ? r.result : JSON.stringify(r.result, null, 2);
-      if (text.trim()) parts.push(text.trim());
-    } else if (!r.success && r.error) {
-      parts.push(`⚠️ ${r.tool}: ${r.error}`);
-    }
-  }
-  return parts.join('\n\n') || '';
-}
+// NOTE: Embedded tool call parsing, markup stripping, and tool result summarization
+// are now handled by the shared ToolLoop module (../tool-loop.js).
 
 /**
  * Create an API client based on provider configuration
@@ -441,6 +329,10 @@ export class LLMClient {
   /**
    * Multi-turn conversation (with tool call loop)
    * Core method for Agent task execution: send message -> model may call tools -> execute tools -> continue conversation
+   *
+   * Delegates to the shared ToolLoop for the actual loop logic.
+   * ToolLoop provides: parallel read-only execution, tool tiering, auto-escalation,
+   * embedded call parsing (DSML/XML), and unified progress callbacks.
    * 
    * @param {object} provider - Provider config
    * @param {Array} messages - Initial messages
@@ -450,206 +342,26 @@ export class LLMClient {
    * @returns {Promise<{content: string, toolResults: Array, messages: Array}>}
    */
   async chatWithTools(provider, messages, toolExecutor, options = {}) {
-const maxIterations = options.maxIterations || 15;    const onToolCall = options.onToolCall || null;  // Callback: notify on tool call
-    const onLLMCall = options.onLLMCall || null;    // Callback: notify on each LLM call
-    const conversationMessages = [...messages];
-    const toolResults = [];
-    const chatWithToolsStartTime = Date.now();
-    // Track whether we just executed embedded (DSML) tool calls. If so, the next
-    // LLM call should NOT include tool definitions — we want the model to summarize
-    // the tool results in natural language instead of attempting more tool calls.
-    let justDidEmbeddedCalls = false;
+    const model = getModelName(provider);
+    const loop = new ToolLoop({
+      chatFn: (msgs, chatOpts) => this.chat(provider, msgs, chatOpts),
+      toolExecutor,
+      maxIterations: options.maxIterations || 15,
+      supportsNativeToolCalls: true,
+      taskContext: options.taskContext || null,
+      activeTiers: options.activeTiers || null,
+    });
 
-    for (let i = 0; i < maxIterations; i++) {
-      // Notify: about to call LLM
-      if (onLLMCall) {
-        try { onLLMCall({ iteration: i + 1, maxIterations }); } catch {}
-      }
-
-      const chatOpts = {
-        temperature: options.temperature,
-        maxTokens: options.maxTokens,
-        _agentId: options._agentId,
-        _agentName: options._agentName,
-      };
-      // Only pass tool definitions when we're NOT in the "summarize embedded results" phase
-      if (!justDidEmbeddedCalls) {
-        chatOpts.tools = toolExecutor.definitions;
-      }
-      const wasEmbeddedSummaryRound = justDidEmbeddedCalls;
-      justDidEmbeddedCalls = false; // reset flag
-
-      const response = await this.chat(provider, conversationMessages, chatOpts);
-
-      // If no tool calls, check for DSML/XML-style tool calls embedded in content
-      // (DeepSeek sometimes emits tool calls as text markup instead of via tool_calls API field)
-      // HOWEVER: if this was a "summarize embedded results" round, do NOT parse new embedded
-      // calls — the model should be answering, not calling more tools. Just strip any
-      // residual markup and treat the text as the final answer.
-      if (!response.toolCalls || response.toolCalls.length === 0) {
-        const embeddedCalls = wasEmbeddedSummaryRound ? null : _parseEmbeddedToolCalls(response.content);
-        if (embeddedCalls && embeddedCalls.length > 0) {
-          // Strip the DSML markup from content so we keep only the natural language part
-          const cleanContent = _stripToolCallMarkup(response.content);
-          console.log(`  🔄 [LLMClient] Detected ${embeddedCalls.length} embedded tool call(s) in content, executing...`);
-
-          conversationMessages.push({
-            role: 'assistant',
-            content: response.content,
-          });
-
-          const callResultTexts = [];
-          for (const call of embeddedCalls) {
-            console.log(`  🔧 [Tool Call] (embedded) ${call.name}(${JSON.stringify(call.args).slice(0, 100)}...)`);
-            if (onToolCall) {
-              try { onToolCall({ tool: call.name, args: call.args, status: 'start' }); } catch {}
-            }
-            let result;
-            try {
-              result = await toolExecutor.execute(call.name, call.args);
-              toolResults.push({ tool: call.name, args: call.args, result, success: true });
-              if (onToolCall) {
-                try { onToolCall({ tool: call.name, args: call.args, status: 'done', success: true }); } catch {}
-              }
-            } catch (error) {
-              result = `Tool execution error: ${error.message}`;
-              toolResults.push({ tool: call.name, args: call.args, error: error.message, success: false });
-              if (onToolCall) {
-                try { onToolCall({ tool: call.name, args: call.args, status: 'error', error: error.message }); } catch {}
-              }
-            }
-            callResultTexts.push(
-              `[Tool Result: ${call.name}]\n${typeof result === 'string' ? result : JSON.stringify(result, null, 2)}`
-            );
-          }
-
-          // Feed tool results back with a clear instruction for the model to summarize.
-          // Because embedded calls don't follow the standard tool_calls protocol,
-          // we must explicitly tell the model that the tools have been executed and
-          // it should now produce a natural-language answer based on the results.
-          const resultsPayload = callResultTexts.join('\n\n');
-          conversationMessages.push({
-            role: 'user',
-            content: `The tool(s) you requested have been executed. Here are the results:\n\n${resultsPayload}\n\nPlease review the tool results above. If you need more information or need to run additional tools to complete the task, go ahead and call them. If you have enough information, provide a complete, helpful answer to the user's original question.`,
-          });
-          justDidEmbeddedCalls = true;
-          continue;
-        }
-
-        const strippedContent = _stripToolCallMarkup(response.content);
-        // If content is empty after stripping (LLM only output markup, no natural language),
-        // summarize tool results as the response so user doesn't see an empty message
-        const finalContent = strippedContent || _summarizeToolResults(toolResults);
-
-        // Log the full chatWithTools conversation (including tool calls) as a summary entry
-        if (toolResults.length > 0) {
-          logLLMCall({
-            agentId: options._agentId,
-            agentName: options._agentName,
-            providerId: provider.id,
-            model: getModelName(provider),
-            messages: conversationMessages,
-            response: { content: finalContent, toolResults },
-            options: { ...options, _isChatWithToolsSummary: true, iterationsUsed: i + 1 },
-            latency: Date.now() - chatWithToolsStartTime,
-            usage: response.usage,
-            streamed: false,
-          });
-        }
-
-        return {
-          content: finalContent,
-          toolResults,
-          messages: conversationMessages,
-          usage: response.usage,
-        };
-      }
-
-      // Process tool calls
-      conversationMessages.push({
-        role: 'assistant',
-        content: response.content,
-        tool_calls: response.toolCalls,
-      });
-
-      for (const toolCall of response.toolCalls) {
-        const { name, arguments: argsStr } = toolCall.function;
-        let args;
-        try {
-          args = JSON.parse(argsStr);
-        } catch (parseErr) {
-          console.warn(`  ⚠️ [Tool Call] Failed to parse arguments for ${name}: ${argsStr?.slice(0, 200)}`);
-          try {
-            const cleaned = (argsStr || '{}').replace(/,\s*}/g, '}').replace(/,\s*]/g, ']').replace(/'/g, '"');
-            args = JSON.parse(cleaned);
-          } catch {
-            args = {};
-          }
-        }
-
-        console.log(`  🔧 [Tool Call] ${name}(${JSON.stringify(args).slice(0, 100)}...)`);
-
-        // Notify: calling tool
-        if (onToolCall) {
-          try { onToolCall({ tool: name, args, status: 'start' }); } catch {}
-        }
-
-        let result;
-        try {
-          result = await toolExecutor.execute(name, args);
-          toolResults.push({ tool: name, args, result, success: true });
-          if (onToolCall) {
-            try { onToolCall({ tool: name, args, status: 'done', success: true }); } catch {}
-          }
-        } catch (error) {
-          result = `Tool execution error: ${error.message}`;
-          toolResults.push({ tool: name, args, error: error.message, success: false });
-          if (onToolCall) {
-            try { onToolCall({ tool: name, args, status: 'error', error: error.message }); } catch {}
-          }
-        }
-
-        conversationMessages.push({
-          role: 'tool',
-          tool_call_id: toolCall.id,
-          content: typeof result === 'string' ? result : JSON.stringify(result),
-        });
-      }
-    }
-
-    // Exceeded max iterations, make one final call without tools
-    const finalResponse = await this.chat(provider, conversationMessages, {
+    return loop.run(messages, {
       temperature: options.temperature,
       maxTokens: options.maxTokens,
       _agentId: options._agentId,
       _agentName: options._agentName,
+      _providerId: provider.id,
+      _model: model,
+      onToolCall: options.onToolCall || null,
+      onLLMCall: options.onLLMCall || null,
     });
-
-    const strippedFinal = _stripToolCallMarkup(finalResponse.content);
-    const finalContent = strippedFinal || _summarizeToolResults(toolResults);
-
-    // Log the full chatWithTools conversation (including tool calls) as a summary entry
-    if (toolResults.length > 0) {
-      logLLMCall({
-        agentId: options._agentId,
-        agentName: options._agentName,
-        providerId: provider.id,
-        model: getModelName(provider),
-        messages: conversationMessages,
-        response: { content: finalContent, toolResults },
-        options: { ...options, _isChatWithToolsSummary: true, iterationsUsed: maxIterations, maxIterationsReached: true },
-        latency: Date.now() - chatWithToolsStartTime,
-        usage: finalResponse.usage,
-        streamed: false,
-      });
-    }
-
-    return {
-      content: finalContent,
-      toolResults,
-      messages: conversationMessages,
-      usage: finalResponse.usage,
-    };
   }
 
   /**

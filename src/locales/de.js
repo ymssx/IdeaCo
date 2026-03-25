@@ -93,7 +93,7 @@ typing: 'Tippt...', thinking: 'Denkt nach...', inputPlaceholder: '{name} etwas s
     needNewDept: '💡 Neue Abteilung vorgeschlagen', progressReport: '📊 Fortschrittsbericht fertig',
     creatingDept: '🏗️ Abteilung wird erstellt: {dept}', planningHiring: '⚙️ Planung & Einstellung...', deptCreated: '🎉 Abteilung "{dept}" erstellt',
     viewDepartmentBtn: '👀 Abteilung ansehen →', viewRequirementBtn: '📋 Anforderung ansehen →',
-    loadingOlder: 'Ältere Nachrichten laden...', noMoreHistory: 'Keine weiteren Nachrichten', scrollToBottom: 'Zum Neuesten springen', newMessages: 'Neue Nachrichten ↓',
+loadingOlder: 'Ältere Nachrichten laden...', noMoreHistory: 'Keine weiteren Nachrichten', scrollToBottom: 'Zum Neuesten springen', newMessages: 'Neue Nachrichten ↓', toolIteration: 'Schritt {current}/{max}', toolMore: 'weitere', toolCallArgs: 'Argumente:', toolCallResult: 'Ergebnis:', toolCallError: 'Fehler:',
   },
   mailbox: {
     title: '💬 Nachrichten', markAllRead: 'Alle als gelesen markieren',

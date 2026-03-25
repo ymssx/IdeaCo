@@ -93,7 +93,7 @@ typing: 'En train de taper...', thinking: 'Réflexion...', inputPlaceholder: 'Di
     needNewDept: '💡 Suggère un nouveau dpt.', progressReport: '📊 Rapport de progrès terminé',
     creatingDept: '🏗️ Création du département : {dept}', planningHiring: '⚙️ Planification du recrutement...', deptCreated: '🎉 Département "{dept}" créé',
     viewDepartmentBtn: '👀 Voir le département →', viewRequirementBtn: '📋 Voir l\'exigence →',
-    loadingOlder: 'Chargement des anciens messages...', noMoreHistory: 'Plus de messages', scrollToBottom: 'Aller au dernier', newMessages: 'Nouveaux messages ↓',
+loadingOlder: 'Chargement des anciens messages...', noMoreHistory: 'Plus de messages', scrollToBottom: 'Aller au dernier', newMessages: 'Nouveaux messages ↓', toolIteration: 'Étape {current}/{max}', toolMore: 'de plus', toolCallArgs: 'Arguments :', toolCallResult: 'Résultat :', toolCallError: 'Erreur :',
   },
   mailbox: {
     title: '💬 Messages', markAllRead: 'Tout marquer comme lu',

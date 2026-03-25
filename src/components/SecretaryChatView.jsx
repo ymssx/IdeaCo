@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useStore } from '@/lib/client-store';
 import { getAvatarUrl } from '@/lib/avatar';
 import { useI18n } from '@/lib/i18n';
-import { MessageBubble, ChatInput, TaskStatusPanel } from './ChatShared';
+import { MessageBubble, ChatInput } from './ChatShared';
 
 // How many messages to load per page
 const PAGE_SIZE = 30;
@@ -23,13 +23,11 @@ const BOTTOM_THRESHOLD = 80;
  *
  * Props:
  *   - active: boolean — whether this view is currently visible/active (controls polling)
- *   - onViewDepartment: function — optional callback for action buttons
- *   - onViewRequirement: function — optional callback for action buttons
  */
-export default function SecretaryChatView({ active = true, onViewDepartment, onViewRequirement }) {
+export default function SecretaryChatView({ active = true }) {
   const {
     company, chatWithSecretaryStream,
-    streamingContent, streamingThinking, isStreaming,
+    streamingContent, streamingThinking, streamingToolCalls, isStreaming,
     fetchSecretaryChatPage, pollSecretaryNewMessages,
   } = useStore();
   const { t } = useI18n();
@@ -314,12 +312,9 @@ export default function SecretaryChatView({ active = true, onViewDepartment, onV
             name={msg.role === 'boss' ? bossName : (secretary?.name || t('setup.defaultSecretary'))}
             content={msg.content}
             time={msg.time}
-            action={msg.action}
             agentId={null}
             onClickAvatar={null}
             bossAvatar={bossAvatar}
-            onViewDepartment={onViewDepartment}
-            onViewRequirement={onViewRequirement}
             channel={msg.channel}
           />
         ))}
@@ -337,6 +332,39 @@ export default function SecretaryChatView({ active = true, onViewDepartment, onV
                 <span className="animate-pulse">💭</span> {t('chat.thinking')}
               </div>
               <div className="text-xs text-purple-300/70 whitespace-pre-wrap break-words">{streamingThinking}</div>
+            </div>
+          </div>
+        )}
+
+        {/* Tool call progress (subtle display, persists after streaming ends) */}
+        {streamingToolCalls && streamingToolCalls.length > 0 && (
+          <div className="flex gap-2">
+            <img
+              src={secretary?.avatar || getAvatarUrl('secretary')}
+              alt={t('chat.secretary')}
+              className="w-7 h-7 rounded-full bg-[var(--border)] shrink-0"
+            />
+            <div className="rounded-xl px-3 py-2 text-xs max-w-[85%] space-y-1 bg-white/[0.03] border border-white/[0.06]">
+              {streamingToolCalls.map((tc, i) => (
+                <div key={i} className="group relative flex items-center gap-1.5 text-[var(--muted)]">
+                  <span className={tc.status === 'running' ? 'animate-spin' : ''}>
+                    {tc.status === 'running' ? '⚙️' : tc.status === 'done' ? '✅' : '❌'}
+                  </span>
+                  <span className="font-mono text-[11px] opacity-70 cursor-default">{tc.tool}</span>
+                  {tc.status === 'running' && <span className="animate-pulse text-[10px]">…</span>}
+                  {/* Hover tooltip showing args and result — pops upward to avoid bottom clipping */}
+                  <div className="hidden group-hover:block absolute left-0 bottom-full mb-1 z-50 w-80 max-h-60 overflow-auto rounded-lg bg-[var(--card)] border border-[var(--border)] shadow-xl backdrop-blur-sm p-2 text-[10px] font-mono whitespace-pre-wrap break-all text-[var(--foreground)]">
+                    <div className="text-[var(--muted)] mb-1">{t('chat.toolCallArgs')}</div>
+                    <div className="mb-2 opacity-80">{tc.args ? JSON.stringify(tc.args, null, 2) : '—'}</div>
+                    {(tc.result || tc.error) && (
+                      <>
+                        <div className="text-[var(--muted)] mb-1">{tc.error ? t('chat.toolCallError') : t('chat.toolCallResult')}</div>
+                        <div className="opacity-80">{tc.error || (typeof tc.result === 'string' ? tc.result : JSON.stringify(tc.result, null, 2))}</div>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}
@@ -397,9 +425,6 @@ export default function SecretaryChatView({ active = true, onViewDepartment, onV
           </button>
         </div>
       )}
-
-      {/* Task status panel */}
-      <TaskStatusPanel />
 
       {/* Input area */}
       <ChatInput

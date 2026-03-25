@@ -90,7 +90,7 @@ typing: 'タイピング中...', thinking: '考え中...', inputPlaceholder: '{n
     needNewDept: '💡 新部門の設立を提案', progressReport: '📊 進捗報告完了',
     creatingDept: '🏗️ 部門作成中: {dept}', planningHiring: '⚙️ 計画・採用中...', deptCreated: '🎉 部門「{dept}」が作成されました',
     viewDepartmentBtn: '👀 部門を見る →', viewRequirementBtn: '📋 要件を見る →',
-    loadingOlder: '古いメッセージを読み込み中...', noMoreHistory: 'これ以上メッセージはありません', scrollToBottom: '最新へ移動', newMessages: '新しいメッセージ ↓',
+loadingOlder: '古いメッセージを読み込み中...', noMoreHistory: 'これ以上メッセージはありません', scrollToBottom: '最新へ移動', newMessages: '新しいメッセージ ↓', toolIteration: 'ステップ {current}/{max}', toolMore: 'その他', toolCallArgs: '引数:', toolCallResult: '結果:', toolCallError: 'エラー:',
   },
   mailbox: {
     title: '💬 メッセージ', markAllRead: '全て既読にする',
