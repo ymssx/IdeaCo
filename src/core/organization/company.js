@@ -29,7 +29,7 @@ import { cliBackendRegistry } from '../agent/cli-agent/backends/index.js';
 import { groupChatLoop } from './group-chat-loop.js';
 import { channelRegistry } from '../channel/index.js';
 import { buildRhetoricPrompt } from './workforce/management-rhetoric.js';
-import { getAppLanguageName, getLanguageNameByCode } from '../utils/app-language.js';
+import { getAppLanguageName, getLanguageNameByCode, bindCompanyLanguageSource, isSupportedLanguage, getSupportedLanguages } from '../utils/app-language.js';
 
 // Expand short-form file references: [[file:path]] → [[file:deptId:path|name]]
 // Also fix incomplete references: [[file:deptId:path]] → [[file:deptId:path|name]]
@@ -80,7 +80,9 @@ export class Company {
     this.name = companyName;
     this.bossName = bossName;
     this.bossAvatar = null; // Boss avatar URL
-    this.language = 'en'; // Current UI language (synced from frontend on each API call)
+    this.language = 'en'; // Canonical language setting — all prompts read from this
+    // Bind this company as the language source for the app-language module
+    bindCompanyLanguageSource(this);
     this.departments = new Map();
     this.providerRegistry = new ProviderRegistry();
     // Sync CLI backends into provider registry so they appear in Brain Providers
@@ -174,6 +176,37 @@ export class Company {
 
     // Initialize distilled subsystems
     this._initSubsystems();
+  }
+
+  // ======================== Language ========================
+
+  /**
+   * Set the company-wide UI / prompt language.
+   * All prompts and agent responses will use this language.
+   *
+   * @param {string} lang - Language code (e.g. 'en', 'zh', 'ja')
+   * @returns {{ language: string, languageName: string }}
+   */
+  setLanguage(lang) {
+    if (!lang || typeof lang !== 'string') {
+      throw new Error('Invalid language code');
+    }
+    const code = lang.toLowerCase().split('-')[0];
+    if (!isSupportedLanguage(code)) {
+      throw new Error(`Unsupported language: ${lang}. Supported: ${getSupportedLanguages().map(l => l.code).join(', ')}`);
+    }
+    this.language = code;
+    this.save();
+    this._log('Language changed', `Company language set to ${getLanguageNameByCode(code)} (${code})`);
+    return { language: code, languageName: getLanguageNameByCode(code) };
+  }
+
+  /**
+   * Get the current company language code.
+   * @returns {string}
+   */
+  getLanguage() {
+    return this.language || 'en';
   }
 
   /**
@@ -2166,6 +2199,7 @@ Reply in the same language the Boss used. Be concise but warm.`
       name: this.name,
       boss: this.bossName,
       bossAvatar: this.bossAvatar,
+      language: this.language || 'en',
       secretary: {
         id: this.secretary.id,
         name: this.secretary.name,
@@ -2368,6 +2402,7 @@ const dept = this.findDepartment(departmentId);
       name: this.name,
       bossName: this.bossName,
       bossAvatar: this.bossAvatar,
+      language: this.language || 'en',
       departments,
       providerConfigs,
       talentPool,
@@ -2419,6 +2454,11 @@ const dept = this.findDepartment(departmentId);
     // Restore boss avatar
     if (data.bossAvatar) {
       company.bossAvatar = data.bossAvatar;
+    }
+
+    // Restore language
+    if (data.language && isSupportedLanguage(data.language)) {
+      company.language = data.language;
     }
 
     // Restore provider configs

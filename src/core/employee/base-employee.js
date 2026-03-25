@@ -902,6 +902,8 @@ ${scenePrompt}`;
   // ======================== Prompt Building ========================
 
   _buildSystemMessage({ lang } = {}) {
+    // Note: `lang` parameter is deprecated. Language is now read from Company.language
+    //       via the app-language module. Kept for backward compatibility.
     let systemContent = this.prompt + '\n\n';
 
     if (this.templateId) {
@@ -939,8 +941,8 @@ ${scenePrompt}`;
 
     systemContent += this._buildSkillDefine();
 
-    // Enforce response language based on current UI language
-    systemContent += buildLanguageInstruction(lang);
+    // Enforce response language based on company language setting
+    systemContent += buildLanguageInstruction();
 
     return systemContent;
   }
@@ -1558,7 +1560,7 @@ Rules:
 - The greeting should feel like a real person talking, NOT a corporate template
 - Include your quirks naturally
 - Match your age and gender characteristics
-- You MUST write ALL content (signature, personalityBio, greeting, broadcast) in ${getAppLanguageName()}
+- You MUST write ALL content (signature, personalityBio, greeting, broadcast) in ${getAppLanguageName()}. This is the company's official language.
 - Return ONLY valid JSON, no markdown fences` },
           { role: 'user', content: 'It\'s your first day at work. Introduce yourself!' },
         ], { temperature: 1.0, maxTokens: 512 });

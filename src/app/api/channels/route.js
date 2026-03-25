@@ -2,8 +2,7 @@ import { NextResponse } from 'next/server';
 import { getCompany } from '@/lib/store';
 import { channelRegistry } from '@/core/channel/index.js';
 import { WeixinChannel } from '@/core/channel/adapters/weixin.js';
-import { getApiT, getLanguageFromRequest } from '@/lib/api-i18n';
-import { setAppLanguage } from '@/core/utils/app-language.js';
+import { getApiT } from '@/lib/api-i18n';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,7 +11,6 @@ export const dynamic = 'force-dynamic';
  */
 export async function GET(request) {
   const t = getApiT(request);
-  setAppLanguage(getLanguageFromRequest(request));
   const company = getCompany();
   if (!company) {
     return NextResponse.json({ error: t('api.noCompany') }, { status: 400 });
@@ -33,7 +31,6 @@ export async function GET(request) {
  */
 export async function POST(request) {
   const t = getApiT(request);
-  setAppLanguage(getLanguageFromRequest(request));
   const company = getCompany();
   if (!company) {
     return NextResponse.json({ error: t('api.noCompany') }, { status: 400 });

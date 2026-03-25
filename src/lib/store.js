@@ -14,6 +14,7 @@ import { sessionManager } from '@/core/agent/session.js';
 import { cronScheduler } from '@/core/system/cron.js';
 import { knowledgeManager } from '@/core/employee/knowledge.js';
 import { llmClient } from '@/core/agent/llm-agent/client.js';
+import { unbindCompanyLanguageSource } from '@/core/utils/app-language.js';
 
 const globalStore = globalThis;
 
@@ -68,5 +69,6 @@ export function setCompany(company) {
 
 export function resetCompany() {
   globalStore.__aiEnterprise.company = null;
+  unbindCompanyLanguageSource();
   clearState();
 }

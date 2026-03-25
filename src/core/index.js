@@ -38,7 +38,8 @@ export { TeamManager, Team, Sprint, SprintStatus } from './organization/team.js'
 // Channel system (extensible multi-channel messaging)
 export { BaseChannel, ChannelState, ChannelRegistry, channelRegistry, InboundMessage, OutboundMessage } from './channel/index.js';
 export { WeixinChannel } from './channel/index.js';
-// Prompt locale is now English-only (see core/prompts.js).
-// Kept as no-op stubs for API backward compatibility.
-export function setPromptLocale(_locale) { /* no-op: English only */ }
-export function getPromptLocaleCode() { return 'en'; }
+// Language management — delegates to Company.language via app-language module.
+// setPromptLocale / getPromptLocaleCode kept for backward compatibility with API routes.
+import { setAppLanguage, getAppLanguage } from './utils/app-language.js';
+export function setPromptLocale(locale) { setAppLanguage(locale); }
+export function getPromptLocaleCode() { return getAppLanguage(); }

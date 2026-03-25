@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getCompany } from '@/lib/store';
-import { getApiT, getLanguageFromRequest } from '@/lib/api-i18n';
-import { setAppLanguage } from '@/core/utils/app-language.js';
+import { getApiT } from '@/lib/api-i18n';
 
 /**
  * POST /api/departments - Department operations
@@ -13,7 +12,6 @@ import { setAppLanguage } from '@/core/utils/app-language.js';
  */
 export async function POST(request) {
   const t = getApiT(request);
-  setAppLanguage(getLanguageFromRequest(request));
   const company = getCompany();
   if (!company) return NextResponse.json({ error: t('api.noCompany') }, { status: 400 });
 

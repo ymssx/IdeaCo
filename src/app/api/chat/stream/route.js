@@ -1,7 +1,6 @@
 import { getCompany } from '@/lib/store';
 import { chatStore } from '@/core/agent/chat-store.js';
 import { getApiT, getLanguageFromRequest } from '@/lib/api-i18n';
-import { setAppLanguage } from '@/core/utils/app-language.js';
 import { extractFieldFromPartialJSON } from '@/core/utils/json-parse.js';
 
 /**
@@ -24,7 +23,6 @@ import { extractFieldFromPartialJSON } from '@/core/utils/json-parse.js';
 export async function POST(request) {
   const t = getApiT(request);
   const lang = getLanguageFromRequest(request);
-  setAppLanguage(lang);
   const company = getCompany();
   if (!company) {
     return new Response(JSON.stringify({ error: t('api.noCompany') }), {
