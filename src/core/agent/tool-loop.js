@@ -460,6 +460,10 @@ export class ToolLoop {
     // we want the model to summarize the tool results.
     let justDidEmbeddedCalls = false;
 
+    // Track consecutive LLM errors to avoid infinite retry loops
+    let consecutiveLLMErrors = 0;
+    const MAX_LLM_ERRORS = 3;
+
     for (let i = 0; i < this.maxIterations; i++) {
       // Notify: about to call LLM
       if (onLLMCall) {
@@ -482,7 +486,46 @@ export class ToolLoop {
       const wasEmbeddedSummaryRound = justDidEmbeddedCalls;
       justDidEmbeddedCalls = false;
 
-      const response = await this.chatFn(conversationMessages, chatOpts);
+      let response;
+      try {
+        response = await this.chatFn(conversationMessages, chatOpts);
+      } catch (llmErr) {
+        // LLM call failed (e.g. context length exceeded, rate limit, etc.)
+        // Feed the error back into the loop so the model can adapt
+        const errMsg = llmErr.message || String(llmErr);
+        console.error(`  ⚠️ [ToolLoop] LLM error (iteration ${i + 1}):`, errMsg);
+
+        consecutiveLLMErrors++;
+        if (consecutiveLLMErrors >= MAX_LLM_ERRORS) {
+          console.error(`  ❌ [ToolLoop] ${MAX_LLM_ERRORS} consecutive LLM errors, aborting.`);
+          throw llmErr; // Let it propagate up after max retries
+        }
+
+        if (onToolCall) {
+          try { onToolCall({ tool: '_llm_error', args: {}, status: 'error', error: errMsg }); } catch {}
+        }
+
+        // For context-overflow errors, aggressively trim the conversation
+        const isContextOverflow = /context length|token/i.test(errMsg);
+        if (isContextOverflow && conversationMessages.length > 2) {
+          const systemMsg = conversationMessages[0];
+          const lastUserMsg = [...conversationMessages].reverse().find(m => m.role === 'user' && !m.content?.startsWith('[System Error]'));
+          const trimmedBefore = conversationMessages.length;
+          conversationMessages.length = 0;
+          conversationMessages.push(systemMsg);
+          if (lastUserMsg) conversationMessages.push(lastUserMsg);
+          console.log(`  🔄 [ToolLoop] Trimmed conversation from ${trimmedBefore} to ${conversationMessages.length} messages (context overflow recovery)`);
+        }
+
+        conversationMessages.push({
+          role: 'user',
+          content: `[System Error] The previous LLM call failed:\n${errMsg}\n\nPlease adapt your response accordingly. If the error is about context length, provide a shorter response. Return your response with an empty "actions" array if you cannot proceed.`,
+        });
+        continue;
+      }
+
+      // LLM call succeeded — reset consecutive error counter
+      consecutiveLLMErrors = 0;
 
       // ---- Handle native tool calls (OpenAI API format) ----
       if (response.toolCalls && response.toolCalls.length > 0) {

@@ -624,11 +624,17 @@ chatPanelWidth: 380,
                     calls.push({ tool: data.tool, args: data.args, status: 'running' });
                   } else {
                     // Update the matching entry (last one with same tool name that is running)
+                    let found = false;
                     for (let i = calls.length - 1; i >= 0; i--) {
                       if (calls[i].tool === data.tool && calls[i].status === 'running') {
                         calls[i] = { ...calls[i], status: data.status, result: data.result, error: data.error };
+                        found = true;
                         break;
                       }
+                    }
+                    // If no matching running entry (e.g. _llm_error), add it directly
+                    if (!found) {
+                      calls.push({ tool: data.tool, args: data.args, status: data.status, result: data.result, error: data.error });
                     }
                   }
                   return { streamingToolCalls: calls };

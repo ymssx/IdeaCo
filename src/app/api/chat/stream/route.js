@@ -87,20 +87,73 @@ const MAX_TOOL_ITERATIONS = 999;
 
       try {
         let finalReply = null;
+        let consecutiveLLMErrors = 0;
+        const MAX_LLM_ERRORS = 3;
 
         for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
           let fullRawContent = '';
+          let llmError = null;
 
-          // Stream the LLM response
-          for await (const chunk of sec.chatStream(conversationMessages, streamOptions)) {
-            if (chunk.type === 'thinking') {
-              send('thinking', { content: chunk.content });
-            } else if (chunk.type === 'delta') {
-              send('delta', { content: chunk.content });
-            } else if (chunk.type === 'done') {
-              fullRawContent = chunk.content || fullRawContent;
+          // Wrap the ENTIRE iteration body so that any error (stream, parse, tool exec)
+          // can be caught and fed back into the loop rather than crashing out.
+          try {
+
+          // Stream the LLM response — catch stream-level errors specifically
+          try {
+            for await (const chunk of sec.chatStream(conversationMessages, streamOptions)) {
+              if (chunk.type === 'thinking') {
+                send('thinking', { content: chunk.content });
+              } else if (chunk.type === 'delta') {
+                send('delta', { content: chunk.content });
+              } else if (chunk.type === 'done') {
+                fullRawContent = chunk.content || fullRawContent;
+              }
             }
+          } catch (streamErr) {
+            llmError = streamErr.message || String(streamErr);
+            console.error(`  ⚠️ [${sec.name}] LLM stream error (iteration ${iteration + 1}):`, llmError);
           }
+
+          // If the LLM call itself failed, feed the error back so the model can adapt
+          if (llmError) {
+            consecutiveLLMErrors++;
+
+            // If we've hit too many consecutive errors, bail out
+            if (consecutiveLLMErrors >= MAX_LLM_ERRORS) {
+              console.error(`  ❌ [${sec.name}] ${MAX_LLM_ERRORS} consecutive LLM errors, aborting.`);
+              send('error', { message: llmError });
+              break;
+            }
+
+            // Notify frontend about the LLM error (shown as a tool-call-like event)
+            send('tool_call', { tool: '_llm_error', args: {}, status: 'error', error: llmError });
+
+            // For context-overflow errors, aggressively trim the conversation
+            const isContextOverflow = /context length|token/i.test(llmError);
+            if (isContextOverflow) {
+              // Aggressive trim: keep only system prompt + the last user message
+              const systemMsg = conversationMessages[0];
+              const lastUserMsg = [...conversationMessages].reverse().find(m => m.role === 'user' && !m.content.startsWith('[System Error]'));
+              const trimmedBefore = conversationMessages.length;
+              conversationMessages.length = 0;
+              conversationMessages.push(systemMsg);
+              if (lastUserMsg) conversationMessages.push(lastUserMsg);
+              console.log(`  🔄 [${sec.name}] Trimmed conversation from ${trimmedBefore} to ${conversationMessages.length} messages (context overflow recovery)`);
+            }
+
+            // Append the error as a user message so the next LLM call sees it
+            conversationMessages.push({
+              role: 'user',
+              content: `[System Error] The previous LLM call failed with the following error:\n${llmError}\n\nPlease adapt your response accordingly. If the error is about context length, try to provide a shorter response or summarize previous context. Return your response with an empty "actions" array if you cannot proceed.`,
+            });
+
+            // Reset streaming content on frontend for retry
+            send('delta', { content: '', reset: true });
+            continue;
+          }
+
+          // LLM call succeeded — reset consecutive error counter
+          consecutiveLLMErrors = 0;
 
           // Parse the structured response
           const reply = sec.parseStructuredResponse(fullRawContent, bossChatGroupId);
@@ -154,6 +207,40 @@ const MAX_TOOL_ITERATIONS = 999;
 
           // Reset streaming content on frontend for the new iteration
           send('delta', { content: '', reset: true });
+
+          } catch (iterationErr) {
+            // Catch-all for any unexpected error within this iteration (parse errors, etc.)
+            // Treat it the same way as an LLM error: feed it back into the loop
+            const errMsg = iterationErr.message || String(iterationErr);
+            console.error(`  ⚠️ [${sec.name}] Iteration ${iteration + 1} error (caught for recovery):`, errMsg);
+
+            consecutiveLLMErrors++;
+            if (consecutiveLLMErrors >= MAX_LLM_ERRORS) {
+              console.error(`  ❌ [${sec.name}] ${MAX_LLM_ERRORS} consecutive errors, aborting.`);
+              send('error', { message: errMsg });
+              break;
+            }
+
+            send('tool_call', { tool: '_iteration_error', args: {}, status: 'error', error: errMsg });
+
+            // For context-overflow errors, aggressively trim
+            const isContextOverflow = /context length|token/i.test(errMsg);
+            if (isContextOverflow) {
+              const systemMsg = conversationMessages[0];
+              const lastUserMsg = [...conversationMessages].reverse().find(m => m.role === 'user' && !m.content.startsWith('[System Error]'));
+              conversationMessages.length = 0;
+              conversationMessages.push(systemMsg);
+              if (lastUserMsg) conversationMessages.push(lastUserMsg);
+            }
+
+            conversationMessages.push({
+              role: 'user',
+              content: `[System Error] An error occurred during this iteration:\n${errMsg}\n\nPlease adapt your response accordingly. Return your response with an empty "actions" array if you cannot proceed.`,
+            });
+
+            send('delta', { content: '', reset: true });
+            continue;
+          }
         }
 
         // If we exhausted iterations without a final reply, use the last one
