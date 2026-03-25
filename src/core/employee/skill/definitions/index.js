@@ -10,6 +10,7 @@
  * 3. Import and spread it into the builtinSkillConfigs array below
  */
 
+import { basicOperationsSkills } from './basic-operations.js';
 import { codingSkills } from './coding.js';
 import { analysisSkills } from './analysis.js';
 import { creativeSkills } from './creative.js';
@@ -24,6 +25,7 @@ import { managementSkills } from './management.js';
  * Each config is a plain object passed to `new SkillDefinition(config)`.
  */
 export const builtinSkillConfigs = [
+  ...basicOperationsSkills,
   ...codingSkills,
   ...analysisSkills,
   ...creativeSkills,

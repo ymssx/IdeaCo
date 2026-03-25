@@ -3,7 +3,7 @@ import path from 'path';
 import { ProviderRegistry, ModelProviders, JobCategory, JobCategoryLabel } from './workforce/providers.js';
 import { HRSystem, JobTemplates } from './workforce/hr.js';
 import { Department } from './department.js';
-import { Employee, createEmployee, deserializeEmployee, Secretary } from '../employee/index.js';
+import { Employee, GeneralEmployee, Leader, createEmployee, deserializeEmployee, Secretary } from '../employee/index.js';
 import { LLMAgent, CLIAgent, WebAgent } from '../agent/index.js';
 import { PerformanceSystem } from '../employee/performance.js';
 import { TalentMarket } from './workforce/talent-market.js';
@@ -270,6 +270,10 @@ export class Company {
         const recruitConfig = this._smartRecruit(
           { templateId: memberPlan.templateId, name: memberPlan.name, preferRecall: true },
         );
+        // Mark leader employees so createEmployee picks the Leader class
+        if (memberPlan.isLeader) {
+          recruitConfig.employeeClass = 'leader';
+        }
         const employee = createEmployee(recruitConfig);
 
         if (recruitConfig.cliBackend) {

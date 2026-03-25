@@ -21,10 +21,10 @@ import { EmployeeSkillSet } from './skill/skill-set.js';
  */
 export class Secretary extends Employee {
   constructor({ company, providerConfig, secretaryName, secretaryAvatar, secretaryGender, secretaryAge }) {
-    // Build a proper EmployeeSkillSet with company-management enabled (not legacy)
+    // Build a proper EmployeeSkillSet with company-management and basic-operations
     const skillSet = new EmployeeSkillSet('secretary', {
-      enabledSkills: ['company-management'],
-      pinnedSkills: ['company-management'],
+      enabledSkills: ['company-management', 'basic-operations'],
+      pinnedSkills: ['company-management', 'basic-operations'],
     });
 
     super({
@@ -37,5 +37,6 @@ export class Secretary extends Employee {
       gender: secretaryGender || 'female',
       age: secretaryAge || 18,
     });
+    this.employeeClass = 'secretary';
   }
 }

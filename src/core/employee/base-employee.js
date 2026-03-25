@@ -165,6 +165,10 @@ export class Employee {
     this._sessionMessageCount = 0; // Track total messages in current web session (for auto-refresh)
     this._maxSessionMessages = 50; // Max messages before forcing a new web session
 
+    // Employee class identifier for serialization routing
+    // Subclasses override this in their constructor (e.g. 'leader', 'secretary')
+    this.employeeClass = 'general';
+
     // Stamina system — tracks patience, fatigue, stress, and comfort
     this.stamina = new StaminaSystem();
 
@@ -989,7 +993,6 @@ ${scenePrompt}`;
    * Other tools only show name + description (use get_tool_detail to inspect).
    */
   static CORE_TOOLS = new Set([
-    'shell_exec',
     'send_message',
     'load_skill',
     'get_tool_detail',
@@ -999,9 +1002,14 @@ ${scenePrompt}`;
   /**
    * Build the Tool Define section for the system prompt.
    *
-   * Core tools (shell, messaging, discovery) get full parameter docs.
-   * Other tools show only name + one-line description — the agent can call
-   * get_tool_detail to inspect full parameters before using them.
+   * Progressive disclosure strategy:
+   * - **Core tools** (messaging, skill/tool discovery): always shown with full parameter docs.
+   * - **Other tools**: NOT listed here at all. They are discovered through skills.
+   *   When a skill is pinned, its associated tools are disclosed in the Skill Define section.
+   *   When a skill is loaded on-demand, ToolLoop auto-escalates the required tools.
+   *
+   * This keeps the system prompt lean — the agent learns about tools through its skills,
+   * not through a massive upfront tool catalog.
    *
    * @returns {string} Complete "## Tool Define" section
    */
@@ -1011,40 +1019,27 @@ ${scenePrompt}`;
     const defs = this.toolKit.definitions;
     if (!defs || defs.length === 0) return '';
 
-    const coreDefs = [];
-    const otherDefs = [];
-
-    for (const def of defs) {
+    // Only show core tools in the Tool Define section
+    const coreDefs = defs.filter(def => {
       const fn = def.function;
-      if (!fn) continue;
-      if (Employee.CORE_TOOLS.has(fn.name)) {
-        coreDefs.push(def);
-      } else {
-        otherDefs.push(def);
-      }
-    }
+      return fn && Employee.CORE_TOOLS.has(fn.name);
+    });
 
     let section = `\n## Tool Define\n`;
-    section += `You have access to the following tools. Use them via the "actions" array in your JSON response.\n`;
+    section += `You have tools available via your skills. Use them via the "actions" array in your JSON response.\n`;
     section += `All file operations are scoped to your workspace directory.\n\n`;
 
     // Core tools: full parameter documentation
     if (coreDefs.length > 0) {
-      section += `### Core Tools (full reference)\n\n`;
+      section += `### Core Tools (always available)\n\n`;
       for (const def of coreDefs) {
         section += this._formatToolFull(def) + '\n\n';
       }
     }
 
-    // Other tools: brief catalog
-    if (otherDefs.length > 0) {
-      section += `### Other Tools (call get_tool_detail for full parameters)\n`;
-      for (const def of otherDefs) {
-        const fn = def.function;
-        section += `- **${fn.name}**: ${fn.description || '(no description)'}\n`;
-      }
-      section += `\n> To use any tool above, call get_tool_detail first to see its exact parameters.\n`;
-    }
+    section += `> **Tool Discovery**: Your skills define what tools you can use. Pinned skills list their tools below.\n`;
+    section += `> For other skills, call **load_skill** to see its full instructions and unlock its tools.\n`;
+    section += `> Use **get_tool_detail** to inspect any tool's exact parameters before calling it.\n`;
 
     // Teamwork & collaboration guidance
     section += `\n### Teamwork & Collaboration (IMPORTANT)\n`;
@@ -1122,7 +1117,7 @@ ${scenePrompt}`;
     } catch {}
 
     if (resolvedSkills.length === 0) {
-      return `\n## Skill Define\nYou have no specialized skills installed. You can perform general tasks using your tools.\n`;
+      return `\n## Skill Define\nYou have no specialized skills installed. You can perform general tasks using your core tools.\n`;
     }
 
     const pinned = this.skillSet.pinnedSkills;
@@ -1130,23 +1125,41 @@ ${scenePrompt}`;
     const otherSkills = resolvedSkills.filter(s => !pinned.has(s.id));
 
     let section = `\n## Skill Define\n`;
-    section += `These are your installed skills that define your specialized capabilities.\n\n`;
+    section += `Your skills define your specialized capabilities and determine which tools you can use.\n\n`;
 
-    // Pinned skills: full L2 body inlined
+    // Pinned skills: full L2 body inlined + associated tool disclosure
     if (pinnedSkills.length > 0) {
       for (const s of pinnedSkills) {
         const body = s.getBody();
-        section += `### ${s.icon || '⚡'} ${s.name} [pinned]\n${body}\n\n`;
+        section += `### ${s.icon || '⚡'} ${s.name} [pinned]\n${body}\n`;
+
+        // Disclose the tools associated with this pinned skill
+        if (s.requiredTools && s.requiredTools.length > 0 && this.toolKit) {
+          const allDefs = this.toolKit.definitions;
+          const skillToolDefs = allDefs.filter(d => {
+            const name = d.function?.name;
+            return name && s.requiredTools.includes(name);
+          });
+          if (skillToolDefs.length > 0) {
+            section += `\n**Available tools from this skill** (use get_tool_detail for full parameters):\n`;
+            for (const def of skillToolDefs) {
+              const fn = def.function;
+              section += `- **${fn.name}**: ${fn.description || '(no description)'}\n`;
+            }
+          }
+        }
+        section += `\n`;
       }
     }
 
-    // Other enabled skills: L1 metadata only
+    // Other enabled skills: L1 metadata only — encourage on-demand loading
     if (otherSkills.length > 0) {
-      section += `### Other Skills (call get_skill_detail or load_skill for full instructions)\n`;
+      section += `### Other Skills (call load_skill to see full instructions and unlock tools)\n`;
       for (const s of otherSkills) {
         section += `- **${s.name}** (${s.id}): ${s.description}\n`;
       }
-      section += `\n> Before using an unfamiliar skill, call get_skill_detail to see its full workflow.\n`;
+      section += `\n> When a task matches one of these skills, call **load_skill** with the skill ID.\n`;
+      section += `> This will show you the full workflow AND automatically unlock the skill's tools.\n`;
     }
 
     return section;
@@ -1820,6 +1833,8 @@ Do not use any code, tool calls, or technical instructions — reply in natural 
     return {
       // Agent layer
       ...this.agent.serializeAgent(),
+      // Class routing — used by deserializeEmployee to pick the right concrete class
+      employeeClass: this.employeeClass,
       // Employee identity
       id: this.id,
       name: this.name,
