@@ -4,19 +4,16 @@
  */
 import { create } from 'zustand';
 import { normalizeAvatarUrl } from '@/lib/avatar';
+import { getCurrentLangCode } from '@/lib/i18n';
 
 const API_BASE = '/api';
 
 /**
  * Get the current user language for API requests.
- * Reads from localStorage (set by the i18n provider).
+ * Reads from the i18n module-level state (synced with Company.language).
  */
 function getCurrentLang() {
-  try {
-    return (typeof localStorage !== 'undefined' && localStorage.getItem('idea-unlimited-lang')) || 'en';
-  } catch {
-    return 'en';
-  }
+  return getCurrentLangCode();
 }
 
 async function apiCall(url, options = {}) {
@@ -320,9 +317,10 @@ chatPanelWidth: 380,
   createCompany: async (companyName, bossName, secretaryConfig) => {
     set({ loading: true, error: null });
     try {
+      const lang = getCurrentLang();
       const data = await apiCall('/company', {
         method: 'POST',
-        body: JSON.stringify({ companyName, bossName, secretaryConfig }),
+        body: JSON.stringify({ companyName, bossName, secretaryConfig, language: lang }),
       });
       set({ company: normalizeCompanyAvatars(data.data), loading: false });
       return data.data;

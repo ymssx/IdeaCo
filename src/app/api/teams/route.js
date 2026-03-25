@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getCompany } from '@/lib/store';
 import { getApiT } from '@/lib/api-i18n';
+import { getAppLanguageName } from '@/core/utils/app-language.js';
 
 /**
  * Teams Management API
@@ -323,7 +324,7 @@ ${ageStyle}
 ${scenario}
 
 IMPORTANT: Stay in character. Your reply should reflect your personality, age, and speaking style. DO NOT sound like a polite AI assistant. Be natural, opinionated, and real.
-Speak in the same language as the conversation (match the sprint goal language).`;
+Speak in ${getAppLanguageName()}. This is mandatory.`;
           };
 
           // Helper: get recent chat as context string
@@ -507,7 +508,7 @@ Be concise, professional, and appreciative. Show you actually listened.`),
                 content: `You are "${leader.name}", team leader. Your team has discussed the sprint plan and given feedback. Now revise the plan incorporating the valid suggestions.
 
 Output ONLY the revised plan in markdown format. Keep it concise and actionable.
-Speak in the same language as the original plan.`,
+Speak in ${getAppLanguageName()}.`,
               },
               { role: 'user', content: `Original plan:\n${sprint.plan}\n\nFull team discussion:\n${getChatContext()}\n\nOutput the REVISED plan incorporating the team's feedback:` },
             ], { temperature: 0.5, maxTokens: 2048 });
@@ -630,9 +631,9 @@ Speak in the same language as the original plan.`,
           ).join('\n');
 
           const systemPrompts = {
-            [SS.PENDING_APPROVAL]: `You are "${leader.name}", team leader for sprint "${sprint.title}". The plan has been submitted and is awaiting Boss's approval. Boss is now giving feedback or suggestions on the plan. Listen carefully, acknowledge the feedback, explain how you will adjust the plan accordingly, and update the approach. Be concise and professional. Speak in the same language as the conversation.`,
-            [SS.DISCUSSING]: `You are "${leader.name}", team leader for sprint "${sprint.title}". The team is currently discussing the sprint plan. Boss is participating in the discussion. Respond to Boss's input, incorporate suggestions, and coordinate with the team. Be concise and professional. Speak in the same language as the conversation.`,
-            [SS.IN_PROGRESS]: `You are "${leader.name}", team leader for sprint "${sprint.title}". Boss just sent a message. Respond briefly and professionally. If Boss is giving instructions, acknowledge and explain how you'll handle it. Speak in the same language as the conversation.`,
+            [SS.PENDING_APPROVAL]: `You are "${leader.name}", team leader for sprint "${sprint.title}". The plan has been submitted and is awaiting Boss's approval. Boss is now giving feedback or suggestions on the plan. Listen carefully, acknowledge the feedback, explain how you will adjust the plan accordingly, and update the approach. Be concise and professional. Speak in ${getAppLanguageName()}.`,
+            [SS.DISCUSSING]: `You are "${leader.name}", team leader for sprint "${sprint.title}". The team is currently discussing the sprint plan. Boss is participating in the discussion. Respond to Boss's input, incorporate suggestions, and coordinate with the team. Be concise and professional. Speak in ${getAppLanguageName()}.`,
+            [SS.IN_PROGRESS]: `You are "${leader.name}", team leader for sprint "${sprint.title}". Boss just sent a message. Respond briefly and professionally. If Boss is giving instructions, acknowledge and explain how you'll handle it. Speak in ${getAppLanguageName()}.`,
           };
 
           const reply = await leader.chat([
@@ -657,7 +658,7 @@ Speak in the same language as the original plan.`,
                 const planReply = await leader.chat([
                   {
                     role: 'system',
-                    content: `You are "${leader.name}", team leader. Boss has given feedback on your sprint plan. Update the plan based on Boss's feedback. Output ONLY the revised plan in the same format (markdown). Keep it concise. Speak in the same language as the original plan.`,
+                    content: `You are "${leader.name}", team leader. Boss has given feedback on your sprint plan. Update the plan based on Boss's feedback. Output ONLY the revised plan in the same format (markdown). Keep it concise. Speak in ${getAppLanguageName()}.`,
                   },
                   { role: 'user', content: `Original plan:\n${sprint.plan}\n\nBoss feedback: ${message}\n\nYour response to Boss: ${reply.content}\n\nNow output the revised plan:` },
                 ], { temperature: 0.5, maxTokens: 2048 });
@@ -688,7 +689,7 @@ Speak in the same language as the original plan.`,
                     const feedbackResp = await agent.chat([
                       {
                         role: 'system',
-                        content: `${traitStyle}\n\nYou are "${agent.name}", ${agent.gender || 'male'}, age ${agent.age || 28}, working as "${agent.role}".\nTone: ${p.tone || 'professional'}. Quirk: ${p.quirk || 'none'}.\n\n${ageStyle}\n\n---\n\nYour team leader just revised the sprint plan based on Boss's feedback. Now it's your turn to review the REVISED plan and give your opinion.\n\nYour expertise: ${agent.role}, skills: [${(agent.skills || []).join(', ')}]\n\nREQUIREMENTS:\n1. Comment on whether the revisions address Boss's concerns\n2. Point out any issues or improvements you see in the NEW plan\n3. If you have additional suggestions, propose them\n4. Keep it concise (2-4 sentences)\n\nDO NOT just say "looks good". Give REAL, specific feedback. Stay in character.\nSpeak in the same language as the conversation.`,
+                        content: `${traitStyle}\n\nYou are "${agent.name}", ${agent.gender || 'male'}, age ${agent.age || 28}, working as "${agent.role}".\nTone: ${p.tone || 'professional'}. Quirk: ${p.quirk || 'none'}.\n\n${ageStyle}\n\n---\n\nYour team leader just revised the sprint plan based on Boss's feedback. Now it's your turn to review the REVISED plan and give your opinion.\n\nYour expertise: ${agent.role}, skills: [${(agent.skills || []).join(', ')}]\n\nREQUIREMENTS:\n1. Comment on whether the revisions address Boss's concerns\n2. Point out any issues or improvements you see in the NEW plan\n3. If you have additional suggestions, propose them\n4. Keep it concise (2-4 sentences)\n\nDO NOT just say "looks good". Give REAL, specific feedback. Stay in character.\nSpeak in ${getAppLanguageName()}.`,
                       },
                       { role: 'user', content: `Recent discussion:\n${recentMsgs}\n\nBoss's feedback: ${message}\n\nRevised plan:\n${sprint.plan}\n\nGive your feedback on the revised plan.` },
                     ], { temperature: 0.8, maxTokens: 400 });
@@ -713,7 +714,7 @@ Speak in the same language as the original plan.`,
                     const wrapResp = await leader.chat([
                       {
                         role: 'system',
-                        content: `You are "${leader.name}", team leader. Boss gave feedback, you revised the plan, and team members have reviewed the revision. Now briefly acknowledge the team's input and confirm the plan is updated. Be concise (2-3 sentences). Speak in the same language as the conversation.`,
+                        content: `You are "${leader.name}", team leader. Boss gave feedback, you revised the plan, and team members have reviewed the revision. Now briefly acknowledge the team's input and confirm the plan is updated. Be concise (2-3 sentences). Speak in ${getAppLanguageName()}.`,
                       },
                       { role: 'user', content: `Discussion:\n${finalChat}\n\nWrap up briefly.` },
                     ], { temperature: 0.7, maxTokens: 256 });
@@ -726,7 +727,7 @@ Speak in the same language as the original plan.`,
                     const finalPlan = await leader.chat([
                       {
                         role: 'system',
-                        content: `You are "${leader.name}", team leader. Revise the plan one more time incorporating the team's latest feedback. Output ONLY the revised plan in markdown. Keep the same language.`,
+                        content: `You are "${leader.name}", team leader. Revise the plan one more time incorporating the team's latest feedback. Output ONLY the revised plan in markdown. Respond in ${getAppLanguageName()}.`,
                       },
                       { role: 'user', content: `Current plan:\n${sprint.plan}\n\nTeam feedback:\n${finalChat}\n\nOutput the final revised plan:` },
                     ], { temperature: 0.5, maxTokens: 2048 });

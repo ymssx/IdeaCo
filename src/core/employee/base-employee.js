@@ -904,7 +904,12 @@ ${scenePrompt}`;
   _buildSystemMessage({ lang } = {}) {
     // Note: `lang` parameter is deprecated. Language is now read from Company.language
     //       via the app-language module. Kept for backward compatibility.
-    let systemContent = this.prompt + '\n\n';
+    const { opening: langOpening, closing: langClosing } = buildLanguageInstruction();
+
+    // Language instruction at the very beginning (opening pincer)
+    let systemContent = langOpening;
+
+    systemContent += this.prompt + '\n\n';
 
     if (this.templateId) {
       const archetypePrompt = buildArchetypePrompt(this.templateId);
@@ -941,8 +946,8 @@ ${scenePrompt}`;
 
     systemContent += this._buildSkillDefine();
 
-    // Enforce response language based on company language setting
-    systemContent += buildLanguageInstruction();
+    // Enforce response language at the end (closing pincer)
+    systemContent += langClosing;
 
     return systemContent;
   }

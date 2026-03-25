@@ -116,15 +116,21 @@ export function getSupportedLanguages() {
 }
 
 /**
- * Build a language enforcement instruction for LLM system prompts.
+ * Build language enforcement instructions for LLM system prompts.
+ *
+ * Returns an object with `opening` (placed at the very beginning of the prompt)
+ * and `closing` (placed at the very end), creating a "pincer" effect that
+ * strongly reinforces the language requirement.
  *
  * When an explicit `lang` is provided it takes precedence; otherwise
  * the Company-bound language is used.
  *
  * @param {string} [lang] - Optional explicit override
- * @returns {string}
+ * @returns {{ opening: string, closing: string }}
  */
 export function buildLanguageInstruction(lang) {
   const langName = lang ? getLanguageNameByCode(lang) : getAppLanguageName();
-  return `\n## Response Language (MANDATORY)\nYou MUST respond in ${langName}. All your messages, reports, summaries, and deliverables MUST be written in ${langName}. This applies to all conversations, task outputs, and any text you generate. Only code, technical identifiers, and file paths may remain in their original language.\n`;
+  const opening = `## ⚠️ Response Language: ${langName} (MANDATORY)\nYou MUST respond in **${langName}**. This rule applies to ALL outputs without exception.\n\n`;
+  const closing = `\n## ⚠️ REMINDER: Response Language — ${langName}\nThis is a final mandatory reminder: ALL your responses, messages, reports, summaries, task outputs, and deliverables MUST be written in **${langName}**. Only code, technical identifiers, and file paths may remain in their original language. Violating this rule is unacceptable.\n`;
+  return { opening, closing };
 }
