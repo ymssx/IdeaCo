@@ -32,6 +32,9 @@ export { getCommunicationToolDefinitions, createCommunicationToolHandlers } from
 // Skill tools — on-demand skill loading (L2 progressive disclosure)
 export { getSkillToolDefinitions, createSkillToolHandlers } from './skill-tools.js';
 
+// Discovery tools — progressive disclosure: inspect tool/skill details on demand
+export { getDiscoveryToolDefinitions, createDiscoveryToolHandlers } from './discovery-tools.js';
+
 // Management tools — company operations (departments, tasks, talent, etc.)
 export {
   ManagementPermissions,

@@ -929,30 +929,7 @@ ${scenePrompt}`;
     systemContent += getAgeStyle(this.age) + '\n';
 
     if (this.toolKit) {
-      systemContent += `\n## Available Tools\n`;
-      systemContent += `Built-in tools: file_read (read file), file_write (create/write file), file_list (list directory), file_delete (delete file), mkdir (create directories), shell_exec (execute command), send_message (send message to colleague for collaboration and feedback), load_skill (load full instructions for a skill).\n`;
-      systemContent += `\n**Teamwork & Collaboration (IMPORTANT)**:\n`;
-      systemContent += `- You are part of a team! Proactively communicate with colleagues using send_message.\n`;
-      systemContent += `- When working in parallel, coordinate to avoid duplicate work and share discoveries.\n`;
-      systemContent += `- Use @Name format when addressing colleagues in messages.\n`;
-      systemContent += `- If you notice something relevant to a colleague's task, share it immediately.\n`;
-      systemContent += `- Don't work in isolation — great teams communicate frequently!\n`;
-
-      systemContent += `\nAll file operations are within your workspace directory. Please actively use tools to produce actual work output.\n`;
-      systemContent += `**Efficiency requirement: Plan all needed operations at once and batch related tool calls. However, ALWAYS verify critical results after execution — verification is NOT optional overhead, it is a core part of completing work. After creating files or directories, use file_list or shell_exec ls to confirm they actually exist on disk before reporting completion.**\n`;
-
-      // Generic tool-call enforcement — applies to ALL skills
-      systemContent += `\n**Tool Execution via Actions (CRITICAL)**:\n`;
-      systemContent += `- Your skills grant you specific tools (listed in each skill description above). To call these tools, put them in the "actions" array of your JSON response.\n`;
-      systemContent += `- When a task requires an operation, you MUST include the corresponding tool call in "actions" — not just describe it in text.\n`;
-      systemContent += `- NEVER fabricate or simulate results. If you say "done" without an action, nothing actually happened.\n`;
-
-      // Anti-hallucination: ground truth constraints
-      systemContent += `\n## Ground Truth Rules (ALWAYS FOLLOW)\n`;
-      systemContent += `- **File verification (MANDATORY)**: After writing files or creating directories, you MUST use file_list or file_read to verify they actually exist on disk. A successful tool call does NOT guarantee the result — always confirm. Before claiming any file exists, verify with tools. Never assume.\n`;
-      systemContent += `- **No fictional time**: You execute tasks in real-time (seconds to minutes). NEVER say "by end of day", "tomorrow", "this afternoon", "give me a few hours", "before deadline", etc. These time references are fictional — you don't have a clock or schedule. Just DO the work NOW.\n`;
-      systemContent += `- **Concrete deliverables**: When reporting completion, state EXACTLY what you produced (file paths, content summaries). Never say "I've prepared the document" without specifying the actual file path.\n`;
-      systemContent += `- **Read before reference**: If a colleague says they delivered files, READ them with file_read before acting on them. Do not trust text summaries alone.\n`;
+      systemContent += this._buildToolDefine();
     }
 
     try {
@@ -960,16 +937,7 @@ ${scenePrompt}`;
       if (kbPrompt) systemContent += kbPrompt;
     } catch {}
 
-    // Skills prompt with progressive disclosure:
-    // - Pinned skills: L2 body inlined (LLM sees full workflow immediately)
-    // - Other skills: L1 metadata only (loaded on-demand via load_skill tool)
-    try {
-      const resolvedSkills = this.skillSet.resolve(skillRegistry);
-      const skillsPrompt = skillRegistry.buildSkillsPrompt(resolvedSkills, {
-        pinnedSkillIds: this.skillSet.pinnedSkills,
-      });
-      if (skillsPrompt) systemContent += skillsPrompt;
-    } catch {}
+    systemContent += this._buildSkillDefine();
 
     // Enforce response language based on current UI language
     systemContent += buildLanguageInstruction(lang);
@@ -1014,15 +982,176 @@ ${scenePrompt}`;
 - Only update when something noteworthy happened. [] if nothing to update.`;
   }
 
+  // ======================== Tool & Skill Define ========================
+
   /**
-   * Build the structured JSON response format for boss 1v1 chat.
-   * Used by both secretary (handleBossMessage) and company (chatWithAgent).
-   * Subclasses can extend the JSON schema by appending extra fields.
+   * Core tool names that get full parameter documentation in the prompt.
+   * Other tools only show name + description (use get_tool_detail to inspect).
+   */
+  static CORE_TOOLS = new Set([
+    'shell_exec',
+    'send_message',
+    'load_skill',
+    'get_tool_detail',
+    'get_skill_detail',
+  ]);
+
+  /**
+   * Build the Tool Define section for the system prompt.
    *
-   * @param {Object} [options]
-   * @param {string} [options.extraFields] - Additional JSON fields to include in the schema example
+   * Core tools (shell, messaging, discovery) get full parameter docs.
+   * Other tools show only name + one-line description — the agent can call
+   * get_tool_detail to inspect full parameters before using them.
+   *
+   * @returns {string} Complete "## Tool Define" section
+   */
+  _buildToolDefine() {
+    if (!this.toolKit) return '';
+
+    const defs = this.toolKit.definitions;
+    if (!defs || defs.length === 0) return '';
+
+    const coreDefs = [];
+    const otherDefs = [];
+
+    for (const def of defs) {
+      const fn = def.function;
+      if (!fn) continue;
+      if (Employee.CORE_TOOLS.has(fn.name)) {
+        coreDefs.push(def);
+      } else {
+        otherDefs.push(def);
+      }
+    }
+
+    let section = `\n## Tool Define\n`;
+    section += `You have access to the following tools. Use them via the "actions" array in your JSON response.\n`;
+    section += `All file operations are scoped to your workspace directory.\n\n`;
+
+    // Core tools: full parameter documentation
+    if (coreDefs.length > 0) {
+      section += `### Core Tools (full reference)\n\n`;
+      for (const def of coreDefs) {
+        section += this._formatToolFull(def) + '\n\n';
+      }
+    }
+
+    // Other tools: brief catalog
+    if (otherDefs.length > 0) {
+      section += `### Other Tools (call get_tool_detail for full parameters)\n`;
+      for (const def of otherDefs) {
+        const fn = def.function;
+        section += `- **${fn.name}**: ${fn.description || '(no description)'}\n`;
+      }
+      section += `\n> To use any tool above, call get_tool_detail first to see its exact parameters.\n`;
+    }
+
+    // Teamwork & collaboration guidance
+    section += `\n### Teamwork & Collaboration (IMPORTANT)\n`;
+    section += `- You are part of a team! Proactively communicate with colleagues using send_message.\n`;
+    section += `- When working in parallel, coordinate to avoid duplicate work and share discoveries.\n`;
+    section += `- Use @Name format when addressing colleagues in messages.\n`;
+    section += `- If you notice something relevant to a colleague's task, share it immediately.\n`;
+
+    // Efficiency & ground truth rules
+    section += `\n### Working Rules\n`;
+    section += `- **Batch operations**: Plan all needed operations at once and batch related tool calls.\n`;
+    section += `- **Verify results (MANDATORY)**: After creating files/directories, use file_list or file_read to confirm they exist on disk. Never assume — always verify.\n`;
+    section += `- **Tool calls via actions only**: When a task requires an operation, you MUST include the tool call in "actions" — text alone does nothing. NEVER fabricate results.\n`;
+    section += `- **No fictional time**: Execute tasks NOW. Never say "by end of day", "tomorrow", etc.\n`;
+    section += `- **Concrete deliverables**: Report EXACTLY what you produced (file paths, content summaries).\n`;
+    section += `- **Read before reference**: If a colleague says they delivered files, READ them with file_read before acting on them.\n`;
+
+    return section;
+  }
+
+  /**
+   * Format a single tool definition with full parameter documentation.
+   * @param {object} def - OpenAI function calling format definition
    * @returns {string}
    */
+  _formatToolFull(def) {
+    const fn = def.function;
+    if (!fn) return '';
+
+    let doc = `#### ${fn.name}\n${fn.description || '(no description)'}`;
+
+    const params = fn.parameters;
+    if (params && params.properties && Object.keys(params.properties).length > 0) {
+      const required = new Set(params.required || []);
+      const paramLines = Object.entries(params.properties).map(([name, schema]) => {
+        const req = required.has(name) ? '(required)' : '(optional)';
+        const type = schema.type || 'any';
+        const desc = schema.description || '';
+        if (type === 'array' && schema.items) {
+          const itemProps = schema.items.properties;
+          if (itemProps) {
+            const itemFields = Object.entries(itemProps).map(([k, v]) => {
+              const itemReq = (schema.items.required || []).includes(k) ? '(required)' : '(optional)';
+              return `      - ${k}: ${v.type || 'any'} ${itemReq} — ${v.description || ''}`;
+            }).join('\n');
+            return `  - ${name}: array ${req} — ${desc}\n    Item fields:\n${itemFields}`;
+          }
+        }
+        let line = `  - ${name}: ${type} ${req} — ${desc}`;
+        if (schema.enum) line += ` (values: ${schema.enum.join(', ')})`;
+        return line;
+      });
+      doc += `\nParameters:\n${paramLines.join('\n')}`;
+    } else {
+      doc += `\nParameters: (none)`;
+    }
+
+    return doc;
+  }
+
+  /**
+   * Build the Skill Define section for the system prompt.
+   *
+   * Only shows skills the employee has installed (enabled/pinned in their SkillSet).
+   * - Pinned skills: full L2 body inlined (LLM sees complete workflow)
+   * - Enabled skills: L1 metadata only (use get_skill_detail or load_skill to inspect)
+   * - No skills installed: tells the agent they have no specialized skills
+   *
+   * @returns {string} Complete "## Skill Define" section
+   */
+  _buildSkillDefine() {
+    let resolvedSkills = [];
+    try {
+      resolvedSkills = this.skillSet.resolve(skillRegistry);
+    } catch {}
+
+    if (resolvedSkills.length === 0) {
+      return `\n## Skill Define\nYou have no specialized skills installed. You can perform general tasks using your tools.\n`;
+    }
+
+    const pinned = this.skillSet.pinnedSkills;
+    const pinnedSkills = resolvedSkills.filter(s => pinned.has(s.id));
+    const otherSkills = resolvedSkills.filter(s => !pinned.has(s.id));
+
+    let section = `\n## Skill Define\n`;
+    section += `These are your installed skills that define your specialized capabilities.\n\n`;
+
+    // Pinned skills: full L2 body inlined
+    if (pinnedSkills.length > 0) {
+      for (const s of pinnedSkills) {
+        const body = s.getBody();
+        section += `### ${s.icon || '⚡'} ${s.name} [pinned]\n${body}\n\n`;
+      }
+    }
+
+    // Other enabled skills: L1 metadata only
+    if (otherSkills.length > 0) {
+      section += `### Other Skills (call get_skill_detail or load_skill for full instructions)\n`;
+      for (const s of otherSkills) {
+        section += `- **${s.name}** (${s.id}): ${s.description}\n`;
+      }
+      section += `\n> Before using an unfamiliar skill, call get_skill_detail to see its full workflow.\n`;
+    }
+
+    return section;
+  }
+
   /**
    * Build a human-readable tool reference from the employee's toolKit definitions.
    * Converts OpenAI function-calling format into a clear schema description
@@ -1093,8 +1222,8 @@ feed the results back to you, and you continue until all work is done (like a to
 - "actions" is an ARRAY — you can call multiple tools in one response.
 - Set "actions" to [] (empty array) if no tool calls are needed.
 - Each action object: { "tool": "<tool_name>", "args": { <parameters> } }
-  - tool_name must match one of the tools listed in the Tool Reference.
-  - args must match the tool's parameter schema exactly.
+  - tool_name must match one of the tools listed in "Tool Define" section.
+  - args must match the tool's parameter schema exactly. Use get_tool_detail if unsure about parameters.
 - The system executes actions in order; results take real effect.
 - **NEVER describe an action in "content" without putting it in "actions"** — text alone does nothing.
 - After actions execute, you will receive the results and can continue working.
@@ -1102,7 +1231,6 @@ feed the results back to you, and you continue until all work is done (like a to
   }
 
   _buildBossChatResponseFormat() {
-    const toolReference = this._buildToolReference();
     const actionsProtocol = this._buildActionsProtocol();
 
     return `
@@ -1166,8 +1294,6 @@ Step 3 — System confirms creation, then you return:
 
 ${actionsProtocol}
 
-${toolReference}
-
 ${this._buildMemoryInstructions()}
 
 ${this._buildRelationshipInstructions()}
@@ -1191,7 +1317,6 @@ ${this._buildRelationshipInstructions()}
    * @returns {string}
    */
   _buildGroupChatResponseFormat({ scenario = 'work' } = {}) {
-    const toolReference = this._buildToolReference();
     const actionsProtocol = this._buildActionsProtocol();
     const isDept = scenario === 'dept';
 
@@ -1238,8 +1363,6 @@ Your reply MUST be a JSON object (return JSON only, nothing else):
 ${!isDept ? '- When mentioning files, use [[file:relative/path]] format so others can click to view the file.' : ''}
 
 ${actionsProtocol}
-
-${toolReference}
 
 ${this._buildMemoryInstructions()}
 

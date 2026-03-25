@@ -27,6 +27,7 @@ import { getSearchToolDefinitions, createSearchToolHandlers } from '../employee/
 import { getShellToolDefinitions, createShellToolHandlers } from '../employee/tools/shell-tools.js';
 import { getCommunicationToolDefinitions, createCommunicationToolHandlers } from '../employee/tools/communication-tools.js';
 import { getSkillToolDefinitions, createSkillToolHandlers } from '../employee/tools/skill-tools.js';
+import { getDiscoveryToolDefinitions, createDiscoveryToolHandlers } from '../employee/tools/discovery-tools.js';
 
 /**
  * Agent Tool Kit — Each Agent instance holds one ToolKit.
@@ -76,6 +77,7 @@ export class AgentToolKit {
       createShellToolHandlers(toolContext),
       createCommunicationToolHandlers(toolContext),
       createSkillToolHandlers(),
+      createDiscoveryToolHandlers({ employee }),
     ];
     for (const handlerMap of handlerSources) {
       for (const [name, handler] of handlerMap) {
@@ -128,6 +130,7 @@ export class AgentToolKit {
       ...getShellToolDefinitions(),
       ...getCommunicationToolDefinitions(),
       ...getSkillToolDefinitions(),
+      ...getDiscoveryToolDefinitions(),
     ];
 
     // Employee permission set for filtering restricted tools

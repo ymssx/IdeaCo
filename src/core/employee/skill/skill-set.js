@@ -121,8 +121,8 @@ export class EmployeeSkillSet {
    */
   resolve(skillRegistry) {
     if (this.enabledSkills.size === 0 && this.pinnedSkills.size === 0) {
-      // No explicit skill selection — return all globally enabled skills
-      return skillRegistry.getEnabledSkills();
+      // No explicit skill selection — return empty (only installed skills should be disclosed)
+      return [];
     }
 
     const result = [];
