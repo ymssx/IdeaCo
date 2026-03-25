@@ -23,8 +23,6 @@ import path from 'path';
 import { existsSync } from 'fs';
 import {
   PROMPT,
-  getTraitStyle,
-  getAgeStyle,
   getFewShotExamples,
   getFallbackReplies,
 } from '../prompts.js';
@@ -686,10 +684,22 @@ const { groupChatLoop } = await import('../organization/group-chat-loop.js');
         return this._fallbackThink(groupId, isMentioned, recentMessages);
       }
 
-      const response = await agent.chat([
+      // Use chatWithTools (same as boss 1-on-1 chat) so the employee can execute
+      // tool calls via the actions protocol in the JSON response.
+      // ToolLoop automatically detects JSON actions, executes them, and loops
+      // until actions is empty — the final response contains the complete JSON.
+      const chatMessages = [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
-      ], { temperature: 0.95, maxTokens: 1024 });
+      ];
+      let response;
+      if (agent.toolKit) {
+        response = await agent.chatWithTools(chatMessages, agent.toolKit, {
+          temperature: 0.95, maxTokens: 2048, maxIterations: 5,
+        });
+      } else {
+        response = await agent.chat(chatMessages, { temperature: 0.95, maxTokens: 1024 });
+      }
 
       // ── Stamina: track LLM call ──
       if (agent.stamina) agent.stamina.onLLMCall();
@@ -704,44 +714,35 @@ const { groupChatLoop } = await import('../organization/group-chat-loop.js');
           : `[Read group messages, processing...]`;
       monologue.addThought(thoughtContent);
 
-      // ── Process AI-driven memory management ──
-      // 1. Rolling history summary: AI compresses old messages into a summary
-      if (result.memorySummary && typeof result.memorySummary === 'string' && result.memorySummary.trim()) {
-        agent.memory.updateHistorySummary(groupId, result.memorySummary.trim());
-        console.log(`  📜 [Lifecycle] ${agent.name} updated history summary for ${groupId} (${result.memorySummary.trim().length} chars)`);
-      }
-      // 2. Memory operations: AI adds/updates/deletes its own memories
-      if (result.memoryOps && Array.isArray(result.memoryOps) && result.memoryOps.length > 0) {
-        const memResult = agent.memory.processMemoryOps(result.memoryOps);
-        console.log(`  🧠 [Lifecycle] ${agent.name} memory ops: +${memResult.added} ~${memResult.updated} -${memResult.deleted}`);
-      }
-      // 3. Relationship impressions: AI updates its personal views of colleagues
-      if (result.relationshipOps && Array.isArray(result.relationshipOps) && result.relationshipOps.length > 0) {
-        // Capture old affinity values before processing
-        const oldAffinities = new Map();
+      // ── Process memory & relationship ops via shared parseStructuredResponse ──
+      // This reuses the same logic as boss 1-on-1 chat (unified protocol).
+      // Capture old affinity values BEFORE processing for stamina tracking.
+      const oldAffinities = new Map();
+      if (result.relationshipOps && Array.isArray(result.relationshipOps)) {
         for (const op of result.relationshipOps) {
           if (op.employeeId) {
             const existing = agent.memory.relationships.get(op.employeeId);
             oldAffinities.set(op.employeeId, existing?.affinity || 50);
           }
         }
-        const relResult = agent.memory.processRelationshipOps(result.relationshipOps);
-        console.log(`  👥 [Lifecycle] ${agent.name} relationship updates: ${relResult.updated}`);
+      }
 
-        // ── Stamina: detect chat sentiment from affinity changes ──
-        if (agent.stamina && relResult.updated > 0) {
-          let totalDelta = 0;
-          for (const op of result.relationshipOps) {
-            if (!op.employeeId) continue;
-            const oldAff = oldAffinities.get(op.employeeId) || 50;
-            const newRel = agent.memory.relationships.get(op.employeeId);
-            if (newRel) totalDelta += (newRel.affinity - oldAff);
-          }
-          const sentiment = totalDelta > 5 ? 'positive' : totalDelta < -5 ? 'negative' : 'neutral';
-          if (sentiment !== 'neutral') {
-            agent.stamina.onChatSentiment(sentiment, { affinityDelta: totalDelta });
-            console.log(`  🎭 [Stamina] ${agent.name} chat sentiment: ${sentiment} (delta=${totalDelta}, comfort=${agent.stamina.comfort})`);
-          }
+      // parseStructuredResponse handles: memorySummary, memoryOps, relationshipOps
+      agent.parseStructuredResponse(rawContent, groupId);
+
+      // ── Stamina: detect chat sentiment from affinity changes ──
+      if (agent.stamina && result.relationshipOps && Array.isArray(result.relationshipOps) && result.relationshipOps.length > 0) {
+        let totalDelta = 0;
+        for (const op of result.relationshipOps) {
+          if (!op.employeeId) continue;
+          const oldAff = oldAffinities.get(op.employeeId) || 50;
+          const newRel = agent.memory.relationships.get(op.employeeId);
+          if (newRel) totalDelta += (newRel.affinity - oldAff);
+        }
+        const sentiment = totalDelta > 5 ? 'positive' : totalDelta < -5 ? 'negative' : 'neutral';
+        if (sentiment !== 'neutral') {
+          agent.stamina.onChatSentiment(sentiment, { affinityDelta: totalDelta });
+          console.log(`  🎭 [Stamina] ${agent.name} chat sentiment: ${sentiment} (delta=${totalDelta}, comfort=${agent.stamina.comfort})`);
         }
       }
 
@@ -779,73 +780,70 @@ const { groupChatLoop } = await import('../organization/group-chat-loop.js');
   // Internal — Prompt building
   // ──────────────────────────────────────────────────────────────────────
 
-  _buildDeptChatPrompt(p, requirement, members, memoryContext, spamInfo, isMentioned) {
+  /**
+   * Build group chat system prompt.
+   * Architecture: _buildSystemMessage() (shared base) + social control layer.
+   * The only difference between group chat and 1v1 chat is the social control.
+   *
+   * @param {'dept'|'work'} scenario
+   */
+  _buildGroupChatPrompt(scenario, p, requirement, members, memoryContext, spamInfo, isMentioned) {
     const agent = this.employee;
-    const genderLabel = PROMPT.genderLabel[agent.gender] || PROMPT.genderLabel.male;
-    const ageStyle = getAgeStyle(agent.age);
-    const traitStyle = getTraitStyle(p.trait);
+    const isDept = scenario === 'dept';
     const fewShot = getFewShotExamples(p.trait);
     const memberList = members.map(m => `${m.name}(${m.role})`).join(', ');
-    const pt = PROMPT.deptChat;
-    return `${traitStyle}
+    const pt = isDept ? PROMPT.deptChat : PROMPT.workChat;
 
-${pt.intro(agent.name, genderLabel, agent.age, agent.role, p.tone, p.quirk, agent.signature)}
+    // ── Shared base: identity + personality + tools + skills + knowledge + language ──
+    const basePrompt = agent._buildSystemMessage();
 
-${pt.ageIntro}
-${ageStyle}
+    // ── Social control layer (group-chat only) ──
+    let socialControl = '';
 
----
+    // Group context
+    socialControl += `\n## Group Context\n${pt.groupContext(requirement.title, memberList)}\n`;
 
-${pt.groupContext(requirement.title, memberList)}
-${memoryContext}
+    // Memory context
+    if (memoryContext) socialControl += `\n${memoryContext}\n`;
 
-${pt.examplesHeader}
+    // Few-shot examples
+    socialControl += `\n${pt.examplesHeader}\n\n${fewShot}\n`;
 
-${fewShot}
+    // Speaking rules (scenario-specific)
+    if (isDept) {
+      socialControl += `\n${pt.rules(spamInfo.recentCount, isMentioned)}\n`;
+    } else {
+      socialControl += `\n${pt.shouldSpeak}\n`;
+      socialControl += `\n${pt.shouldNotSpeak(spamInfo.recentCount, spamInfo.isOnCooldown, isMentioned)}\n`;
+    }
 
-${pt.rules(spamInfo.recentCount, isMentioned)}
+    // Topic saturation
+    socialControl += `\n${pt.topicSaturation}\n`;
 
-${pt.topicSaturation}
+    // Response format (from base-employee, unified with boss-chat)
+    socialControl += agent._buildGroupChatResponseFormat({ scenario });
 
-${pt.outputFormat}
+    // Boss custom instructions (work chat only)
+    if (!isDept && agent.customPrompt) {
+      socialControl += `\n## Boss's Special Instructions For You\n${agent.customPrompt}\n`;
+    }
 
-${pt.antiAIWarning(agent.age)}`;
+    // Anti-AI warning
+    socialControl += `\n${pt.antiAIWarning(agent.age)}`;
+
+    return `${basePrompt}\n${socialControl}`;
+  }
+
+  _buildDeptChatPrompt(p, requirement, members, memoryContext, spamInfo, isMentioned) {
+    return this._buildGroupChatPrompt('dept', p, requirement, members, memoryContext, spamInfo, isMentioned);
   }
 
   _buildWorkChatPrompt(p, requirement, members, memoryContext, spamInfo, isMentioned) {
-    const agent = this.employee;
-    const genderLabel = PROMPT.genderLabel[agent.gender] || PROMPT.genderLabel.male;
-    const ageStyle = getAgeStyle(agent.age);
-    const traitStyle = getTraitStyle(p.trait);
-    const fewShot = getFewShotExamples(p.trait);
-    const memberList = members.map(m => `${m.name}(${m.role})`).join(', ');
-    const pt = PROMPT.workChat;
-    return `${traitStyle}
-
-${pt.intro(agent.name, genderLabel, agent.age, agent.role, p.tone, p.quirk, agent.signature)}
-
-${pt.ageIntro}
-${ageStyle}
-
----
-
-${pt.groupContext(requirement.title, memberList)}
-${memoryContext}
-
-${pt.examplesHeader}
-
-${fewShot}
-
-${pt.shouldSpeak}
-
-${pt.shouldNotSpeak(spamInfo.recentCount, spamInfo.isOnCooldown, isMentioned)}
-
-${pt.topicSaturation}
-
-${pt.outputFormat}
-${agent.customPrompt ? `\n## Boss's Special Instructions For You\n${agent.customPrompt}\n` : ''}
-${pt.antiAIWarning(agent.age)}`;
+    return this._buildGroupChatPrompt('work', p, requirement, members, memoryContext, spamInfo, isMentioned);
   }
+
+  // NOTE: _buildToolsAndSkillsSection removed — group chat now uses
+  // agent._buildSystemMessage() which already includes all tools & skills.
 
   // ──────────────────────────────────────────────────────────────────────
   // Internal — Fallback thinking

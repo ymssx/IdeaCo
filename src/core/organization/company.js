@@ -1535,7 +1535,10 @@ const dept = this.findDepartment(departmentId);
       console.log(`📁 Requirement workspace: ${reqWorkspacePath}`);
     }
 
-    // 2. Leader decomposes workflow
+    // 2. Kick off planning + execution asynchronously (non-blocking)
+    // This prevents the caller (e.g. secretary's tool loop) from hanging
+    // while the entire workflow runs. The requirement status can be tracked
+    // via the requirement detail page in real-time.
     const leader = dept.getLeader() || members[0];
 
     // Update liveStatus: record leader info during planning phase
@@ -1547,114 +1550,105 @@ const dept = this.findDepartment(departmentId);
     });
     this.save();
 
-    try {
-      await this.requirementManager.planWorkflow(
-        requirement, members, null, { lang }
-      );
-    } catch (e) {
-      console.error('Workflow decomposition failed:', e.message);
-      // Save current state even if decomposition fails (fallback workflow is set inside planWorkflow)
-    }
+    // Fire-and-forget: plan + execute in background
+    (async () => {
+      try {
+        await this.requirementManager.planWorkflow(
+          requirement, members, null, { lang }
+        );
+      } catch (e) {
+        console.error('Workflow decomposition failed:', e.message);
+        // Save current state even if decomposition fails (fallback workflow is set inside planWorkflow)
+      }
 
-    // Save again after workflow decomposition
-    this.save();
+      // Save again after workflow decomposition
+      this.save();
 
-    // 3. Execute by workflow DAG
-    let summary;
-    try {
-      summary = await this.requirementManager.executeWorkflow(
-        requirement, dept, this.performanceSystem, { lang }
-      );
-    } catch (e) {
-      console.error('Workflow execution failed:', e.message);
-      // Update requirement status to failed
-      requirement.status = 'failed';
-      requirement.completedAt = new Date();
-      requirement.summary = { totalTasks: 0, successTasks: 0, failedTasks: 0, totalDuration: 0, outputs: [], error: e.message };
-      requirement.addGroupMessage(
-        { name: 'System', role: 'system' },
-        `❌ Requirement execution failed: ${e.message}`,
-        'system', null, { auto: true }
-      );
-      // Restore original workspace path on failure
+      // 3. Execute by workflow DAG
+      let summary;
+      try {
+        summary = await this.requirementManager.executeWorkflow(
+          requirement, dept, this.performanceSystem, { lang }
+        );
+      } catch (e) {
+        console.error('Workflow execution failed:', e.message);
+        // Update requirement status to failed
+        requirement.status = 'failed';
+        requirement.completedAt = new Date();
+        requirement.summary = { totalTasks: 0, successTasks: 0, failedTasks: 0, totalDuration: 0, outputs: [], error: e.message };
+        requirement.addGroupMessage(
+          { name: 'System', role: 'system' },
+          `❌ Requirement execution failed: ${e.message}`,
+          'system', null, { auto: true }
+        );
+        // Restore original workspace path on failure
+        if (originalWorkspacePath && dept.workspacePath !== originalWorkspacePath) {
+          dept.workspacePath = originalWorkspacePath;
+          for (const agent of members) {
+            agent.initToolKit(originalWorkspacePath, this.messageBus);
+          }
+        }
+        this.save();
+        return; // Background task ends here on failure
+      }
+
+      // 4. Let leader send report email
+      if (leader) {
+        let reportContent = `Requirement "${title}" completed!\n\n`;
+        reportContent += `📊 Execution Summary:\n`;
+        reportContent += `- Tasks completed: ${summary.successTasks}/${summary.totalTasks}\n`;
+        reportContent += `- Total duration: ${Math.round(summary.totalDuration / 1000)}s\n\n`;
+        reportContent += `📝 Member outputs:\n`;
+        for (const o of (summary.outputs || [])) {
+          reportContent += `\n[${o.agentName} (${o.role})]\n`;
+          reportContent += (o.content || '').slice(0, 300);
+          if ((o.content || '').length > 300) reportContent += '...';
+          reportContent += '\n';
+        }
+        leader.sendMailToBoss(`📋 Requirement Report: ${title}`, reportContent, this);
+      }
+
+      // 5. Record to progress reports
+      this.progressReports.push({
+        time: new Date(),
+        type: 'task_completed',
+        reports: [{
+          department: dept.name,
+          task: title,
+          requirementId: requirement.id,
+          success: summary.successTasks === summary.totalTasks,
+          detail: `${summary.successTasks}/${summary.totalTasks} subtasks completed, took ${Math.round(summary.totalDuration / 1000)}s`,
+        }],
+      });
+
+      // Fire hook: task completed
+      hookRegistry.trigger(HookEvent.TASK_COMPLETED, {
+        departmentId: dept.id, departmentName: dept.name, taskTitle: title,
+        totalTasks: summary.totalTasks, successTasks: summary.successTasks,
+      });
+
+      this._log('Task completed', `"${dept.name}" completed task: "${title}", ${summary.successTasks}/${summary.totalTasks} succeeded`);
+
+      // Restore original department workspace path so next requirement gets its own subdirectory
       if (originalWorkspacePath && dept.workspacePath !== originalWorkspacePath) {
         dept.workspacePath = originalWorkspacePath;
         for (const agent of members) {
           agent.initToolKit(originalWorkspacePath, this.messageBus);
         }
       }
+
       this.save();
-      summary = requirement.summary;
-    }
-
-    // 4. Let leader send report email
-    if (leader) {
-      let reportContent = `Requirement "${title}" completed!\n\n`;
-      reportContent += `📊 Execution Summary:\n`;
-      reportContent += `- Tasks completed: ${summary.successTasks}/${summary.totalTasks}\n`;
-      reportContent += `- Total duration: ${Math.round(summary.totalDuration / 1000)}s\n\n`;
-      reportContent += `📝 Member outputs:\n`;
-      for (const o of (summary.outputs || [])) {
-        reportContent += `\n[${o.agentName} (${o.role})]\n`;
-        reportContent += (o.content || '').slice(0, 300);
-        if ((o.content || '').length > 300) reportContent += '...';
-        reportContent += '\n';
-      }
-      leader.sendMailToBoss(`📋 Requirement Report: ${title}`, reportContent, this);
-    }
-
-    // 5. Record to progress reports
-    this.progressReports.push({
-      time: new Date(),
-      type: 'task_completed',
-      reports: [{
-        department: dept.name,
-        task: title,
-        requirementId: requirement.id,
-        success: summary.successTasks === summary.totalTasks,
-        detail: `${summary.successTasks}/${summary.totalTasks} subtasks completed, took ${Math.round(summary.totalDuration / 1000)}s`,
-      }],
+    })().catch(e => {
+      console.error(`Background workflow execution failed for requirement ${requirement.id}:`, e.message);
     });
 
-    // Fire hook: task completed
-    hookRegistry.trigger(HookEvent.TASK_COMPLETED, {
-      departmentId: dept.id, departmentName: dept.name, taskTitle: title,
-      totalTasks: summary.totalTasks, successTasks: summary.successTasks,
-    });
-
-    this._log('Task completed', `"${dept.name}" completed task: "${title}", ${summary.successTasks}/${summary.totalTasks} succeeded`);
-
-    // Restore original department workspace path so next requirement gets its own subdirectory
-    if (originalWorkspacePath && dept.workspacePath !== originalWorkspacePath) {
-      dept.workspacePath = originalWorkspacePath;
-      for (const agent of members) {
-        agent.initToolKit(originalWorkspacePath, this.messageBus);
-      }
-    }
-
-    this.save();
-
-    // Return summary with requirement ID
+    // Return immediately with the requirement ID so the caller is not blocked
     return {
       requirementId: requirement.id,
       projectId: requirement.id,
       title,
       department: dept.name,
       departmentId: dept.id,
-      totalTasks: summary.totalTasks,
-      successTasks: summary.successTasks,
-      failedTasks: summary.failedTasks,
-      totalDuration: summary.totalDuration,
-      outputs: (summary.outputs || []).map(o => ({
-        agentName: o.agentName,
-        role: o.role,
-        output: o.content,
-        outputType: o.outputType,
-        toolResults: o.metadata?.toolResults || [],
-        success: true,
-        duration: o.metadata?.duration || 0,
-      })),
-      completedAt: new Date(),
     };
   }
 

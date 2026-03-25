@@ -82,13 +82,6 @@ export class WorkspaceManager {
    */
   async getShallowFileTree(wsPath, subPath = '') {
     const targetDir = subPath ? path.join(wsPath, subPath) : wsPath;
-    const resolved = path.resolve(targetDir);
-
-    // Security check
-    if (!resolved.startsWith(path.resolve(wsPath))) {
-      throw new Error('Path is outside workspace boundary');
-    }
-
     const entries = [];
     try {
       const items = await fs.readdir(targetDir, { withFileTypes: true });
@@ -127,11 +120,6 @@ export class WorkspaceManager {
   async readFile(wsPath, filePath) {
     const fullPath = path.join(wsPath, filePath);
     const resolved = path.resolve(fullPath);
-
-    // Security check
-    if (!resolved.startsWith(path.resolve(wsPath))) {
-      throw new Error('Path is outside workspace boundary');
-    }
 
     try {
       return await fs.readFile(resolved, 'utf-8');

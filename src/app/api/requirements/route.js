@@ -165,13 +165,9 @@ export async function POST(request) {
     company.assignTaskToDepartment(departmentId, taskDescription, taskTitle)
       .catch(e => {
         console.error('Create requirement execution failed:', e.message);
-      })
-      .finally(() => {
-        // Ensure department workspace is restored even if assignTaskToDepartment didn't restore it
-        if (workspaceDir && originalDeptWorkspace) {
-          dept.workspacePath = originalDeptWorkspace;
-        }
       });
+    // Note: workspace restore is handled internally by assignTaskToDepartment
+    // after background execution completes. No need to restore here.
 
     // Brief wait for requirement creation
     await new Promise(resolve => setTimeout(resolve, 500));

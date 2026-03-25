@@ -138,11 +138,9 @@ export class LLMClient {
       max_tokens: options.maxTokens ?? 4096,
     };
 
-    // Add tool definitions to request if provided
-    if (options.tools && options.tools.length > 0) {
-      requestParams.tools = options.tools;
-      requestParams.tool_choice = 'auto';
-    }
+    // NOTE: We no longer pass tool definitions to the API.
+    // All tool execution is done via the unified JSON actions protocol.
+    // The LLM returns a structured JSON with "actions" array, and ToolLoop handles it.
 
     const startTime = Date.now();
     try {
@@ -347,7 +345,6 @@ export class LLMClient {
       chatFn: (msgs, chatOpts) => this.chat(provider, msgs, chatOpts),
       toolExecutor,
       maxIterations: options.maxIterations || 15,
-      supportsNativeToolCalls: true,
       taskContext: options.taskContext || null,
       activeTiers: options.activeTiers || null,
     });

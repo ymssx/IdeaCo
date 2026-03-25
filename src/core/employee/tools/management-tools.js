@@ -266,8 +266,8 @@ export function createManagementToolHandlers(company) {
     const dept = company.departments.get(deptId);
     if (!dept) throw new Error(`Department "${deptId}" not found`);
 
-    const summary = await company.assignTaskToDepartment(deptId, taskDescription, taskTitle);
-    return `Task "${taskTitle}" assigned to department "${dept.name}".\nRequirement ID: ${summary.requirementId}\nSubtasks: ${summary.totalTasks} | Success: ${summary.successTasks}\n\nThe department is now working on this task.`;
+    const result = await company.assignTaskToDepartment(deptId, taskDescription, taskTitle);
+    return `Task "${taskTitle}" has been assigned to department "${dept.name}".\nRequirement ID: ${result.requirementId}\n\nThe department leader is now analyzing the requirement and will decompose it into subtasks. The team will start working on it shortly. You can track progress via the requirement detail page.`;
   });
 
   handlers.set('list_talent_market', async () => {

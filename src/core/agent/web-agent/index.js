@@ -81,11 +81,9 @@ export class WebAgent extends BaseAgent {
 
   /**
    * WebAgent's chatWithTools implementation.
-   * Since web APIs don't support native function calling, we simulate it
-   * by embedding tool definitions in the prompt and parsing structured output.
-   *
-   * Delegates to the shared ToolLoop for the actual loop logic. The ToolLoop's
-   * embedded call parser handles ```tool_call``` blocks, DSML, and XML formats.
+   * Since web APIs don't support native function calling, tool definitions are
+   * embedded in the system prompt. The LLM responds with JSON actions, and
+   * ToolLoop handles execution via the unified JSON actions protocol.
    */
   async chatWithTools(messages, toolExecutor, options = {}) {
     if (!this.isAvailable()) {
@@ -117,12 +115,11 @@ export class WebAgent extends BaseAgent {
         callCount++;
         const response = await this.chat(msgs, { ...chatOpts, ...iterOptions });
         // Web agents return plain text (no toolCalls field).
-        // ToolLoop's embedded call parser will detect ```tool_call``` blocks etc.
+        // ToolLoop detects JSON actions in the response content.
         return { content: response.content, toolCalls: null, usage: response.usage };
       },
       toolExecutor,
       maxIterations: options.maxIterations || 5,
-      supportsNativeToolCalls: false,
       taskContext: options.taskContext || null,
       activeTiers: options.activeTiers || null,
     });
@@ -153,19 +150,17 @@ export class WebAgent extends BaseAgent {
 
     return `## Available Tools
 
-You have access to the following tools. To use a tool, include a tool call block in your response using this exact format:
+You have access to the following tools. To use a tool, include it in the "actions" array of your JSON response:
 
-\`\`\`tool_call
-{"name": "tool_name", "args": {"param1": "value1"}}
-\`\`\`
+{ "actions": [{ "tool": "tool_name", "args": { "param1": "value1" } }] }
 
-You can make multiple tool calls in a single response. After receiving tool results, continue your work.
+You can call multiple tools in one response. After receiving tool results, continue your work.
+Set "actions" to [] when no tool calls are needed.
 
 ${toolDescriptions}`;
   }
 
-  // NOTE: _parseToolCalls removed — now handled by the shared ToolLoop's
-  // parseEmbeddedToolCalls (supports ```tool_call```, DSML, XML formats).
+  // NOTE: All tool execution is now handled by ToolLoop via the unified JSON actions protocol.
 
   getDisplayInfo() {
     return {

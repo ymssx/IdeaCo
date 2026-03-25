@@ -60,7 +60,6 @@ export class CLIAgent extends BaseAgent {
       chatFn: (msgs, chatOpts) => llmClient.chat(this.fallbackProvider, msgs, chatOpts),
       toolExecutor,
       maxIterations: options.maxIterations || 15,
-      supportsNativeToolCalls: true,
       taskContext: options.taskContext || null,
       activeTiers: options.activeTiers || null,
     });

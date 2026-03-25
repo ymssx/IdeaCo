@@ -5,9 +5,12 @@
  * into a single reusable class. All agents delegate to ToolLoop instead of
  * each implementing their own loop.
  *
+ * Uses a single unified protocol: JSON actions (structured JSON with "actions" array).
+ * The LLM returns a JSON object with an "actions" field; ToolLoop executes them
+ * and feeds results back until actions is empty.
+ *
  * Features:
- * - Supports both native tool_calls (OpenAI API) and embedded markup (DSML/XML/```tool_call```)
- * - Supports JSON actions protocol (structured JSON with "actions" array)
+ * - Unified JSON actions protocol across all agent types
  * - Parallel execution for read-only tools (Promise.allSettled)
  * - Tool tiering with auto-escalation (progressive disclosure)
  * - Callbacks for UI progress (onToolCall, onLLMCall)
@@ -250,10 +253,9 @@ export function inferTiersFromContext(taskContext) {
 export class ToolLoop {
   /**
    * @param {object} config
-   * @param {function} config.chatFn - (messages, chatOpts) => Promise<{content, toolCalls, finishReason, usage}>
+   * @param {function} config.chatFn - (messages, chatOpts) => Promise<{content, toolCalls?, finishReason, usage}>
    * @param {object} config.toolExecutor - AgentToolKit instance with { definitions, execute(name, args) }
    * @param {number} [config.maxIterations=15]
-   * @param {boolean} [config.supportsNativeToolCalls=true] - Whether the chat API supports tool_calls field
    * @param {Set<string>} [config.activeTiers] - Initial active tiers (defaults to all)
    * @param {string} [config.taskContext] - Task description for tier inference (only used if activeTiers not set)
    */
@@ -261,7 +263,6 @@ export class ToolLoop {
     this.chatFn = config.chatFn;
     this.toolExecutor = config.toolExecutor;
     this.maxIterations = config.maxIterations || 15;
-    this.supportsNativeToolCalls = config.supportsNativeToolCalls !== false;
 
     // Tool tiering
     if (config.activeTiers) {
@@ -455,10 +456,9 @@ export class ToolLoop {
     const toolResults = [];
     const startTime = Date.now();
 
-    // Track whether we just executed embedded tool calls.
-    // If so, the next LLM call should NOT include tool definitions —
-    // we want the model to summarize the tool results.
-    let justDidEmbeddedCalls = false;
+    // Track whether we just executed actions.
+    // If so, the next LLM call won't reparse the same response.
+    let justDidActions = false;
 
     // Track consecutive LLM errors to avoid infinite retry loops
     let consecutiveLLMErrors = 0;
@@ -478,13 +478,8 @@ export class ToolLoop {
         ...extraOpts,
       };
 
-      // Only pass tool definitions when NOT in "summarize embedded results" phase
-      if (!justDidEmbeddedCalls && this.supportsNativeToolCalls) {
-        chatOpts.tools = this._getActiveToolDefinitions();
-      }
-
-      const wasEmbeddedSummaryRound = justDidEmbeddedCalls;
-      justDidEmbeddedCalls = false;
+      const wasActionsSummaryRound = justDidActions;
+      justDidActions = false;
 
       let response;
       try {
@@ -527,66 +522,8 @@ export class ToolLoop {
       // LLM call succeeded — reset consecutive error counter
       consecutiveLLMErrors = 0;
 
-      // ---- Handle native tool calls (OpenAI API format) ----
-      if (response.toolCalls && response.toolCalls.length > 0) {
-        // Parse tool call arguments
-        const parsedCalls = response.toolCalls.map(tc => {
-          const { name, arguments: argsStr } = tc.function;
-          let args;
-          try {
-            args = JSON.parse(argsStr);
-          } catch {
-            try {
-              const cleaned = (argsStr || '{}').replace(/,\s*}/g, '}').replace(/,\s*]/g, ']').replace(/'/g, '"');
-              args = JSON.parse(cleaned);
-            } catch {
-              args = {};
-            }
-          }
-          return { name, args, id: tc.id };
-        });
-
-        // Auto-escalate tiers if needed
-        const requestedNames = parsedCalls.map(c => c.name);
-        const escalated = this._autoEscalate(requestedNames);
-        if (escalated) {
-          // Tiers changed — but we can still execute the current calls
-          // (they were already requested). Next LLM call will see the expanded tool set.
-        }
-
-        // Push assistant message with tool_calls
-        conversationMessages.push({
-          role: 'assistant',
-          content: response.content,
-          tool_calls: response.toolCalls,
-        });
-
-        // Execute tools (parallel for read-only, serial for writes)
-        const execResults = await this._executeToolCalls(parsedCalls, onToolCall);
-
-        // Skill→Tool linkage: if load_skill was called, auto-unlock required tool tiers
-        this._checkSkillToolLinkage(execResults);
-
-        // Push tool result messages
-        for (let j = 0; j < execResults.length; j++) {
-          const r = execResults[j];
-          const toolCallId = parsedCalls[j].id;
-          toolResults.push(r);
-
-          conversationMessages.push({
-            role: 'tool',
-            tool_call_id: toolCallId,
-            content: r.success
-              ? (typeof r.result === 'string' ? r.result : JSON.stringify(r.result))
-              : `Tool execution error: ${r.error}`,
-          });
-        }
-
-        continue; // Next iteration
-      }
-
-      // ---- Handle JSON actions protocol (structured JSON with "actions" array) ----
-      if (!wasEmbeddedSummaryRound) {
+      // ---- Handle JSON actions protocol (unified protocol) ----
+      if (!wasActionsSummaryRound) {
         const jsonActions = parseJSONActions(response.content);
         if (jsonActions) {
           console.log(`  🔄 [ToolLoop] Detected ${jsonActions.calls.length} JSON action(s): ${jsonActions.calls.map(c => c.name).join(', ')}`);
@@ -618,45 +555,9 @@ export class ToolLoop {
             content: `The tool(s) you requested have been executed. Here are the results:\n\n${callResultTexts.join('\n\n')}\n\nPlease review the tool results above and continue. If you need to call more tools, include them in your "actions" array. If all tasks are complete, return your final response with an empty "actions" array.`,
           });
 
-          justDidEmbeddedCalls = true;
+          justDidActions = true;
           continue;
         }
-      }
-
-      // ---- Handle embedded tool calls (DSML / XML / ```tool_call```) ----
-      const embeddedCalls = wasEmbeddedSummaryRound ? null : parseEmbeddedToolCalls(response.content);
-      if (embeddedCalls && embeddedCalls.length > 0) {
-        console.log(`  🔄 [ToolLoop] Detected ${embeddedCalls.length} embedded tool call(s), executing...`);
-
-        // Auto-escalate tiers
-        this._autoEscalate(embeddedCalls.map(c => c.name));
-
-        conversationMessages.push({
-          role: 'assistant',
-          content: response.content,
-        });
-
-        const execResults = await this._executeToolCalls(embeddedCalls, onToolCall);
-        toolResults.push(...execResults);
-
-        // Skill→Tool linkage: if load_skill was called, auto-unlock required tool tiers
-        this._checkSkillToolLinkage(execResults);
-
-        // Feed results back as user message (embedded calls don't use tool_calls protocol)
-        const callResultTexts = execResults.map(r => {
-          const resultText = r.success
-            ? (typeof r.result === 'string' ? r.result : JSON.stringify(r.result, null, 2))
-            : `Tool execution error: ${r.error}`;
-          return `[Tool Result: ${r.tool}]\n${resultText}`;
-        });
-
-        conversationMessages.push({
-          role: 'user',
-          content: `The tool(s) you requested have been executed. Here are the results:\n\n${callResultTexts.join('\n\n')}\n\nPlease review the tool results above. If you need more information or need to run additional tools to complete the task, go ahead and call them. If you have enough information, provide a complete, helpful answer to the user's original question.`,
-        });
-
-        justDidEmbeddedCalls = true;
-        continue;
       }
 
       // ---- No tool calls — final response ----

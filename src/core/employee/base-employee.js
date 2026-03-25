@@ -10,6 +10,7 @@ import { cliBackendRegistry } from '../agent/cli-agent/backends/index.js';
 import { createAgent, deserializeAgent } from '../agent/index.js';
 import { EmployeeLifecycle } from './lifecycle.js';
 import { StaminaSystem } from './stamina.js';
+import { getTraitStyle, getAgeStyle } from '../prompts.js';
 import { safeJSONParse, robustJSONParse } from '../utils/json-parse.js';
 import { buildLanguageInstruction, getAppLanguageName } from '../utils/app-language.js';
 import { EmployeeSkillSet } from './skill/skill-set.js';
@@ -915,9 +916,17 @@ ${scenePrompt}`;
     systemContent += `- Position: ${this.role}\n`;
     systemContent += `- Skills: ${this.skillSet.toArray().join(', ')}\n`;
     systemContent += `- Signature: ${this.signature}\n`;
+    systemContent += `- Speaking tone: ${this.personality.tone}\n`;
+    systemContent += `- Your quirk: ${this.personality.quirk}\n`;
     if (this.personalityBio) {
       systemContent += `\n## Your Personality Profile\n${this.personalityBio}\n`;
     }
+
+    // Personality simulation — trait style + age style (same as group chat)
+    systemContent += `\n## Your Personality\n`;
+    systemContent += getTraitStyle(this.personality.trait) + '\n\n';
+    systemContent += `Your age determines your speech habits:\n`;
+    systemContent += getAgeStyle(this.age) + '\n';
 
     if (this.toolKit) {
       systemContent += `\n## Available Tools\n`;
@@ -1064,8 +1073,37 @@ ${scenePrompt}`;
     return `## Tool Reference\nBelow are ALL tools available to you. When calling tools via "actions", use these exact names and parameter schemas.\n\n${toolDocs.join('\n\n')}`;
   }
 
+  /**
+   * Shared Actions protocol description — reused by both boss-chat and group-chat response formats.
+   */
+  _buildActionsProtocol() {
+    return `## Actions — Tool Call Protocol (CRITICAL)
+The "actions" field is how you execute real operations. The system will execute each action,
+feed the results back to you, and you continue until all work is done (like a tool-call loop).
+
+**Protocol:**
+1. You return JSON with "actions" containing tool calls you need.
+2. The system executes those tools and sends you the results.
+3. You review the results and either:
+   - Return more "actions" if additional work is needed, OR
+   - Return "actions": [] when all work is complete.
+4. This loop continues until you return an empty "actions" array.
+
+**Rules:**
+- "actions" is an ARRAY — you can call multiple tools in one response.
+- Set "actions" to [] (empty array) if no tool calls are needed.
+- Each action object: { "tool": "<tool_name>", "args": { <parameters> } }
+  - tool_name must match one of the tools listed in the Tool Reference.
+  - args must match the tool's parameter schema exactly.
+- The system executes actions in order; results take real effect.
+- **NEVER describe an action in "content" without putting it in "actions"** — text alone does nothing.
+- After actions execute, you will receive the results and can continue working.
+- In your final response (actions: []), summarize what was accomplished in "content".`;
+  }
+
   _buildBossChatResponseFormat() {
     const toolReference = this._buildToolReference();
+    const actionsProtocol = this._buildActionsProtocol();
 
     return `
 ## Structured Response Format (MANDATORY)
@@ -1086,29 +1124,6 @@ Your reply MUST be a JSON object (return JSON only, nothing else):
     { "employeeId": "boss", "name": "Boss", "impression": "Decisive, prefers concise updates", "affinity": 65 }
   ]
 }
-
-## Actions — Tool Call Protocol (CRITICAL)
-The "actions" field is how you execute real operations. The system will execute each action,
-feed the results back to you, and you continue until all work is done (like a tool-call loop).
-
-**Protocol:**
-1. You return JSON with "actions" containing tool calls you need.
-2. The system executes those tools and sends you the results.
-3. You review the results and either:
-   - Return more "actions" if additional work is needed, OR
-   - Return "actions": [] when all work is complete.
-4. This loop continues until you return an empty "actions" array.
-
-**Rules:**
-- "actions" is an ARRAY — you can call multiple tools in one response.
-- Set "actions" to [] (empty array) if no tool calls are needed.
-- Each action object: { "tool": "<tool_name>", "args": { <parameters> } }
-  - tool_name must match one of the tools listed in the Tool Reference below.
-  - args must match the tool's parameter schema exactly.
-- The system executes actions in order; results take real effect.
-- **NEVER describe an action in "content" without putting it in "actions"** — text alone does nothing.
-- After actions execute, you will receive the results and can continue working.
-- In your final response (actions: []), summarize what was accomplished in "content".
 
 ### Example — Multi-step workflow (tool call loop):
 Step 1 — You return:
@@ -1149,6 +1164,8 @@ Step 3 — System confirms creation, then you return:
   "relationshipOps": []
 }
 
+${actionsProtocol}
+
 ${toolReference}
 
 ${this._buildMemoryInstructions()}
@@ -1161,6 +1178,79 @@ ${this._buildRelationshipInstructions()}
 3. You MUST always return valid JSON. Do NOT wrap it in markdown code fences. Do NOT add any text outside the JSON object. The response must start with { and end with }.
 4. When actions are needed, ALWAYS put them in the "actions" array — never just describe them in text.
 5. After tool results arrive, review them carefully and continue your workflow. Do NOT repeat actions that already succeeded.`;
+  }
+
+  /**
+   * Build the structured JSON response format for group chat (dept-chat & work-chat).
+   * Shares the same actions protocol, memory, and relationship instructions as boss-chat,
+   * but adds group-chat-specific fields: innerThoughts, topicSaturation, interestLevel,
+   * shouldSpeak, reason, messages.
+   *
+   * @param {object} [options]
+   * @param {string} [options.scenario] - 'dept' or 'work'
+   * @returns {string}
+   */
+  _buildGroupChatResponseFormat({ scenario = 'work' } = {}) {
+    const toolReference = this._buildToolReference();
+    const actionsProtocol = this._buildActionsProtocol();
+    const isDept = scenario === 'dept';
+
+    const messageHint = isDept
+      ? '"your reply"'
+      : '"your message (use @[agentId] to @ others, use [[file:path]] to reference files)"';
+
+    return `
+## Structured Response Format (MANDATORY)
+Your reply MUST be a JSON object (return JSON only, nothing else):
+{
+  "innerThoughts": "Your real inner thoughts right now — be emotional: feelings first, then analysis",
+  "topicSaturation": 5,
+  "interestLevel": 5,
+  "shouldSpeak": true,
+  "reason": "reason for speaking or staying silent",
+  "content": ${messageHint},
+  "messages": [{ "content": ${messageHint} }],
+  "actions": [
+    { "tool": "tool_name", "args": { "param1": "value1" } }
+  ],
+  "memorySummary": "A single, complete summary that REPLACES the previous one — cover all important context so far. null if nothing to summarize.",
+  "memoryOps": [
+    { "op": "add", "type": "long_term", "content": "Important fact worth remembering permanently", "category": "fact", "importance": 8 },
+    { "op": "add", "type": "short_term", "content": "Temporary context about current discussion", "category": "context", "importance": 5, "ttl": 3600 },
+    { "op": "delete", "id": "mem_id_to_forget" }
+  ],
+  "relationshipOps": [
+    { "employeeId": "emp_123", "name": "Xiao Li", "impression": "Tech-savvy, reliable", "affinity": 70 }
+  ]
+}
+
+### Group Chat Fields
+- topicSaturation: 1-10 score of how saturated/exhausted the current topic is. Be honest!
+- interestLevel: 1-10 score of how relevant and interesting this topic is TO YOU PERSONALLY.
+  - 1-3: Not your area, boring, or irrelevant. You'd rather do something else.
+  - 4-6: Somewhat related. Mild curiosity but no strong pull.
+  - 7-8: Directly in your domain. Your expertise is needed.
+  - 9-10: Critical to your current task. Deeply invested.
+  - ⚠️ DON'T inflate — most topics should NOT be 8+. Keep it LOW (1-4) if outside your domain.
+  - Your interest affects how quickly you'll check messages next time.
+- When topicSaturation ≥ 7, you MUST set shouldSpeak: false (unless directly asked).
+- When not speaking, messages should be []. content should be empty string.
+${!isDept ? '- When mentioning files, use [[file:relative/path]] format so others can click to view the file.' : ''}
+
+${actionsProtocol}
+
+${toolReference}
+
+${this._buildMemoryInstructions()}
+
+${this._buildRelationshipInstructions()}
+
+## Output Rules
+1. Content should be natural and personal, in your own personality style.
+2. Keep replies concise — 1-2 sentences for casual chat, short and direct for work.
+3. You MUST always return valid JSON. Do NOT wrap it in markdown code fences. Do NOT add any text outside the JSON object.
+4. When actions are needed, ALWAYS put them in the "actions" array — never just describe them in text.
+5. After tool results arrive, review them carefully and continue your workflow.`;
   }
 
   // ======================== Boss 1-on-1 Chat ========================

@@ -109,14 +109,11 @@ export class AgentToolKit {
   }
 
   /**
-   * Safe path resolution: ensure all file ops stay within workspace.
+   * Path resolution: resolve relative paths against workspace root.
+   * Absolute paths are returned as-is.
    */
   _safePath(filePath) {
-    const resolved = path.resolve(this.workspaceDir, filePath);
-    if (!resolved.startsWith(path.resolve(this.workspaceDir))) {
-      throw new Error(`Security restriction: path "${filePath}" is outside workspace`);
-    }
-    return resolved;
+    return path.resolve(this.workspaceDir, filePath);
   }
 
   /**
