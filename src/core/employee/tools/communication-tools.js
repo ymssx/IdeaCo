@@ -41,6 +41,45 @@ export function getCommunicationToolDefinitions() {
   ];
 }
 
+// ======================== Shared DM Helper ========================
+
+/**
+ * Send a direct message between two agents.
+ * This is the single source of truth for DM message writing.
+ * Both the send_message tool handler and lifecycle._processDM use this.
+ *
+ * @param {object} opts
+ * @param {string} opts.fromAgentId - Sender agent ID
+ * @param {string} opts.fromAgentName - Sender display name
+ * @param {string} opts.toAgentId - Recipient agent ID
+ * @param {string} opts.toAgentName - Recipient display name
+ * @param {string} opts.content - Message content
+ * @returns {{ sessionId: string, record: object }} The session ID and the appended message record
+ */
+export function sendDirectMessage({ fromAgentId, fromAgentName, toAgentId, toAgentName, content }) {
+  const ids = [fromAgentId, toAgentId].sort();
+  const sessionId = `agent-agent-${ids[0]}-${ids[1]}`;
+
+  chatStore.createSession(sessionId, {
+    title: `${fromAgentName} & ${toAgentName}`,
+    participants: [fromAgentId, toAgentId],
+    type: 'agent-agent',
+  });
+
+  const record = chatStore.appendMessage(sessionId, {
+    role: 'agent',
+    content,
+    time: new Date(),
+    fromAgentId,
+    fromAgentName,
+    toAgentId,
+    toAgentName,
+  });
+
+  console.log(`  📨 [DM] ${fromAgentName} → ${toAgentName}: "${(content || '').slice(0, 60)}"`);
+  return { sessionId, record };
+}
+
 // ======================== Tool Handler Factory ========================
 
 /**
@@ -96,36 +135,24 @@ export function createCommunicationToolHandlers(context) {
       return `Message posted to group ${args.groupId}${targetAgentId ? ` (mentioning ${targetAgentId})` : ''}`;
     }
 
-    // Default: DM — write directly to chatStore (no messageBus relay)
+    // Default: DM — use the shared sendDirectMessage helper
     if (!targetAgentId) {
       return 'Error: targetAgentId is required for direct messages. Please provide the target agent ID or name.';
     }
-
-    const ids = [agentId, targetAgentId].sort();
-    const sessionId = `agent-agent-${ids[0]}-${ids[1]}`;
 
     const senderAgent = findAgent ? findAgent(agentId) : null;
     const targetAgent = findAgent ? findAgent(targetAgentId) : null;
     const senderName = senderAgent?.name || agentName || agentId;
     const targetName = targetAgent?.name || targetAgentId;
 
-    chatStore.createSession(sessionId, {
-      title: `${senderName} & ${targetName}`,
-      participants: [agentId, targetAgentId],
-      type: 'agent-agent',
-    });
-
-    chatStore.appendMessage(sessionId, {
-      role: 'agent',
-      content: args.content,
-      time: new Date(),
+    sendDirectMessage({
       fromAgentId: agentId,
       fromAgentName: senderName,
       toAgentId: targetAgentId,
       toAgentName: targetName,
+      content: args.content,
     });
 
-    console.log(`  📨 [DM] ${senderName} → ${targetName}: "${(args.content || '').slice(0, 60)}"`);
     return `Direct message sent to ${targetName}${args.needsReply ? ' (reply requested)' : ''}`;
   });
 

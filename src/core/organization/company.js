@@ -2730,10 +2730,10 @@ const dept = this.findDepartment(departmentId);
     // The constructor's _initSubsystems() already called start(), but with an empty
     // company. We need to stop and restart so the DM listener uses the fully-restored
     // company state (correct secretary ID, all departments, etc.).
-    groupChatLoop.stop();
+    groupChatLoop.stop({ silent: true });
     // Clear all lifecycle entries registered during constructor (they used temporary IDs)
     groupChatLoop._lifecycles.clear();
-    groupChatLoop.start(company);
+    groupChatLoop.start(company, { silent: true });
     let restoredAgentCount = 0;
     for (const dept of company.departments.values()) {
       for (const agent of dept.getMembers()) {

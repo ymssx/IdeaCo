@@ -31,6 +31,8 @@ export const basicOperationsSkills = [
       'workspace_files',
       // Search tools
       'grep_search', 'glob_search',
+      // Chat history tools
+      'query_chat_history',
       // Shell tools
       'shell_exec',
     ],
@@ -52,6 +54,7 @@ export const basicOperationsSkills = [
 - **Scaffold a project**: mkdir for directory tree → file_write for each file → shell_exec to install dependencies → file_list to verify structure.
 - **Debug an issue**: grep_search for error messages or symbols → file_read surrounding context → shell_exec to reproduce → file_patch to fix → shell_exec to verify.
 - **Bulk file operations**: glob_search to collect target files → loop file_read + file_patch → shell_exec tests to validate.
+- **Recall past conversations**: query_chat_history to search your DM, group, or boss chat records. Filter by colleague name, keyword, or time range to find specific discussions.
 
 ### Rules
 - **Read before modify**: Never patch a file you haven't read. You need the exact content for accurate edits.

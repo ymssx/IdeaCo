@@ -28,6 +28,7 @@ import {
 } from '../prompts.js';
 import { robustJSONParse } from '../utils/json-parse.js';
 import { chatStore } from '../agent/chat-store.js';
+import { sendDirectMessage } from './tools/communication-tools.js';
 
 // ─── File reference expansion ──────────────────────────────────────────
 // Agent writes [[file:path/to/file]], we expand to [[file:deptId:path|displayName]]
@@ -247,7 +248,7 @@ export class EmployeeLifecycle {
       // Build the DM system prompt
       const systemPrompt = agent._buildSystemMessage()
         + `\n\n## Current Conversation\n`
-        + `You are having a private 1-on-1 DM conversation with ${otherName} (${otherRole}).\n`
+        + `You are having a private 1-on-1 DM conversation with ${otherName} (ID: ${otherAgentId}, Role: ${otherRole}).\n`
         + `Respond naturally based on your personality and role.\n`
         + memoryContext
         + agent._buildGroupChatResponseFormat({ scenario: 'dm' });
@@ -318,16 +319,23 @@ export class EmployeeLifecycle {
       const interestLevel = typeof result.interestLevel === 'number' ? result.interestLevel : 7;
       const topicSaturation = typeof result.topicSaturation === 'number' ? result.topicSaturation : 3;
 
-      if (shouldSpeak && result.content && result.content.trim()) {
-        // Write reply directly to chatStore (no messageBus relay)
-        chatStore.appendMessage(sessionId, {
-          role: 'agent',
-          content: result.content,
-          time: new Date(),
+      // Check if LLM already sent a message via send_message tool during chatWithTools.
+      // If so, skip the content-based reply to avoid duplicate messages.
+      // Both paths use the same sendDirectMessage() function, so the message format is identical.
+      const alreadySentViaTool = (response.toolResults || []).some(
+        r => r.tool === 'send_message' && r.success
+      );
+
+      if (alreadySentViaTool) {
+        console.log(`  ✅ [Lifecycle] ${agent.name} already replied to ${otherName} via send_message tool`);
+      } else if (shouldSpeak && result.content && result.content.trim()) {
+        // Use the same sendDirectMessage helper as the send_message tool
+        sendDirectMessage({
           fromAgentId: agent.id,
           fromAgentName: agent.name,
           toAgentId: otherAgentId,
           toAgentName: otherName,
+          content: result.content,
         });
         console.log(`  💬 [Lifecycle] ${agent.name} replied to DM from ${otherName}: ${result.content.slice(0, 80)}`);
       } else {
@@ -360,11 +368,19 @@ export class EmployeeLifecycle {
    * @param {{ task: import('./task.js').AgentTask, onResolveTarget: string, onResolveHint: string }} resolved
    */
   async _handleTaskOnResolve(resolved) {
-    const { task, onResolveTarget, onResolveHint } = resolved;
-    if (!onResolveTarget) return;
+    const { task, onResolveHint } = resolved;
+    let { onResolveTarget } = resolved;
 
     const agent = this.employee;
-    console.log(`  🎯 [Lifecycle] ${agent.name} task ${task.id} resolved — triggering onResolve for ${onResolveTarget}`);
+
+    // If no explicit onResolveTarget, default to boss-chat so the agent can
+    // decide what to do next (e.g. report findings to the boss).
+    if (!onResolveTarget) {
+      onResolveTarget = `boss-chat-${agent.id}`;
+      console.log(`  🎯 [Lifecycle] ${agent.name} task ${task.id} resolved (no target) — defaulting to boss-chat`);
+    } else {
+      console.log(`  🎯 [Lifecycle] ${agent.name} task ${task.id} resolved — triggering onResolve for ${onResolveTarget}`);
+    }
 
     // Determine the target conversation type and trigger normal chat flow
     if (onResolveTarget.startsWith('boss-chat-')) {
@@ -397,7 +413,12 @@ export class EmployeeLifecycle {
 
     const bossChatGroupId = onResolveTarget;
     const agentId = agent.id;
-    const sessionId = `boss-agent-${agentId}`;
+
+    // Secretary uses a different session ID format than regular employees
+    const isSecretary = company.secretary && company.secretary.id === agentId;
+    const sessionId = isSecretary
+      ? (company.chatSessionId || `boss-secretary-${company.id}`)
+      : `boss-agent-${agentId}`;
 
     // Build memory context
     const memoryContext = agent.memory.buildMemoryContext(bossChatGroupId);
@@ -428,10 +449,11 @@ export class EmployeeLifecycle {
     }
 
     // Append task completion info as a system-injected user message
+    const defaultHint = 'Review the task result and decide what to report to the boss. If the result contains important findings, issues, or updates, proactively inform the boss.';
     const taskCompletionMsg = `[System notification] Your task has been completed:\n`
       + `- Task: ${task.description}\n`
       + `- Result: ${task.result || 'Completed'}\n`
-      + (onResolveHint ? `- What to do: ${onResolveHint}\n` : '')
+      + `- What to do: ${onResolveHint || defaultHint}\n`
       + `\nPlease respond to the boss with the relevant information.`;
     messages.push({ role: 'user', content: historySummaryContext ? `${historySummaryContext}\n\n${taskCompletionMsg}` : taskCompletionMsg });
 
@@ -461,12 +483,21 @@ export class EmployeeLifecycle {
         // Plain text reply, that's fine
       }
 
-      // Append to chat store
+      // Append to chat store (secretary uses 'secretary' role, others use 'agent')
+      const msgRole = isSecretary ? 'secretary' : 'agent';
       chatStore.appendMessage(sessionId, {
-        role: 'agent',
+        role: msgRole,
         content: replyContent,
         time: new Date(),
       });
+
+      // Sync to company.chatHistory for frontend cache (secretary only)
+      if (isSecretary && company.chatHistory) {
+        company.chatHistory.push({ role: 'secretary', content: replyContent, time: new Date() });
+        if (company.chatHistory.length > 50) {
+          company.chatHistory = company.chatHistory.slice(-50);
+        }
+      }
 
       console.log(`  📨 [Lifecycle] ${agent.name} sent onResolve reply to boss: ${replyContent.slice(0, 80)}`);
 
@@ -541,7 +572,10 @@ export class EmployeeLifecycle {
   // ──────────────────────────────────────────────────────────────────────
 
   _scheduleNext() {
-    if (!this._isRunning()) return;
+    if (!this._isRunning()) {
+      console.log(`  ⚠️ [Lifecycle] ${this.employee.name} _scheduleNext skipped: coordinator not running`);
+      return;
+    }
     // Use adaptive delay if set by the last thinking round, otherwise random
     const delay = this._nextPollDelay ?? this._randomDelay();
     this._nextPollDelay = null; // consume it
@@ -556,9 +590,14 @@ export class EmployeeLifecycle {
   }
 
   async _pollCycle() {
-    if (!this._isRunning()) return;
+    if (!this._isRunning()) {
+      console.log(`  ⚠️ [Lifecycle] ${this.employee.name} poll skipped: coordinator not running`);
+      return;
+    }
     const agent = this.employee;
     if (agent.status === 'dismissed') return;
+
+    console.log(`  🔍 [Lifecycle] ${agent.name} poll cycle tick (id=${agent.id.slice(0, 8)})`);
 
     // Periodically clean expired short-term memories
     agent.memory.cleanExpiredShortTerm();
@@ -582,6 +621,20 @@ export class EmployeeLifecycle {
   async _pollDMSessions() {
     const agent = this.employee;
     const allSessions = chatStore.listSessions();
+
+    // Debug: log DM session scan for agents with no groups (e.g. secretary)
+    const dmSessions = allSessions.filter(m => m.type === 'agent-agent');
+    const mySessions = dmSessions.filter(m => m.participants?.includes(agent.id));
+    if (mySessions.length > 0) {
+      const unreadSessions = mySessions.filter(m => {
+        const total = chatStore.getMessageCount(m.sessionId);
+        const lastRead = this._dmLastReadIndex.get(m.sessionId) || 0;
+        return total > lastRead;
+      });
+      if (unreadSessions.length > 0) {
+        console.log(`  📬 [Lifecycle] ${agent.name} DM scan: ${mySessions.length} sessions, ${unreadSessions.length} with unread`);
+      }
+    }
 
     for (const meta of allSessions) {
       // Only process agent-agent DM sessions

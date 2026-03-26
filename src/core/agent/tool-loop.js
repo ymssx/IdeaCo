@@ -30,6 +30,8 @@ export const TOOL_TIERS = {
   core: [
     'file_read', 'file_list', 'file_stats', 'file_search',
     'workspace_files', 'load_skill', 'grep_search', 'glob_search',
+    // Chat history query tool
+    'query_chat_history',
     // Management read-only tools (permission-gated via AgentToolKit)
     'query_department', 'list_departments', 'list_talent_market', 'list_job_templates',
   ],
@@ -57,6 +59,7 @@ export const TOOL_TIERS = {
 const READ_ONLY_TOOLS = new Set([
   'file_read', 'file_list', 'file_stats', 'file_search',
   'workspace_files', 'grep_search', 'glob_search', 'load_skill',
+  'query_chat_history',
   'query_department', 'list_departments', 'list_talent_market', 'list_job_templates',
 ]);
 

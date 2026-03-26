@@ -301,37 +301,37 @@ export class KnowledgeManager {
 // Global singleton — use globalThis to survive Next.js HMR in dev mode
 if (!globalThis.__knowledgeManager) {
   globalThis.__knowledgeManager = new KnowledgeManager();
+
+  // Create default global knowledge base (only once, inside the guard)
+  const globalKb = globalThis.__knowledgeManager.create({
+    name: 'Company Knowledge Base',
+    description: 'Shared knowledge base for all agents in the company',
+    type: KnowledgeType.GLOBAL,
+  });
+
+  // Add some example entries
+  globalKb.addEntry({
+    title: 'Code Review Standards',
+    content: 'All code must pass code review before merging. Reviews should check: correctness, readability, security, performance, and test coverage.',
+    type: EntryType.PROCEDURE,
+    tags: ['coding', 'review', 'standards'],
+    importance: 0.8,
+  });
+
+  globalKb.addEntry({
+    title: 'API Design Guidelines',
+    content: 'RESTful APIs should use proper HTTP methods (GET/POST/PUT/DELETE), return appropriate status codes, and include consistent error response formats.',
+    type: EntryType.REFERENCE,
+    tags: ['api', 'design', 'standards'],
+    importance: 0.7,
+  });
+
+  globalKb.addEntry({
+    title: 'Project File Structure',
+    content: 'Projects should follow a standard directory structure: src/ for source code, tests/ for tests, docs/ for documentation, config/ for configurations.',
+    type: EntryType.PROCEDURE,
+    tags: ['structure', 'organization', 'standards'],
+    importance: 0.6,
+  });
 }
 export const knowledgeManager = globalThis.__knowledgeManager;
-
-// Create default global knowledge base
-const globalKb = knowledgeManager.create({
-  name: 'Company Knowledge Base',
-  description: 'Shared knowledge base for all agents in the company',
-  type: KnowledgeType.GLOBAL,
-});
-
-// Add some example entries
-globalKb.addEntry({
-  title: 'Code Review Standards',
-  content: 'All code must pass code review before merging. Reviews should check: correctness, readability, security, performance, and test coverage.',
-  type: EntryType.PROCEDURE,
-  tags: ['coding', 'review', 'standards'],
-  importance: 0.8,
-});
-
-globalKb.addEntry({
-  title: 'API Design Guidelines',
-  content: 'RESTful APIs should use proper HTTP methods (GET/POST/PUT/DELETE), return appropriate status codes, and include consistent error response formats.',
-  type: EntryType.REFERENCE,
-  tags: ['api', 'design', 'standards'],
-  importance: 0.7,
-});
-
-globalKb.addEntry({
-  title: 'Project File Structure',
-  content: 'Projects should follow a standard directory structure: src/ for source code, tests/ for tests, docs/ for documentation, config/ for configurations.',
-  type: EntryType.PROCEDURE,
-  tags: ['structure', 'organization', 'standards'],
-  importance: 0.6,
-});

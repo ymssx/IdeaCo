@@ -36,24 +36,33 @@ export class GroupChatLoop extends EventEmitter {
    * Start the coordinator.
    * @param {object} company
    */
-  start(company) {
-    if (this.running) return;
+  start(company, { silent = false } = {}) {
+    if (this.running) {
+      // Already running — just update company reference if needed
+      if (company) this.company = company;
+      return;
+    }
     this.company = company;
     this.running = true;
 
-    console.log('🔄 GroupChatLoop: Chat loop engine started');
+    if (!silent) {
+      console.log('🔄 GroupChatLoop: Chat loop engine started');
+    }
     this.emit('started');
   }
 
   /**
    * Stop the coordinator and all employee lifecycles.
    */
-  stop() {
+  stop({ silent = false } = {}) {
+    if (!this.running) return;
     this.running = false;
     for (const [, lifecycle] of this._lifecycles) {
       lifecycle.stop();
     }
-    console.log('⏹️ GroupChatLoop: Chat loop engine stopped');
+    if (!silent) {
+      console.log('⏹️ GroupChatLoop: Chat loop engine stopped');
+    }
     this.emit('stopped');
   }
 

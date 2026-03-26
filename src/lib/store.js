@@ -49,6 +49,10 @@ if (!globalStore.__aiEnterprise) {
     globalStore.__aiEnterprise.company = null;
   }
   globalStore.__aiEnterprise.loaded = true;
+} else if (process.env.NODE_ENV === 'development') {
+  // HMR guard: module re-evaluated but globalThis still holds the company.
+  // Just log a short notice instead of re-initializing everything.
+  console.log('🔄 [HMR] store.js re-evaluated, company instance preserved');
 }
 
 export function getCompany() {

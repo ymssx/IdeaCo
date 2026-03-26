@@ -28,6 +28,7 @@ import { getShellToolDefinitions, createShellToolHandlers } from '../employee/to
 import { getCommunicationToolDefinitions, createCommunicationToolHandlers } from '../employee/tools/communication-tools.js';
 import { getSkillToolDefinitions, createSkillToolHandlers } from '../employee/tools/skill-tools.js';
 import { getDiscoveryToolDefinitions, createDiscoveryToolHandlers } from '../employee/tools/discovery-tools.js';
+import { getChatHistoryToolDefinitions, createChatHistoryToolHandlers } from '../employee/tools/chat-history-tools.js';
 
 /**
  * Agent Tool Kit — Each Agent instance holds one ToolKit.
@@ -88,6 +89,8 @@ export class AgentToolKit {
         if (byId) return byId.id;
         // Check boss by ID/name
         if (company.boss?.id === nameOrId || company.boss?.name === nameOrId) return company.boss.id;
+        // Check secretary by name (secretary may not be in a department)
+        if (company.secretary?.name === nameOrId) return company.secretary.id;
         // Fallback: search by name across all lifecycles (covers all employees)
         // IMPORTANT: return employee.id (the canonical ID), NOT the lifecycle map key,
         // because the map key may be stale after ID restoration during deserialization.
@@ -109,6 +112,7 @@ export class AgentToolKit {
       createCommunicationToolHandlers(toolContext),
       createSkillToolHandlers(),
       createDiscoveryToolHandlers({ employee }),
+      createChatHistoryToolHandlers({ employee }),
     ];
     for (const handlerMap of handlerSources) {
       for (const [name, handler] of handlerMap) {
@@ -162,6 +166,7 @@ export class AgentToolKit {
       ...getCommunicationToolDefinitions(),
       ...getSkillToolDefinitions(),
       ...getDiscoveryToolDefinitions(),
+      ...getChatHistoryToolDefinitions(),
     ];
 
     // Employee permission set for filtering restricted tools

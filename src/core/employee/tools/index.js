@@ -35,6 +35,9 @@ export { getSkillToolDefinitions, createSkillToolHandlers } from './skill-tools.
 // Discovery tools — progressive disclosure: inspect tool/skill details on demand
 export { getDiscoveryToolDefinitions, createDiscoveryToolHandlers } from './discovery-tools.js';
 
+// Chat history tools — query own chat records across sessions
+export { getChatHistoryToolDefinitions, createChatHistoryToolHandlers } from './chat-history-tools.js';
+
 // Management tools — company operations (departments, tasks, talent, etc.)
 export {
   ManagementPermissions,

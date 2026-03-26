@@ -362,8 +362,9 @@ export class Employee {
       if (taskResult.failed.length > 0) {
         console.log(`  ❌ [${this.name}] Tasks failed: ${taskResult.failed.map(t => t.id).join(', ')}`);
       }
-      // Attach resolved tasks with onResolve targets for the caller to handle
-      result._resolvedTasks = taskResult.resolved.filter(r => r.onResolveTarget);
+      // Attach all resolved tasks for the caller to handle.
+      // Even tasks without explicit onResolveTarget will trigger boss-chat fallback.
+      result._resolvedTasks = taskResult.resolved;
     }
 
     if (result.actions.length > 0) {
