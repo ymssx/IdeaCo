@@ -21,6 +21,7 @@ import { Secretary } from './secretary.js';
 import { EmployeeLifecycle, InnerMonologue } from './lifecycle.js';
 import { StaminaSystem } from './stamina.js';
 import { EmployeeSkillSet } from './skill/skill-set.js';
+import { TaskManager } from './task.js';
 
 /**
  * Create an Employee from a recruit config.
@@ -70,4 +71,4 @@ export function deserializeEmployee(data, providerRegistry) {
   return employee;
 }
 
-export { Employee, GeneralEmployee, Leader, Secretary, EmployeeLifecycle, InnerMonologue, StaminaSystem, EmployeeSkillSet };
+export { Employee, GeneralEmployee, Leader, Secretary, EmployeeLifecycle, InnerMonologue, StaminaSystem, EmployeeSkillSet, TaskManager };

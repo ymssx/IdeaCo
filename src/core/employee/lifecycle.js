@@ -27,6 +27,7 @@ import {
   getFallbackReplies,
 } from '../prompts.js';
 import { robustJSONParse } from '../utils/json-parse.js';
+import { chatStore } from '../agent/chat-store.js';
 
 // ─── File reference expansion ──────────────────────────────────────────
 // Agent writes [[file:path/to/file]], we expand to [[file:deptId:path|displayName]]
@@ -155,6 +156,10 @@ export class EmployeeLifecycle {
 
     // Back-reference to global coordinator (set externally)
     this._coordinator = null;
+
+    // DM state — self-driven polling (same as group chat)
+    this._dmLastReadIndex = new Map();     // sessionId → number (last read message count)
+    this._dmProcessing = new Set();        // sessionId (guard against concurrent processing)
   }
 
   // ──────────────────────────────────────────────────────────────────────
@@ -167,10 +172,12 @@ export class EmployeeLifecycle {
   }
 
   /** Start the random-interval poll loop for this employee. */
-  start() {
+  start(silent = false) {
     if (this._pollTimer) return; // already running
     this._scheduleNext();
-    console.log(`  🔄 [Lifecycle] ${this.employee.name} started (${this.config.pollIntervalMinMs}-${this.config.pollIntervalMaxMs}ms)`);
+    if (!silent) {
+      console.log(`  🔄 [Lifecycle] ${this.employee.name} started (${this.config.pollIntervalMinMs}-${this.config.pollIntervalMaxMs}ms)`);
+    }
   }
 
   /** Stop polling. */
@@ -183,6 +190,8 @@ export class EmployeeLifecycle {
     this._recentSpeaks.clear();
     this._lastSelfCheck.clear();
     this._lastProcessedVisible.clear();
+    // Clear DM processing guard (read indices persist across stop/start)
+    this._dmProcessing.clear();
     // NOTE: _agentMemory is NOT cleared — memories persist across stop/start
   }
 
@@ -198,6 +207,281 @@ export class EmployeeLifecycle {
         console.error(`  ❌ [Lifecycle] ${this.employee.name} delayed trigger error:`, err.message);
       }
     }, delay);
+  }
+
+  // ──────────────────────────────────────────────────────────────────────
+  // DM (Direct Message) — Self-driven polling (same rhythm as group chat)
+  // ──────────────────────────────────────────────────────────────────────
+
+  /**
+   * Process a DM conversation with another agent.
+   * Self-driven: called from _pollCycle when unread messages are detected.
+   * Uses the same flow-of-thought (shouldSpeak / interest / saturation) as group chat.
+   *
+   * @param {string} sessionId - The chatStore session ID (agent-agent-xxx-yyy)
+   * @param {Array} unreadMessages - Unread messages in this DM session
+   * @param {string} otherAgentId - The other agent's ID
+   */
+  async _processDM(sessionId, unreadMessages, otherAgentId) {
+    const agent = this.employee;
+    if (this._dmProcessing.has(sessionId)) return;
+    this._dmProcessing.add(sessionId);
+
+    try {
+      const company = this._getCompany();
+      if (!company) return;
+
+      const otherAgent = company.findAgentById(otherAgentId);
+      const otherName = otherAgent?.name || otherAgentId;
+      const otherRole = otherAgent?.role || 'Unknown';
+      const dmGroupId = `dm-${[agent.id, otherAgentId].sort().join('-')}`;
+
+      // Get full recent messages for context
+      const recentMessages = chatStore.getRecentMessages(sessionId, 20);
+      if (recentMessages.length === 0) return;
+
+      // Build memory context
+      const memoryContext = agent.memory.buildMemoryContext(dmGroupId);
+      const historySummaryContext = agent.memory.buildHistorySummaryContext(dmGroupId);
+
+      // Build the DM system prompt
+      const systemPrompt = agent._buildSystemMessage()
+        + `\n\n## Current Conversation\n`
+        + `You are having a private 1-on-1 DM conversation with ${otherName} (${otherRole}).\n`
+        + `Respond naturally based on your personality and role.\n`
+        + memoryContext
+        + agent._buildGroupChatResponseFormat({ scenario: 'dm' });
+
+      // Format chat history — distinguish read vs unread
+      const totalCount = recentMessages.length;
+      const unreadCount = unreadMessages.length;
+      const readCount = totalCount - unreadCount;
+
+      const formattedHistory = recentMessages.map((msg, idx) => {
+        const isMe = msg.fromAgentId === agent.id;
+        const isRead = idx < readCount;
+        const senderName = msg.fromAgentName || (isMe ? agent.name : otherName);
+        const time = new Date(msg.time).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' });
+        const readMark = isRead ? '[read] ' : '[unread] ';
+        return {
+          role: isMe ? 'assistant' : 'user',
+          content: `${readMark}[${time}] ${senderName}: ${msg.content}`,
+          _isMe: isMe,
+        };
+      });
+
+      // Build LLM messages
+      const messages = [
+        { role: 'system', content: systemPrompt },
+      ];
+
+      // Add history (except last message)
+      for (const msg of formattedHistory.slice(0, -1)) {
+        messages.push({ role: msg.role, content: msg.content });
+      }
+
+      // Add current message with history summary
+      const currentContent = formattedHistory[formattedHistory.length - 1]?.content || '';
+      const userMessage = historySummaryContext
+        ? `${historySummaryContext}\n\n${currentContent}`
+        : currentContent;
+      messages.push({ role: 'user', content: userMessage });
+
+      // Call LLM
+      let response;
+      if (agent.canChat()) {
+        try {
+          if (agent.toolKit) {
+            response = await agent.chatWithTools(messages, agent.toolKit, {
+              temperature: 0.9, maxTokens: 2048, maxIterations: 5,
+            });
+          } else {
+            response = await agent.chat(messages, { temperature: 0.9, maxTokens: 1024 });
+          }
+        } catch (err) {
+          console.warn(`  ⚠️ [Lifecycle] ${agent.name} DM LLM error:`, err.message);
+          return;
+        }
+      } else {
+        return;
+      }
+
+      if (agent.stamina) agent.stamina.onLLMCall();
+
+      const rawContent = response.content || '';
+      const result = robustJSONParse(rawContent);
+
+      // Process structured response (memory, relationships, tasks)
+      const parsed = agent.parseStructuredResponse(rawContent, dmGroupId);
+
+      const shouldSpeak = result.shouldSpeak !== false;
+      const interestLevel = typeof result.interestLevel === 'number' ? result.interestLevel : 7;
+      const topicSaturation = typeof result.topicSaturation === 'number' ? result.topicSaturation : 3;
+
+      if (shouldSpeak && result.content && result.content.trim()) {
+        // Write reply directly to chatStore (no messageBus relay)
+        chatStore.appendMessage(sessionId, {
+          role: 'agent',
+          content: result.content,
+          time: new Date(),
+          fromAgentId: agent.id,
+          fromAgentName: agent.name,
+          toAgentId: otherAgentId,
+          toAgentName: otherName,
+        });
+        console.log(`  💬 [Lifecycle] ${agent.name} replied to DM from ${otherName}: ${result.content.slice(0, 80)}`);
+      } else {
+        console.log(`  🤫 [Lifecycle] ${agent.name} read DM from ${otherName} but chose not to reply (interest=${interestLevel}, saturation=${topicSaturation})`);
+      }
+
+      // Handle onResolve for any resolved tasks
+      if (parsed._resolvedTasks && parsed._resolvedTasks.length > 0) {
+        for (const resolved of parsed._resolvedTasks) {
+          await this._handleTaskOnResolve(resolved);
+        }
+      }
+
+      // ── Adaptive poll delay for DM (same logic as group chat) ──
+      const adaptiveDelay = this._computeAdaptiveDelay(topicSaturation, interestLevel);
+      if (this._nextPollDelay === null || adaptiveDelay < this._nextPollDelay) {
+        this._nextPollDelay = adaptiveDelay;
+      }
+      console.log(`  ⏱️ [Lifecycle] ${agent.name} DM adaptive delay ${Math.round(adaptiveDelay / 1000)}s (interest=${interestLevel}, saturation=${topicSaturation})`);
+
+      company.save();
+
+    } finally {
+      this._dmProcessing.delete(sessionId);
+    }
+  }
+
+  /**
+   * Handle onResolve for a resolved task — trigger normal chat flow in the target conversation.
+   * @param {{ task: import('./task.js').AgentTask, onResolveTarget: string, onResolveHint: string }} resolved
+   */
+  async _handleTaskOnResolve(resolved) {
+    const { task, onResolveTarget, onResolveHint } = resolved;
+    if (!onResolveTarget) return;
+
+    const agent = this.employee;
+    console.log(`  🎯 [Lifecycle] ${agent.name} task ${task.id} resolved — triggering onResolve for ${onResolveTarget}`);
+
+    // Determine the target conversation type and trigger normal chat flow
+    if (onResolveTarget.startsWith('boss-chat-')) {
+      // Target is a boss chat — trigger via company.chatWithAgent equivalent
+      await this._triggerBossChatOnResolve(task, onResolveTarget, onResolveHint);
+    } else if (onResolveTarget.startsWith('dm-')) {
+      // Target is a DM conversation — trigger DM processing
+      const parts = onResolveTarget.replace('dm-', '').split('-');
+      const targetAgentId = parts.find(id => id !== agent.id) || parts[0];
+      const ids = [agent.id, targetAgentId].sort();
+      const dmSessionId = `agent-agent-${ids[0]}-${ids[1]}`;
+      const dmMessages = chatStore.getRecentMessages(dmSessionId, 5);
+      if (dmMessages.length > 0) {
+        await this._processDM(dmSessionId, dmMessages, targetAgentId);
+      }
+    } else {
+      // Target is a group chat — trigger group message processing
+      await this._processGroupMessages(onResolveTarget, false);
+    }
+  }
+
+  /**
+   * Trigger a boss chat reply when a task is resolved.
+   * Builds the normal boss-chat context + appends task completion info.
+   */
+  async _triggerBossChatOnResolve(task, onResolveTarget, onResolveHint) {
+    const agent = this.employee;
+    const company = this._getCompany();
+    if (!company) return;
+
+    const bossChatGroupId = onResolveTarget;
+    const agentId = agent.id;
+    const sessionId = `boss-agent-${agentId}`;
+
+    // Build memory context
+    const memoryContext = agent.memory.buildMemoryContext(bossChatGroupId);
+    const historySummaryContext = agent.memory.buildHistorySummaryContext(bossChatGroupId);
+
+    // Find department
+    let targetDept = null;
+    for (const dept of company.departments.values()) {
+      if (dept.agents.has(agentId)) { targetDept = dept; break; }
+    }
+
+    // Build system prompt (same as normal boss chat)
+    const systemMessage = agent._buildSystemMessage()
+      + `\n\n## Current Conversation\nYou are having a private 1-on-1 conversation with your boss "${company.bossName}".`
+      + (targetDept ? ` You work in the "${targetDept.name}" department.` : '')
+      + ` Respond naturally based on your personality and role. Be helpful but stay in character.`
+      + memoryContext
+      + agent._buildBossChatResponseFormat();
+
+    // Get recent chat history
+    const recentMessages = chatStore.getRecentMessages(sessionId, 20);
+    const messages = [{ role: 'system', content: systemMessage }];
+    for (const msg of recentMessages) {
+      messages.push({
+        role: msg.role === 'boss' ? 'user' : 'assistant',
+        content: msg.content,
+      });
+    }
+
+    // Append task completion info as a system-injected user message
+    const taskCompletionMsg = `[System notification] Your task has been completed:\n`
+      + `- Task: ${task.description}\n`
+      + `- Result: ${task.result || 'Completed'}\n`
+      + (onResolveHint ? `- What to do: ${onResolveHint}\n` : '')
+      + `\nPlease respond to the boss with the relevant information.`;
+    messages.push({ role: 'user', content: historySummaryContext ? `${historySummaryContext}\n\n${taskCompletionMsg}` : taskCompletionMsg });
+
+    // Call LLM
+    try {
+      let response;
+      if (agent.toolKit) {
+        response = await agent.chatWithTools(messages, agent.toolKit, {
+          temperature: 0.8, maxTokens: 2048, maxIterations: 5,
+        });
+      } else {
+        response = await agent.chat(messages, { temperature: 0.8, maxTokens: 2048 });
+      }
+
+      const rawContent = response.content || '';
+      let replyContent = rawContent;
+
+      // Parse structured response
+      try {
+        const parsed = robustJSONParse(rawContent);
+        if (parsed && parsed.content) {
+          replyContent = parsed.content;
+          // Process memory/relationship/task ops
+          agent.parseStructuredResponse(rawContent, bossChatGroupId);
+        }
+      } catch (e) {
+        // Plain text reply, that's fine
+      }
+
+      // Append to chat store
+      chatStore.appendMessage(sessionId, {
+        role: 'agent',
+        content: replyContent,
+        time: new Date(),
+      });
+
+      console.log(`  📨 [Lifecycle] ${agent.name} sent onResolve reply to boss: ${replyContent.slice(0, 80)}`);
+
+      // Emit event for frontend
+      this._emit('dm:reply', {
+        agentId: agent.id,
+        agentName: agent.name,
+        target: 'boss',
+        sessionId,
+        content: replyContent,
+      });
+
+    } catch (err) {
+      console.error(`  ❌ [Lifecycle] ${agent.name} onResolve boss chat error:`, err.message);
+    }
   }
 
   // ─── Query helpers (used by GroupChatLoop / API) ────────────────────
@@ -239,6 +523,7 @@ export class EmployeeLifecycle {
       lastReadIndex: obj(this._lastReadIndex),
       lastProcessedVisible: obj(this._lastProcessedVisible),
       agentMemory: obj(this._agentMemory),
+      dmLastReadIndex: obj(this._dmLastReadIndex),
     };
   }
 
@@ -248,6 +533,7 @@ export class EmployeeLifecycle {
     load(this._lastReadIndex, data.lastReadIndex);
     load(this._lastProcessedVisible, data.lastProcessedVisible);
     load(this._agentMemory, data.agentMemory);
+    load(this._dmLastReadIndex, data.dmLastReadIndex);
   }
 
   // ──────────────────────────────────────────────────────────────────────
@@ -277,10 +563,58 @@ export class EmployeeLifecycle {
     // Periodically clean expired short-term memories
     agent.memory.cleanExpiredShortTerm();
 
+    // 1. Process group messages (work groups + dept chats)
     const groups = this._getAgentGroups();
     for (const group of groups) {
       await this._checkGroupForAgent(group);
       await this._selfCheckWorkflow(group);
+    }
+
+    // 2. Self-driven DM polling — scan all DM sessions for unread messages
+    await this._pollDMSessions();
+  }
+
+  /**
+   * Self-driven DM polling: scan all agent-agent sessions in chatStore,
+   * find ones that involve this employee, and process any unread messages.
+   * This is the same self-driven rhythm as group chat — no external notification needed.
+   */
+  async _pollDMSessions() {
+    const agent = this.employee;
+    const allSessions = chatStore.listSessions();
+
+    for (const meta of allSessions) {
+      // Only process agent-agent DM sessions
+      if (meta.type !== 'agent-agent') continue;
+      // Only process sessions that involve this employee
+      if (!meta.participants || !meta.participants.includes(agent.id)) continue;
+
+      const sessionId = meta.sessionId;
+      const totalMessages = chatStore.getMessageCount(sessionId);
+      const lastRead = this._dmLastReadIndex.get(sessionId) || 0;
+
+      if (totalMessages <= lastRead) continue; // No new messages
+
+      // Get unread messages
+      const allRecent = chatStore.getRecentMessages(sessionId, totalMessages);
+      const unreadMessages = allRecent.slice(lastRead);
+
+      // Mark as read (advance the read index)
+      this._dmLastReadIndex.set(sessionId, totalMessages);
+
+      // Skip if all unread messages are from ourselves
+      const othersMessages = unreadMessages.filter(m => m.fromAgentId !== agent.id);
+      if (othersMessages.length === 0) continue;
+
+      // Determine the other agent's ID
+      const otherAgentId = meta.participants.find(id => id !== agent.id);
+      if (!otherAgentId) continue;
+
+      try {
+        await this._processDM(sessionId, unreadMessages, otherAgentId);
+      } catch (err) {
+        console.error(`  ❌ [Lifecycle] ${agent.name} DM poll error for ${sessionId}:`, err.message);
+      }
     }
   }
 
@@ -591,6 +925,13 @@ const { groupChatLoop } = await import('../organization/group-chat-loop.js');
         reason: thinkingResult.reason || '',
       });
 
+      // Handle onResolve for any resolved tasks
+      if (thinkingResult._resolvedTasks && thinkingResult._resolvedTasks.length > 0) {
+        for (const resolved of thinkingResult._resolvedTasks) {
+          await this._handleTaskOnResolve(resolved);
+        }
+      }
+
     } catch (error) {
       console.error(`  ❌ [Lifecycle] ${agent.name} process error in ${groupId}:`, error.message);
       this._activeMonologues.delete(groupId);
@@ -727,8 +1068,8 @@ const { groupChatLoop } = await import('../organization/group-chat-loop.js');
         }
       }
 
-      // parseStructuredResponse handles: memorySummary, memoryOps, relationshipOps
-      agent.parseStructuredResponse(rawContent, groupId);
+      // parseStructuredResponse handles: memorySummary, memoryOps, relationshipOps, taskOps
+      const parsedResult = agent.parseStructuredResponse(rawContent, groupId);
 
       // ── Stamina: detect chat sentiment from affinity changes ──
       if (agent.stamina && result.relationshipOps && Array.isArray(result.relationshipOps) && result.relationshipOps.length > 0) {
@@ -768,6 +1109,7 @@ const { groupChatLoop } = await import('../organization/group-chat-loop.js');
         innerThoughts: thoughtContent,
         topicSaturation: typeof result.topicSaturation === 'number' ? result.topicSaturation : 0,
         interestLevel: typeof result.interestLevel === 'number' ? result.interestLevel : 5,
+        _resolvedTasks: parsedResult._resolvedTasks || [],
       };
 
     } catch (error) {

@@ -604,5 +604,8 @@ export class SessionManager {
   }
 }
 
-// Global singleton
-export const sessionManager = new SessionManager();
+// Global singleton — use globalThis to survive Next.js HMR in dev mode
+if (!globalThis.__sessionManager) {
+  globalThis.__sessionManager = new SessionManager();
+}
+export const sessionManager = globalThis.__sessionManager;

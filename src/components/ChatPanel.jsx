@@ -6,6 +6,7 @@ import { getAvatarUrl } from '@/lib/avatar';
 import { useI18n } from '@/lib/i18n';
 import ProvidersBoard from './ProvidersBoard';
 import SecretaryChatView from './SecretaryChatView';
+import AgentDetailModal from './AgentDetailModal';
 
 export default function ChatPanel() {
   const {
@@ -15,6 +16,7 @@ export default function ChatPanel() {
   } = useStore();
   const { t } = useI18n();
   const [showProviders, setShowProviders] = useState(false);
+  const [showSecretaryDetail, setShowSecretaryDetail] = useState(false);
   const panelRef = useRef(null);
   const isResizingRef = useRef(false);
 
@@ -70,7 +72,9 @@ export default function ChatPanel() {
         <img
           src={secretary?.avatar || getAvatarUrl('secretary')}
           alt={t('chat.secretary')}
-          className="w-10 h-10 rounded-full bg-[var(--border)]"
+          className="w-10 h-10 rounded-full bg-[var(--border)] cursor-pointer hover:ring-2 hover:ring-purple-500/50 transition-all"
+          onClick={() => secretary?.id && setShowSecretaryDetail(true)}
+          title={t('reqDetail.members.viewProfile')}
         />
         <div className="flex-1 min-w-0">
           <div className="text-sm font-semibold flex items-center gap-2">
@@ -128,6 +132,11 @@ export default function ChatPanel() {
         className="absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-[var(--accent)]/40 active:bg-[var(--accent)]/60 transition-colors z-10"
         onMouseDown={handleMouseDown}
       />
+
+      {/* Secretary detail modal */}
+      {showSecretaryDetail && secretary?.id && (
+        <AgentDetailModal agentId={secretary.id} onClose={() => setShowSecretaryDetail(false)} />
+      )}
     </div>
   );
 }

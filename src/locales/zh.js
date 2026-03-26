@@ -409,7 +409,7 @@ const zh = {
 
   agent: {
     notFound: '员工信息未找到',
-    tabs: { info: '📋 基本信息', skills: '📚 技能', soul: '👻 灵魂', work: '📊 工作', usage: '💰 消耗', llmLogs: '🔍 LLM日志', performanceSection: '绩效评价', taskSection: '任务历史' },
+    tabs: { info: '📋 基本信息', profile: '🎨 形象', skills: '📚 技能', soul: '👻 灵魂', work: '📊 工作', usage: '💰 消耗', llmLogs: '🔍 LLM日志', performanceSection: '绩效评价', taskSection: '任务历史' },
     soulSections: { memory: '🧠 记忆', stamina: '🔋 体力', config: '⚙️ 配置' },
     memorySubTabs: { personal: '💭 个人记忆', social: '👥 社交记忆' },
     avgPerformance: '平均绩效 {score}', rolePrompt: '角色 Prompt', personalityBio: '性格档案', skills: '技能',
@@ -463,6 +463,16 @@ const zh = {
     configSaved: '配置已保存！',
     configSaveFailed: '保存失败',
     noProviders: '没有可用的供应商',
+    editProfile: '编辑形象',
+    profileName: '名字',
+    profileNamePlaceholder: '如：小秘、Alice',
+    avatarStyle: '头像风格',
+    refreshAvatar: '换一批',
+    signatureLabel: '个性签名',
+    signaturePlaceholder: '如：效率就是生命',
+    saveProfile: '保存形象',
+    profileSaved: '形象已保存！',
+    profileSaveFailed: '保存形象失败',
     llmLogs: {
       empty: '暂无LLM调用日志',
       emptyHint: '开发模式下，该员工进行LLM调用时会自动记录日志',
@@ -895,6 +905,7 @@ const zh = {
     // 员工 / Agent
     agentNotFound: '员工未找到',
     agentConfigUpdated: 'Agent 配置已更新',
+    secretaryDept: '总裁办',
     messageRequired: '请输入消息',
 
     // 需求

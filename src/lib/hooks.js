@@ -409,6 +409,10 @@ export function createHookEvent(type, action, context = {}) {
 // Global singleton
 // ============================================================================
 
-export const hookRegistry = new HookRegistry();
+// Global singleton — use globalThis to survive Next.js HMR in dev mode
+if (!globalThis.__hookRegistry) {
+  globalThis.__hookRegistry = new HookRegistry();
+}
+export const hookRegistry = globalThis.__hookRegistry;
 
 export { HookRegistry };

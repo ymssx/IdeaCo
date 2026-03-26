@@ -404,4 +404,8 @@ export class WebClientRegistry {
 }
 
 // 全局单例
-export const webClientRegistry = new WebClientRegistry();
+// Global singleton — use globalThis to survive Next.js HMR in dev mode
+if (!globalThis.__webClientRegistry) {
+  globalThis.__webClientRegistry = new WebClientRegistry();
+}
+export const webClientRegistry = globalThis.__webClientRegistry;

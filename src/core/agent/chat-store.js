@@ -656,4 +656,8 @@ export class ChatStore {
 }
 
 // Global singleton
-export const chatStore = new ChatStore();
+// Global singleton — use globalThis to survive Next.js HMR in dev mode
+if (!globalThis.__chatStore) {
+  globalThis.__chatStore = new ChatStore();
+}
+export const chatStore = globalThis.__chatStore;

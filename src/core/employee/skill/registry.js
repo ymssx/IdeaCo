@@ -394,7 +394,11 @@ export class SkillRegistry {
 
 // ======================== Global singleton ========================
 
-export const skillRegistry = new SkillRegistry();
+// Global singleton — use globalThis to survive Next.js HMR in dev mode
+if (!globalThis.__skillRegistry) {
+  globalThis.__skillRegistry = new SkillRegistry();
+}
+export const skillRegistry = globalThis.__skillRegistry;
 
 // Register and enable all built-in skills from definitions/
 builtinSkillConfigs.forEach(config => {

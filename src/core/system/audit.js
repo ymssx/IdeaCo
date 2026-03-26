@@ -461,5 +461,10 @@ export class SecurityGuard {
 }
 
 // Global singletons
-export const auditLogger = new AuditLogger();
-export const securityGuard = new SecurityGuard(auditLogger);
+// Global singletons — use globalThis to survive Next.js HMR in dev mode
+if (!globalThis.__auditLogger) {
+  globalThis.__auditLogger = new AuditLogger();
+  globalThis.__securityGuard = new SecurityGuard(globalThis.__auditLogger);
+}
+export const auditLogger = globalThis.__auditLogger;
+export const securityGuard = globalThis.__securityGuard;

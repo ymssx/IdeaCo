@@ -149,8 +149,9 @@ export class PluginRegistry {
    * @returns {PluginInstance}
    */
   install(manifest, config = {}) {
+    // Idempotent: skip if already installed (survives HMR re-execution)
     if (this.plugins.has(manifest.id)) {
-      throw new Error(`Plugin "${manifest.id}" is already installed`);
+      return this.plugins.get(manifest.id);
     }
 
     const instance = new PluginInstance(manifest);
@@ -183,7 +184,6 @@ export class PluginRegistry {
 
     instance.state = PluginState.ENABLED;
     instance.enabledAt = new Date();
-    logInfo(`✅ Plugin enabled: ${instance.manifest.name}`);
   }
 
   /**
@@ -2147,7 +2147,11 @@ export const ThinkingPlugin = new PluginManifest({
 });
 
 // Global singleton
-export const pluginRegistry = new PluginRegistry();
+// Global singleton — use globalThis to survive Next.js HMR in dev mode
+if (!globalThis.__pluginRegistry) {
+  globalThis.__pluginRegistry = new PluginRegistry();
+}
+export const pluginRegistry = globalThis.__pluginRegistry;
 
 // Auto-install built-in plugins
 // --- Core Web Tools ---

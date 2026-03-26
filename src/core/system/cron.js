@@ -445,5 +445,8 @@ export class CronScheduler {
   }
 }
 
-// Global singleton
-export const cronScheduler = new CronScheduler();
+// Global singleton — use globalThis to survive Next.js HMR in dev mode
+if (!globalThis.__cronScheduler) {
+  globalThis.__cronScheduler = new CronScheduler();
+}
+export const cronScheduler = globalThis.__cronScheduler;

@@ -62,12 +62,43 @@ export class AgentToolKit {
 
     // Build the base tool handler map from employee/tools/ modules.
     // Each module's createXxxHandlers() returns a Map<name, handler>.
+    // IMPORTANT: agentId / agentName are read dynamically from the employee
+    // object, NOT captured at construction time. This is critical because
+    // the employee's ID may be restored to a different value after
+    // deserialization (e.g. secretary ID restoration).
     const toolContext = {
       workspaceDir,
       safePath: (fp) => this._safePath(fp),
-      agentId,
-      agentName,
+      // Dynamic getters — always return the employee's CURRENT id/name
+      get agentId() { return employee?.id ?? agentId; },
+      get agentName() { return employee?.name ?? agentName; },
       messageBus,
+      // Find agent by ID (for looking up agent names in DM)
+      findAgent: (id) => {
+        if (!employee) return null;
+        return employee.company?.findAgentById(id) ?? null;
+      },
+      // Resolve agent name → agentId (LLM sometimes passes name instead of UUID)
+      resolveAgentId: (nameOrId) => {
+        if (!employee) return nameOrId;
+        const company = employee.company;
+        if (!company) return nameOrId;
+        // Check by ID first (unified lookup)
+        const byId = company.findAgentById(nameOrId);
+        if (byId) return byId.id;
+        // Check boss by ID/name
+        if (company.boss?.id === nameOrId || company.boss?.name === nameOrId) return company.boss.id;
+        // Fallback: search by name across all lifecycles (covers all employees)
+        // IMPORTANT: return employee.id (the canonical ID), NOT the lifecycle map key,
+        // because the map key may be stale after ID restoration during deserialization.
+        const lifecycles = company.groupChatLoop?._lifecycles;
+        if (lifecycles) {
+          for (const [id, lc] of lifecycles) {
+            if (lc.employee?.name === nameOrId) return lc.employee.id;
+          }
+        }
+        return null; // not found
+      },
     };
 
     this._baseHandlers = new Map();

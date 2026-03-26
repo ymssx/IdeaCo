@@ -541,6 +541,7 @@ When the boss communicates with you, you need to:
     notFound: 'Employee info not found',
     tabs: {
       info: '📋 Basic Info',
+      profile: '🎨 Profile',
       skills: '📚 Skills',
       soul: '👻 Soul',
       work: '📊 Work',
@@ -611,6 +612,17 @@ When the boss communicates with you, you need to:
     configSaved: 'Configuration saved!',
     configSaveFailed: 'Failed to save',
     noProviders: 'No available providers',
+    // Profile tab
+    editProfile: 'Edit Profile',
+    profileName: 'Name',
+    profileNamePlaceholder: 'e.g., Alice, Bob',
+    avatarStyle: 'Avatar Style',
+    refreshAvatar: 'Shuffle',
+    signatureLabel: 'Signature',
+    signaturePlaceholder: 'e.g., Efficiency is life',
+    saveProfile: 'Save Profile',
+    profileSaved: 'Profile saved!',
+    profileSaveFailed: 'Failed to save profile',
     // LLM Logs tab
     llmLogs: {
       empty: 'No LLM call logs yet',
@@ -943,6 +955,7 @@ When the boss communicates with you, you need to:
     // Agent / Employee
     agentNotFound: 'Employee not found',
     agentConfigUpdated: 'Agent configuration updated',
+    secretaryDept: 'Executive Office',
     messageRequired: 'Please enter a message',
 
     // Requirement

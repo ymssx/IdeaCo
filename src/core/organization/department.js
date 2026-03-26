@@ -64,12 +64,14 @@ export class Department {
   }
 
   /** Add an Agent to the department */
-  addAgent(agent) {
+  addAgent(agent, { silent = false } = {}) {
     agent.department = this.id;
     this.agents.set(agent.id, agent);
-    console.log(`  ✅ [${agent.name}] (${agent.role}) joined department "${this.name}"`);
-    const providerInfo = agent.getProviderDisplayInfo?.() || {};
-    console.log(`     Model provider: ${providerInfo.name || 'Unknown'} (${providerInfo.provider || 'Unknown'})`);
+    if (!silent) {
+      console.log(`  ✅ [${agent.name}] (${agent.role}) joined department "${this.name}"`);
+      const providerInfo = agent.getProviderDisplayInfo?.() || {};
+      console.log(`     Model provider: ${providerInfo.name || 'Unknown'} (${providerInfo.provider || 'Unknown'})`);
+    }
     return agent;
   }
 

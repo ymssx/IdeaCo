@@ -16,6 +16,7 @@ import { getAppLanguageName } from '../utils/app-language.js';
 import { EmployeeSkillSet } from './skill/skill-set.js';
 import { skillRegistry } from './skill/registry.js';
 import { registerManagementTools } from './tools/management-tools.js';
+import { TaskManager } from './task.js';
 
 // Placeholder signature
 const DEFAULT_SIGNATURE = 'Just arrived, still thinking of what to say...';
@@ -171,6 +172,9 @@ export class Employee {
 
     // Stamina system — tracks patience, fatigue, stress, and comfort
     this.stamina = new StaminaSystem();
+
+    // Task manager — tracks pending tasks, resolve/fail, onResolve triggers
+    this.taskManager = new TaskManager();
 
     // Lifecycle — manages poll cycle, flow state, anti-spam, etc.
     this.lifecycle = new EmployeeLifecycle(this);
@@ -346,6 +350,22 @@ export class Employee {
       }
     }
 
+    // Process task operations (create/resolve/fail)
+    if (parsed.taskOps && Array.isArray(parsed.taskOps) && parsed.taskOps.length > 0) {
+      const taskResult = this.taskManager.processOps(parsed.taskOps);
+      if (taskResult.created.length > 0) {
+        console.log(`  📋 [${this.name}] Tasks created: ${taskResult.created.map(t => t.id).join(', ')}`);
+      }
+      if (taskResult.resolved.length > 0) {
+        console.log(`  ✅ [${this.name}] Tasks resolved: ${taskResult.resolved.map(r => r.task.id).join(', ')}`);
+      }
+      if (taskResult.failed.length > 0) {
+        console.log(`  ❌ [${this.name}] Tasks failed: ${taskResult.failed.map(t => t.id).join(', ')}`);
+      }
+      // Attach resolved tasks with onResolve targets for the caller to handle
+      result._resolvedTasks = taskResult.resolved.filter(r => r.onResolveTarget);
+    }
+
     if (result.actions.length > 0) {
       console.log(`  🔧 [${this.name}] Actions requested: ${result.actions.map(a => a.tool).join(', ')}`);
     }
@@ -471,10 +491,16 @@ export class Employee {
     this.messageBus = messageBus;
     this.toolKit = new AgentToolKit(workspaceDir, messageBus, this.id, this.name, this);
 
+    // Always store company reference — needed by findAgent (DM name resolution)
+    // and resolveAgentId. Employees don't need to be in a department to have
+    // a company reference (e.g. secretary is a standalone employee).
+    if (company) {
+      this.company = company;
+    }
+
     // Auto-register management tools if this employee has the company-management skill.
     // This is generic — any employee with the skill gets the tools, not just the secretary.
     if (company && this.skillSet.has('company-management')) {
-      this.company = company;
       registerManagementTools(this.toolKit, company);
     }
   }
@@ -946,6 +972,11 @@ ${scenePrompt}`;
 
     systemContent += this._buildSkillDefine();
 
+    // Inject pending tasks (only when tasks exist)
+    if (this.taskManager.hasPending()) {
+      systemContent += this.taskManager.buildPendingTasksPrompt();
+    }
+
     return systemContent;
   }
 
@@ -984,6 +1015,29 @@ ${scenePrompt}`;
 - relationshipOps: Update your personal impression of people in this conversation. Max 200 chars per impression. affinity: 1-100 (50=neutral).
 - affinity should change gradually (+/- 5~15 per interaction). Start from 50 if first meeting.
 - Only update when something noteworthy happened. [] if nothing to update.`;
+  }
+
+  /**
+   * Build taskOps instructions for the structured response format.
+   * Only provides meaningful guidance when the employee has pending tasks.
+   * @returns {string}
+   */
+  _buildTaskOpsInstructions() {
+    if (!this.taskManager.hasPending()) {
+      return `## Task Operations
+- taskOps: Manage your personal task list. Use sparingly — only when you have a concrete task to track (e.g. boss asked you to get info from someone).
+- Create: { "op": "create", "description": "...", "type": "oneshot|long-running|conditional", "condition": "completion condition", "onResolveTarget": "chatGroupId to notify", "onResolveHint": "what to report" }
+- Resolve: { "op": "resolve", "taskId": "id", "result": "resolution details" }
+- Fail: { "op": "fail", "taskId": "id", "reason": "why it failed" }
+- [] if no task operations needed (most of the time).`;
+    }
+
+    // When tasks exist, the detailed instructions are already in buildPendingTasksPrompt()
+    return `## Task Operations
+- taskOps: Manage your pending tasks (see "📋 Your Pending Tasks" section above).
+- Resolve tasks when their conditions are met. Fail tasks that are no longer achievable.
+- Pay attention to task urgency — overdue tasks need immediate action.
+- [] if no task operations needed this turn.`;
   }
 
   // ======================== Tool & Skill Define ========================
@@ -1263,6 +1317,10 @@ Your reply MUST be a JSON object (return JSON only, nothing else):
   ],
   "relationshipOps": [
     { "employeeId": "boss", "name": "Boss", "impression": "Decisive, prefers concise updates", "affinity": 65 }
+  ],
+  "taskOps": [
+    { "op": "create", "description": "Ask Bob about API design", "type": "oneshot", "onResolveTarget": "boss-chat-myId", "onResolveHint": "Report the answer back to boss" },
+    { "op": "resolve", "taskId": "task-id", "result": "Got the answer: use REST" }
   ]
 }
 
@@ -1302,7 +1360,8 @@ Step 3 — System confirms creation, then you return:
   "actions": [],
   "memorySummary": null,
   "memoryOps": [],
-  "relationshipOps": []
+  "relationshipOps": [],
+  "taskOps": []
 }
 
 ${actionsProtocol}
@@ -1310,6 +1369,8 @@ ${actionsProtocol}
 ${this._buildMemoryInstructions()}
 
 ${this._buildRelationshipInstructions()}
+
+${this._buildTaskOpsInstructions()}
 
 ## Output Rules
 1. Content should be natural and personal, avoid rigid templates, feel free to add emoji.
@@ -1359,6 +1420,11 @@ Your reply MUST be a JSON object (return JSON only, nothing else):
   ],
   "relationshipOps": [
     { "employeeId": "emp_123", "name": "Xiao Li", "impression": "Tech-savvy, reliable", "affinity": 70 }
+  ],
+  "taskOps": [
+    { "op": "create", "description": "Ask Bob about API design", "type": "oneshot", "onResolveTarget": "boss-chat-xxx", "onResolveHint": "Report the answer back to boss" },
+    { "op": "resolve", "taskId": "task-id", "result": "Got the answer: use REST" },
+    { "op": "fail", "taskId": "task-id", "reason": "Bob is unavailable" }
   ]
 }
 
@@ -1380,6 +1446,8 @@ ${actionsProtocol}
 ${this._buildMemoryInstructions()}
 
 ${this._buildRelationshipInstructions()}
+
+${this._buildTaskOpsInstructions()}
 
 ## Output Rules
 1. Content should be natural and personal, in your own personality style.
@@ -1869,6 +1937,7 @@ Do not use any code, tool calls, or technical instructions — reply in natural 
       })),
       performanceHistory: [...this.performanceHistory],
       stamina: this.stamina.serialize(),
+      taskManager: this.taskManager.serialize(),
       createdAt: this.createdAt,
     };
   }
@@ -1889,6 +1958,7 @@ Do not use any code, tool calls, or technical instructions — reply in natural 
     }));
     this.performanceHistory = data.performanceHistory || [];
     this.stamina = StaminaSystem.deserialize(data.stamina);
+    this.taskManager = data.taskManager ? TaskManager.deserialize(data.taskManager) : new TaskManager();
     this.createdAt = data.createdAt ? new Date(data.createdAt) : new Date();
 
     if (!this.templateId && this.role) {

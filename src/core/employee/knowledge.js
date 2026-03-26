@@ -298,7 +298,11 @@ export class KnowledgeManager {
 }
 
 // Global singleton
-export const knowledgeManager = new KnowledgeManager();
+// Global singleton — use globalThis to survive Next.js HMR in dev mode
+if (!globalThis.__knowledgeManager) {
+  globalThis.__knowledgeManager = new KnowledgeManager();
+}
+export const knowledgeManager = globalThis.__knowledgeManager;
 
 // Create default global knowledge base
 const globalKb = knowledgeManager.create({

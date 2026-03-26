@@ -10,7 +10,7 @@ export async function GET(request, { params }) {
   try {
     const { agentId } = await params;
     const company = getCompany();
-    const employee = company.employees.find(e => e.id === agentId);
+    const employee = company.findAgentById(agentId);
     if (!employee) {
       return NextResponse.json({ error: 'Agent not found' }, { status: 404 });
     }
@@ -43,7 +43,7 @@ export async function POST(request, { params }) {
   try {
     const { agentId } = await params;
     const company = getCompany();
-    const employee = company.employees.find(e => e.id === agentId);
+    const employee = company.findAgentById(agentId);
     if (!employee) {
       return NextResponse.json({ error: 'Agent not found' }, { status: 404 });
     }

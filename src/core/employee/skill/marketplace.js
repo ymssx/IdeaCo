@@ -450,7 +450,11 @@ export class SkillMarketplace {
 
 // ======================== Singleton ========================
 
-export const skillMarketplace = new SkillMarketplace();
+// Global singleton — use globalThis to survive Next.js HMR in dev mode
+if (!globalThis.__skillMarketplace) {
+  globalThis.__skillMarketplace = new SkillMarketplace();
+}
+export const skillMarketplace = globalThis.__skillMarketplace;
 
 // Auto-load marketplace skills from disk on module import
 try {

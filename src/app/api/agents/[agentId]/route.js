@@ -71,6 +71,64 @@ export async function GET(request, { params }) {
         });
       }
     }
+    // Check if the requested agent is the secretary
+    const sec = company.secretary;
+    if (sec && sec.id === agentId) {
+      const reviews = company.performanceSystem.getReviews(sec.id);
+      return NextResponse.json({
+        data: {
+          id: sec.id,
+          name: sec.name,
+          role: sec.role || 'Personal Secretary',
+          avatar: sec.avatar,
+          gender: sec.gender,
+          age: sec.age,
+          personality: sec.personality,
+          personalityBio: sec.personalityBio || '',
+          signature: sec.signature,
+          prompt: sec.prompt,
+          skills: sec.skills,
+          status: sec.status,
+          provider: sec.getProviderDisplayInfo(),
+          cliBackend: sec.cliBackend || null,
+          fallbackProvider: sec.getFallbackProviderName(),
+          customPrompt: sec.customPrompt || '',
+          department: t('api.secretaryDept'),
+          departmentId: null,
+          employeeClass: 'secretary',
+          availableProviders: company.providerRegistry
+            .listAll()
+            .filter(p => p.enabled)
+            .map(p => ({ id: p.id, name: p.name, provider: p.provider, model: p.model, category: p.category })),
+          memory: sec.memory.getSummary(),
+          stamina: sec.stamina ? sec.stamina.getSummary() : null,
+          performanceHistory: sec.performanceHistory,
+          reviews: reviews.map(r => r.getSummary()),
+          taskHistory: sec.taskHistory.map(t => ({
+            task: t.task,
+            completedAt: t.completedAt,
+            success: t.result?.success,
+            toolsUsed: t.result?.toolResults?.length || 0,
+          })),
+          tokenUsage: { ...sec.tokenUsage },
+          avgScore: sec.performanceHistory.length > 0
+            ? Math.round(sec.performanceHistory.reduce((s, p) => s + p.score, 0) / sec.performanceHistory.length)
+            : null,
+          incentives: sec.performanceHistory
+            .filter(p => p.score >= 80)
+            .map(p => ({
+              type: 'flower',
+              emoji: '🌸',
+              label: p.score >= 90 ? 'outstanding' : 'excellent',
+              task: p.task,
+              score: p.score,
+              level: p.level,
+              date: p.date,
+            })),
+        },
+      });
+    }
+
     return NextResponse.json({ error: t('api.agentNotFound') }, { status: 404 });
   } catch (e) {
     return NextResponse.json({ error: e.message }, { status: 500 });
@@ -161,6 +219,26 @@ export async function PUT(request, { params }) {
           agent.customPrompt = body.customPrompt;
         }
 
+        // Update profile fields (name, avatar, gender, age, signature)
+        if ('name' in body && typeof body.name === 'string' && body.name.trim()) {
+          agent.name = body.name.trim();
+        }
+        if ('avatar' in body && typeof body.avatar === 'string') {
+          agent.avatar = body.avatar;
+        }
+        if ('avatarParams' in body && body.avatarParams) {
+          agent.avatarParams = body.avatarParams;
+        }
+        if ('gender' in body && (body.gender === 'male' || body.gender === 'female')) {
+          agent.gender = body.gender;
+        }
+        if ('age' in body && typeof body.age === 'number' && body.age >= 18 && body.age <= 60) {
+          agent.age = body.age;
+        }
+        if ('signature' in body && typeof body.signature === 'string') {
+          agent.signature = body.signature;
+        }
+
         // Persist
         company.save();
 
@@ -168,6 +246,9 @@ export async function PUT(request, { params }) {
           data: {
             id: agent.id,
             name: agent.name,
+            avatar: agent.avatar,
+            gender: agent.gender,
+            age: agent.age,
             cliBackend: agent.cliBackend,
             provider: agent.getProviderDisplayInfo(),
             prompt: agent.prompt,
@@ -179,6 +260,75 @@ export async function PUT(request, { params }) {
         });
       }
     }
+
+    // Check if the requested agent is the secretary
+    const sec = company.secretary;
+    if (sec && sec.id === agentId) {
+      // Update profile fields for secretary
+      if ('name' in body && typeof body.name === 'string' && body.name.trim()) {
+        sec.name = body.name.trim();
+      }
+      if ('avatar' in body && typeof body.avatar === 'string') {
+        sec.avatar = body.avatar;
+      }
+      if ('avatarParams' in body && body.avatarParams) {
+        sec.avatarParams = body.avatarParams;
+      }
+      if ('gender' in body && (body.gender === 'male' || body.gender === 'female')) {
+        sec.gender = body.gender;
+      }
+      if ('age' in body && typeof body.age === 'number' && body.age >= 18 && body.age <= 60) {
+        sec.age = body.age;
+      }
+      if ('signature' in body && typeof body.signature === 'string') {
+        sec.signature = body.signature;
+      }
+      if ('prompt' in body && typeof body.prompt === 'string') {
+        sec.prompt = body.prompt;
+      }
+      if ('customPrompt' in body && typeof body.customPrompt === 'string') {
+        sec.customPrompt = body.customPrompt;
+      }
+      // Switch provider for secretary
+      if ('providerId' in body && body.providerId) {
+        const newProvider = company.providerRegistry.getById(body.providerId);
+        if (newProvider && newProvider.enabled) {
+          const targetType = newProvider.isCLI ? 'cli' : newProvider.isWeb ? 'web' : 'llm';
+          if (sec.agentType !== targetType) {
+            if (newProvider.isCLI && newProvider.cliBackendId) {
+              const fallback = company.providerRegistry.recommend('general');
+              sec.agent = new CLIAgent({ cliBackend: newProvider.cliBackendId, cliProvider: newProvider, fallbackProvider: fallback, provider: fallback });
+            } else if (newProvider.isWeb) {
+              sec.agent = new WebAgent({ provider: newProvider });
+              sec.agent.setEmployeeId(sec.id);
+            } else {
+              sec.agent = new LLMAgent({ provider: newProvider });
+            }
+          } else {
+            sec.switchProvider(newProvider);
+          }
+        }
+      }
+
+      company.save();
+
+      return NextResponse.json({
+        data: {
+          id: sec.id,
+          name: sec.name,
+          avatar: sec.avatar,
+          gender: sec.gender,
+          age: sec.age,
+          provider: sec.getProviderDisplayInfo(),
+          prompt: sec.prompt,
+          customPrompt: sec.customPrompt || '',
+          signature: sec.signature,
+          personalityBio: sec.personalityBio || '',
+          message: t('api.agentConfigUpdated'),
+        },
+      });
+    }
+
     return NextResponse.json({ error: t('api.agentNotFound') }, { status: 404 });
   } catch (e) {
     return NextResponse.json({ error: e.message }, { status: 500 });

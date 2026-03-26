@@ -460,4 +460,8 @@ export class LLMClient {
 }
 
 // Global singleton
-export const llmClient = new LLMClient();
+// Global singleton — use globalThis to survive Next.js HMR in dev mode
+if (!globalThis.__llmClient) {
+  globalThis.__llmClient = new LLMClient();
+}
+export const llmClient = globalThis.__llmClient;

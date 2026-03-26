@@ -59,6 +59,10 @@ for (const agent of (dept.members || dept.agents || [])) {
       }
     }
   }
+  // 秘书也是员工，加入映射
+  if (company?.secretary?.id) {
+    agentMap[company.secretary.id] = company.secretary.name;
+  }
 
   // Refresh full company state periodically (for agentChatSessions, departments, etc.)
   const companyPollRef = useRef(null);
@@ -371,7 +375,9 @@ for (const agent of (dept.members || dept.agents || [])) {
               <img
                 src={secretary?.avatar || getAvatarUrl('secretary')}
                 alt="secretary"
-                className="w-9 h-9 rounded-full bg-[var(--border)]"
+                className="w-9 h-9 rounded-full bg-[var(--border)] cursor-pointer hover:ring-2 hover:ring-purple-500/50 transition-all"
+                onClick={() => secretary?.id && setSelectedAgent(secretary.id)}
+                title={t('reqDetail.members.viewProfile')}
               />
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-semibold flex items-center gap-2">

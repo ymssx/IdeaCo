@@ -282,7 +282,11 @@ function slugify(str) {
 
 // ======================== Singleton ========================
 
-export const customSkillManager = new CustomSkillManager();
+// Global singleton — use globalThis to survive Next.js HMR in dev mode
+if (!globalThis.__customSkillManager) {
+  globalThis.__customSkillManager = new CustomSkillManager();
+}
+export const customSkillManager = globalThis.__customSkillManager;
 
 // Auto-load custom skills from disk on module import
 try {

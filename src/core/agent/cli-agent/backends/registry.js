@@ -585,4 +585,8 @@ export class CLIBackendRegistry {
 }
 
 // Global singleton
-export const cliBackendRegistry = new CLIBackendRegistry();
+// Global singleton — use globalThis to survive Next.js HMR in dev mode
+if (!globalThis.__cliBackendRegistry) {
+  globalThis.__cliBackendRegistry = new CLIBackendRegistry();
+}
+export const cliBackendRegistry = globalThis.__cliBackendRegistry;

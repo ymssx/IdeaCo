@@ -510,6 +510,7 @@ export class Company {
     }
 
     // Process structured memory from AI response (new Memory system)
+    let resolvedTasksWithOnResolve = [];
     try {
       const { robustJSONParse } = await import('../utils/json-parse.js');
       const parsed = robustJSONParse(replyContent);
@@ -538,6 +539,21 @@ export class Company {
             console.log(`  👥 [${targetAgent.name}] Boss-chat relationship updates: ${relResult.updated}`);
           }
         }
+
+        // Process task operations
+        if (parsed.taskOps && Array.isArray(parsed.taskOps) && parsed.taskOps.length > 0) {
+          const taskResult = targetAgent.taskManager.processOps(parsed.taskOps);
+          if (taskResult.created.length > 0) {
+            console.log(`  📋 [${targetAgent.name}] Boss-chat tasks created: ${taskResult.created.map(t => t.id).join(', ')}`);
+          }
+          if (taskResult.resolved.length > 0) {
+            console.log(`  ✅ [${targetAgent.name}] Boss-chat tasks resolved: ${taskResult.resolved.map(r => r.task.id).join(', ')}`);
+            resolvedTasksWithOnResolve = taskResult.resolved.filter(r => r.onResolveTarget);
+          }
+          if (taskResult.failed.length > 0) {
+            console.log(`  ❌ [${targetAgent.name}] Boss-chat tasks failed: ${taskResult.failed.map(t => t.id).join(', ')}`);
+          }
+        }
       }
     } catch (e) {
       // JSON parse failed — replyContent is plain text, that's fine
@@ -547,7 +563,14 @@ export class Company {
     const agentMsg = { role: 'agent', content: replyContent, time: new Date() };
     chatStore.appendMessage(sessionId, agentMsg);
 
-
+    // Handle onResolve for any resolved tasks (async, non-blocking)
+    if (resolvedTasksWithOnResolve.length > 0 && targetAgent.lifecycle) {
+      for (const resolved of resolvedTasksWithOnResolve) {
+        targetAgent.lifecycle._handleTaskOnResolve(resolved).catch(err => {
+          console.error(`  ❌ [${targetAgent.name}] onResolve error:`, err.message);
+        });
+      }
+    }
 
     this.save();
 
@@ -652,7 +675,11 @@ export class Company {
     // Find all agent-agent sessions that include this agent
     const agentSessions = sessions.filter(s => {
       if (s.type !== 'agent-agent') return false;
-      // sessionId format: agent-agent-{id1}-{id2}
+      // Use participants array for reliable matching (sessionId.includes can be unreliable with UUIDs)
+      if (s.participants && Array.isArray(s.participants)) {
+        return s.participants.includes(agentId);
+      }
+      // Fallback: sessionId format: agent-agent-{id1}-{id2}
       return s.sessionId.includes(agentId);
     });
 
@@ -669,15 +696,16 @@ export class Company {
       const peerId = participants.find(p => p !== agentId) || null;
       if (!peerId) continue;
 
-      // Find the other agent info
-      let peerAgent = null;
+      // Find the other agent info (unified lookup — no role-specific logic)
+      const peerAgent = this.findAgentById(peerId);
       let peerDeptName = null;
-      for (const dept of this.departments.values()) {
-        const a = dept.agents.get(peerId);
-        if (a) {
-          peerAgent = a;
-          peerDeptName = dept.name;
-          break;
+      if (peerAgent?.department) {
+        // Find department name from the agent's department reference
+        for (const dept of this.departments.values()) {
+          if (dept.agents.has(peerId)) {
+            peerDeptName = dept.name;
+            break;
+          }
         }
       }
 
@@ -867,6 +895,10 @@ export class Company {
       for (const agent of dept.getMembers()) {
         groupChatLoop.startAgentLoop(agent);
       }
+    }
+    // Register secretary into chat loop as a regular employee
+    if (this.secretary) {
+      groupChatLoop.startAgentLoop(this.secretary);
     }
 
     // 7. Fire system startup hook
@@ -1152,6 +1184,33 @@ export class Company {
    * @param {string} idOrName - Department ID or name
    * @returns {Department|null}
    */
+  /**
+   * Find any employee by ID — searches all registered lifecycles uniformly.
+   * Every employee in the chat loop (including secretary) is treated equally.
+   * @param {string} agentId
+   * @returns {Employee|null}
+   */
+  findAgentById(agentId) {
+    if (!agentId) return null;
+    // Primary: check lifecycles by key (all active employees, including secretary)
+    const lifecycle = this.groupChatLoop?._lifecycles?.get(agentId);
+    if (lifecycle?.employee) return lifecycle.employee;
+    // Secondary: scan all lifecycles by employee.id (handles stale keys after ID restoration)
+    if (this.groupChatLoop?._lifecycles) {
+      for (const [, lc] of this.groupChatLoop._lifecycles) {
+        if (lc.employee?.id === agentId) return lc.employee;
+      }
+    }
+    // Check secretary directly (secretary is a standalone employee, not in any department)
+    if (this.secretary?.id === agentId) return this.secretary;
+    // Fallback: scan departments (covers agents not yet in chat loop)
+    for (const dept of this.departments.values()) {
+      const agent = dept.agents.get(agentId);
+      if (agent) return agent;
+    }
+    return null;
+  }
+
   findDepartment(idOrName) {
     if (!idOrName) return null;
     // Prioritize exact ID match
@@ -2488,7 +2547,15 @@ const dept = this.findDepartment(departmentId);
 
     // Restore secretary ID so LLM logs directory stays consistent across restarts
     if (data.secretary?.id) {
+      const tempSecretaryId = company.secretary.id;
       company.secretary.id = data.secretary.id;
+      // Clean up the lifecycle entry registered under the temporary UUID during constructor.
+      // The constructor's _initSubsystems() registered the secretary with a fresh UUID,
+      // but we've now restored the real persisted ID. Remove the stale entry so
+      // _lifecycles doesn't contain a ghost entry with the wrong key.
+      if (tempSecretaryId !== data.secretary.id) {
+        groupChatLoop.stopAgentLoop(tempSecretaryId);
+      }
     }
     // Restore secretary token usage
     if (data.secretary?.tokenUsage) {
@@ -2568,7 +2635,7 @@ const dept = this.findDepartment(departmentId);
           }
         }
         const agent = deserializeEmployee(agentData, company.providerRegistry);
-        dept.addAgent(agent);
+        dept.addAgent(agent, { silent: true });
         // Restore toolkit
         if (dept.workspacePath) {
           agent.initToolKit(dept.workspacePath, company.messageBus);
@@ -2659,17 +2726,28 @@ const dept = this.findDepartment(departmentId);
       });
     }
 
-    // Re-start group chat loop for all restored agents
-    // (_initSubsystems ran during constructor when departments were still empty,
-    //  so we need to register all agents that were restored afterwards)
+    // Re-start group chat loop for all restored agents.
+    // The constructor's _initSubsystems() already called start(), but with an empty
+    // company. We need to stop and restart so the DM listener uses the fully-restored
+    // company state (correct secretary ID, all departments, etc.).
+    groupChatLoop.stop();
+    // Clear all lifecycle entries registered during constructor (they used temporary IDs)
+    groupChatLoop._lifecycles.clear();
     groupChatLoop.start(company);
+    let restoredAgentCount = 0;
     for (const dept of company.departments.values()) {
       for (const agent of dept.getMembers()) {
-        groupChatLoop.startAgentLoop(agent);
+        groupChatLoop.startAgentLoop(agent, { silent: true });
+        restoredAgentCount++;
       }
     }
+    // Register secretary into chat loop (same as _initSubsystems does for fresh companies)
+    if (company.secretary) {
+      groupChatLoop.startAgentLoop(company.secretary, { silent: true });
+      restoredAgentCount++;
+    }
 
-    console.log(`✅ Company "${company.name}" state restored: ${company.departments.size} departments`);
+    console.log(`✅ Company "${company.name}" state restored: ${company.departments.size} departments, ${restoredAgentCount} agents in chat loop`);
     return company;
   }
 }
