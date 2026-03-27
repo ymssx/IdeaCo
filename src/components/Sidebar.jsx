@@ -4,15 +4,15 @@ import { useState } from 'react';
 import { useStore } from '@/lib/client-store';
 import { getAvatarUrl } from '@/lib/avatar';
 import { useI18n, LanguageSelector } from '@/lib/i18n';
-import SecretarySettings from './SecretarySettings';
 import BossProfileModal from './BossProfileModal';
+import AgentDetailModal from './AgentDetailModal';
 import CachedAvatar from './CachedAvatar';
 
 export default function Sidebar() {
   const { company, activeTab, setActiveTab, setChatOpen, chatOpen } = useStore();
   const { t } = useI18n();
-  const [showSettings, setShowSettings] = useState(false);
   const [showBossProfile, setShowBossProfile] = useState(false);
+  const [showSecretaryDetail, setShowSecretaryDetail] = useState(false);
 
   if (!company) return null;
 
@@ -59,13 +59,18 @@ export default function Sidebar() {
       <div className="mx-3 mt-3 rounded-lg bg-gradient-to-r from-blue-900/20 to-purple-900/20 border border-blue-500/20">
         <button
           onClick={() => setChatOpen(!chatOpen)}
-          className={`w-full p-3 hover:bg-white/5 transition-all text-left rounded-t-lg ${chatOpen ? 'bg-white/5' : ''}`}
+          className={`w-full p-3 hover:bg-white/5 transition-all text-left rounded-lg ${chatOpen ? 'bg-white/5' : ''}`}
         >
           <div className="flex items-center gap-2">
             <img
               src={company.secretary?.avatar || getAvatarUrl('secretary')}
               alt={t('chat.secretary')}
-              className="w-8 h-8 rounded-full bg-[var(--card)]"
+              className="w-8 h-8 rounded-full bg-[var(--card)] cursor-pointer hover:ring-2 hover:ring-purple-500/50 transition-all"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (company.secretary?.id) setShowSecretaryDetail(true);
+              }}
+              title={t('reqDetail.members.viewProfile')}
             />
             <div className="flex-1 min-w-0">
               <div className="text-xs font-medium flex items-center gap-1">
@@ -80,12 +85,6 @@ export default function Sidebar() {
               {chatOpen ? '◀' : '💬'}
             </span>
           </div>
-        </button>
-        <button
-          onClick={() => setShowSettings(true)}
-          className="w-full text-[10px] text-[var(--muted)] hover:text-[var(--accent)] py-1.5 border-t border-white/[0.06] transition-all hover:bg-white/5 rounded-b-lg"
-        >
-          {t('sidebar.secretarySettings')}
         </button>
       </div>
 
@@ -157,9 +156,10 @@ export default function Sidebar() {
         </div>
       </div>
 
-      {/* Secretary settings modal */}
-      {showSettings && <SecretarySettings onClose={() => setShowSettings(false)} />}
       {showBossProfile && <BossProfileModal onClose={() => setShowBossProfile(false)} />}
+      {showSecretaryDetail && company.secretary?.id && (
+        <AgentDetailModal agentId={company.secretary.id} onClose={() => setShowSecretaryDetail(false)} />
+      )}
     </aside>
   );
 }

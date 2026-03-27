@@ -143,4 +143,8 @@ export class ChatGPTBackend extends BaseWebBackend {
 }
 
 /** 全局单例 */
-export const chatgptBackend = new ChatGPTBackend();
+// Global singleton — use globalThis to survive Next.js HMR in dev mode
+if (!globalThis.__chatgptBackend) {
+  globalThis.__chatgptBackend = new ChatGPTBackend();
+}
+export const chatgptBackend = globalThis.__chatgptBackend;

@@ -43,6 +43,19 @@ export class LLMAgent extends BaseAgent {
     return await llmClient.chatWithTools(this.provider, messages, toolExecutor, options);
   }
 
+  /**
+   * Stream chat — returns an async generator yielding delta tokens.
+   * @param {Array} messages
+   * @param {object} [options]
+   * @yields {{ type: 'delta'|'thinking'|'done', content: string }}
+   */
+  async *chatStream(messages, options = {}) {
+    if (!this.isAvailable()) {
+      throw new Error(`LLMAgent provider "${this.provider?.name}" is not available`);
+    }
+    yield* llmClient.chatStream(this.provider, messages, options);
+  }
+
   getDisplayInfo() {
     return {
       name: this.provider?.name || 'Unknown LLM',

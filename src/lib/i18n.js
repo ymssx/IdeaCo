@@ -24,6 +24,23 @@ export const LANGUAGES = [
 
 const DEFAULT_LANG = 'en';
 
+/**
+ * Module-level current language code.
+ * Updated by I18nProvider whenever language changes.
+ * Accessible outside React via getCurrentLangCode() — used by client-store.js
+ * for X-App-Lang header.
+ */
+let _currentLangCode = DEFAULT_LANG;
+
+/**
+ * Get current language code outside of React context.
+ * Used by client-store.js for API request headers.
+ * @returns {string}
+ */
+export function getCurrentLangCode() {
+  return _currentLangCode;
+}
+
 const I18nContext = createContext(null);
 
 function getNestedValue(obj, path) {
@@ -33,18 +50,33 @@ function getNestedValue(obj, path) {
 export function I18nProvider({ children }) {
   const [lang, setLangState] = useState(DEFAULT_LANG);
 
-  useEffect(() => {
-const saved = localStorage.getItem('idea-unlimited-lang');
-    if (saved && translations[saved]) {
-      setLangState(saved);
+  // Initialize language from company state (fetched on app load)
+  // No localStorage caching — the backend Company is the single source of truth.
+  const initLangFromCompany = useCallback((companyLang) => {
+    if (companyLang && translations[companyLang]) {
+      setLangState(companyLang);
+      _currentLangCode = companyLang;
+      document.documentElement.lang = companyLang === 'zh' ? 'zh-CN' : companyLang;
     }
   }, []);
 
-  const setLang = useCallback((code) => {
+  const setLang = useCallback(async (code) => {
     if (translations[code]) {
       setLangState(code);
-localStorage.setItem('idea-unlimited-lang', code);
+      _currentLangCode = code;
       document.documentElement.lang = code === 'zh' ? 'zh-CN' : code;
+      // Sync language to backend Company (single source of truth).
+      // During SetupWizard (no company yet), the PUT will 400 — that's fine,
+      // language will be sent via createCompany() instead.
+      try {
+        await fetch('/api/company', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ language: code }),
+        });
+      } catch {
+        // Ignore — either no company yet or network error
+      }
     }
   }, []);
 
@@ -61,7 +93,7 @@ localStorage.setItem('idea-unlimited-lang', code);
   }, [lang]);
 
   return (
-    <I18nContext.Provider value={{ lang, setLang, t }}>
+    <I18nContext.Provider value={{ lang, setLang, t, initLangFromCompany }}>
       {children}
     </I18nContext.Provider>
   );

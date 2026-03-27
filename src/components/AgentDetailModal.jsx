@@ -1,16 +1,18 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useStore } from '@/lib/client-store';
 import { useI18n } from '@/lib/i18n';
 import AgentChatModal from './AgentChatModal';
 import AgentSpyModal from './AgentSpyModal';
 import ReactMarkdown from 'react-markdown';
 import CachedAvatar from './CachedAvatar';
+import AvatarGrid from './AvatarGrid';
+import { getAvatarChoices } from '@/lib/avatar';
 
 export default function AgentDetailModal({ agentId, onClose }) {
   const { t } = useI18n();
-  const { fetchAgentDetail, updateAgent } = useStore();
+  const { fetchAgentDetail, updateAgent, fetchAgentSkills, manageAgentSkill, setChatOpen } = useStore();
   const [agent, setAgent] = useState(null);
   const [activeTab, setActiveTab] = useState('info');
   const [memorySubTab, setMemorySubTab] = useState('personal');
@@ -26,6 +28,33 @@ export default function AgentDetailModal({ agentId, onClose }) {
   const [configSaving, setConfigSaving] = useState(false);
   const [configMsg, setConfigMsg] = useState(null); // { type: 'ok' | 'err', text }
 
+  // Skills tab state
+  const [agentSkillsData, setAgentSkillsData] = useState(null);
+  const [skillsLoading, setSkillsLoading] = useState(false);
+
+  // LLM Logs tab state
+  const [llmLogs, setLlmLogs] = useState(null); // { logs: [], total: 0 }
+  const [llmLogsLoading, setLlmLogsLoading] = useState(false);
+
+  // Profile editing state (avatar, name, signature, gender, age)
+  const [editName, setEditName] = useState('');
+  const [editSignature, setEditSignature] = useState('');
+  const [editGender, setEditGender] = useState('female');
+  const [editAge, setEditAge] = useState(25);
+  const [selectedAvatar, setSelectedAvatar] = useState(null);
+  const [avatarChoices, setAvatarChoices] = useState([]);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileMsg, setProfileMsg] = useState(null);
+
+  // Debounced avatar refresh when gender/age changes
+  const avatarDebounceTimer = useRef(null);
+  const refreshAvatarDebounced = useCallback((g, a) => {
+    if (avatarDebounceTimer.current) clearTimeout(avatarDebounceTimer.current);
+    avatarDebounceTimer.current = setTimeout(() => {
+      setAvatarChoices(getAvatarChoices(24, g, a));
+    }, 300);
+  }, []);
+
   useEffect(() => {
     (async () => {
       setLoadingDetail(true);
@@ -40,12 +69,24 @@ export default function AgentDetailModal({ agentId, onClose }) {
         setConfigProviderId(isCurrentAvailable ? currentPid : (data.availableProviders?.[0]?.id || ''));
         setConfigPrompt(data.prompt || '');
         setConfigCustomPrompt(data.customPrompt || '');
+        // Initialize profile editing state
+        setEditName(data.name || '');
+        setEditSignature(data.signature || '');
+        setEditGender(data.gender || 'female');
+        setEditAge(data.age || 25);
+        setAvatarChoices(getAvatarChoices(24, data.gender || 'female', data.age || 25));
       } catch (e) { /* handled */ }
       setLoadingDetail(false);
     })();
   }, [agentId, fetchAgentDetail]);
 
-
+  // Refresh avatar choices when gender/age changes in profile tab
+  useEffect(() => {
+    if (agent) {
+      refreshAvatarDebounced(editGender, editAge);
+    }
+    return () => { if (avatarDebounceTimer.current) clearTimeout(avatarDebounceTimer.current); };
+  }, [editGender, editAge, refreshAvatarDebounced, agent]);
 
   const handleSaveConfig = useCallback(async () => {
     if (!agent) return;
@@ -84,6 +125,41 @@ export default function AgentDetailModal({ agentId, onClose }) {
     setConfigSaving(false);
   }, [agent, configProviderId, configPrompt, configCustomPrompt, updateAgent, t]);
 
+  const handleSaveProfile = useCallback(async () => {
+    if (!agent) return;
+    setProfileSaving(true);
+    setProfileMsg(null);
+    try {
+      const updates = {};
+      if (editName && editName !== agent.name) updates.name = editName;
+      if (editSignature !== agent.signature) updates.signature = editSignature;
+      if (editGender !== agent.gender) updates.gender = editGender;
+      if (editAge !== agent.age) updates.age = editAge;
+      if (selectedAvatar) {
+        updates.avatar = selectedAvatar.url;
+        updates.avatarParams = selectedAvatar.params;
+      }
+      if (Object.keys(updates).length === 0) {
+        setProfileSaving(false);
+        return;
+      }
+      const result = await updateAgent(agent.id, updates);
+      setAgent(prev => ({
+        ...prev,
+        name: result.name ?? prev.name,
+        avatar: result.avatar ?? prev.avatar,
+        gender: result.gender ?? prev.gender,
+        age: result.age ?? prev.age,
+        signature: result.signature ?? prev.signature,
+      }));
+      setSelectedAvatar(null);
+      setProfileMsg({ type: 'ok', text: t('agent.profileSaved') });
+      setTimeout(() => setProfileMsg(null), 3000);
+    } catch (e) {
+      setProfileMsg({ type: 'err', text: t('agent.profileSaveFailed') });
+    }
+    setProfileSaving(false);
+  }, [agent, editName, editSignature, editGender, editAge, selectedAvatar, updateAgent, t]);
 
   if (loadingDetail) {
     return (
@@ -109,10 +185,15 @@ export default function AgentDetailModal({ agentId, onClose }) {
 
   const tabs = [
     { id: 'info', label: t('agent.tabs.info') },
+    { id: 'profile', label: t('agent.tabs.profile') },
+    { id: 'skills', label: t('agent.tabs.skills') },
     { id: 'soul', label: t('agent.tabs.soul') },
     { id: 'work', label: t('agent.tabs.work') },
     { id: 'usage', label: t('agent.tabs.usage') },
+    { id: 'llmLogs', label: t('agent.tabs.llmLogs') },
   ];
+
+  const previewAvatar = selectedAvatar?.url || agent.avatar;
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 !m-0" onClick={onClose}>
@@ -120,7 +201,9 @@ export default function AgentDetailModal({ agentId, onClose }) {
         {/* Header */}
         <div className="flex items-start gap-4 pb-4 border-b border-[var(--border)]">
           <div className="relative shrink-0">
-            <CachedAvatar src={agent.avatar} alt={agent.name} className="w-24 h-24 rounded-full bg-[var(--border)]" />
+            <button onClick={() => setActiveTab('profile')} title={t('agent.editProfile')}>
+              <CachedAvatar src={previewAvatar} alt={agent.name} className="w-24 h-24 rounded-full bg-[var(--border)] hover:ring-2 hover:ring-[var(--accent)]/50 transition-all cursor-pointer" />
+            </button>
             {agent.avgScore >= 80 && (
               <span className="absolute -top-1 -right-1 text-base animate-pulse drop-shadow-lg" title={t('agent.highPerformer')}>🌸</span>
             )}
@@ -131,7 +214,14 @@ export default function AgentDetailModal({ agentId, onClose }) {
               <span className={`status-dot ${agent.status}`} />
               <button
                 className="text-xs px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-400 hover:bg-blue-500/25 transition-colors flex items-center gap-1"
-                onClick={() => setShowChat(true)}
+                onClick={() => {
+                  if (agent.employeeClass === 'secretary') {
+                    setChatOpen(true);
+                    onClose();
+                  } else {
+                    setShowChat(true);
+                  }
+                }}
               >
                 💬 {t('agentChat.chatBtn').replace('💬 ', '')}
               </button>
@@ -227,10 +317,143 @@ export default function AgentDetailModal({ agentId, onClose }) {
               <div>
                 <h4 className="text-sm font-medium mb-2 text-[var(--muted)]">{t('agent.skills')}</h4>
                 <div className="flex flex-wrap gap-2">
-                  {agent.skills.map((s, i) => (
+                  {(agent.skills || []).map((s, i) => (
                     <span key={i} className="text-sm bg-[var(--accent)]/10 text-[var(--accent)] px-2 py-1 rounded-lg">{s}</span>
                   ))}
+                  {(!agent.skills || agent.skills.length === 0) && (
+                    <span className="text-xs text-[var(--muted)]">{t('agent.noSkills')}</span>
+                  )}
                 </div>
+                <button
+                  onClick={async () => {
+                    setActiveTab('skills');
+                    if (!agentSkillsData) {
+                      setSkillsLoading(true);
+                      try {
+                        const data = await fetchAgentSkills(agent.id);
+                        setAgentSkillsData(data);
+                      } catch {}
+                      setSkillsLoading(false);
+                    }
+                  }}
+                  className="mt-2 text-[10px] text-[var(--accent)] hover:underline"
+                >
+                  {t('agent.manageSkills')} →
+                </button>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'profile' && (
+            <div className="space-y-5 animate-fade-in">
+              {/* Name */}
+              <div>
+                <label className="block text-sm font-medium mb-1.5 text-[var(--muted)]">{t('agent.profileName')}</label>
+                <input
+                  className="input w-full"
+                  value={editName}
+                  onChange={e => setEditName(e.target.value)}
+                  placeholder={t('agent.profileNamePlaceholder')}
+                />
+              </div>
+
+              {/* Gender & Age */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1.5 text-[var(--muted)]">{t('setup.gender')}</label>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => { setEditGender('female'); setSelectedAvatar(null); }}
+                      className={`flex-1 py-2 px-3 rounded-lg border text-sm transition-all ${
+                        editGender === 'female'
+                          ? 'border-pink-400 bg-pink-400/10 text-pink-300'
+                          : 'border-[var(--border)] text-[var(--muted)] hover:border-[var(--accent)]/40'
+                      }`}
+                    >{t('setup.female')}</button>
+                    <button
+                      onClick={() => { setEditGender('male'); setSelectedAvatar(null); }}
+                      className={`flex-1 py-2 px-3 rounded-lg border text-sm transition-all ${
+                        editGender === 'male'
+                          ? 'border-blue-400 bg-blue-400/10 text-blue-300'
+                          : 'border-[var(--border)] text-[var(--muted)] hover:border-[var(--accent)]/40'
+                      }`}
+                    >{t('setup.male')}</button>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1.5 text-[var(--muted)]">{t('setup.age', { n: editAge })}</label>
+                  <div className="relative flex items-center gap-3">
+                    <button
+                      onClick={() => setEditAge(a => Math.max(18, a - 1))}
+                      className="w-7 h-7 rounded-full border border-[var(--border)] text-[var(--muted)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-all flex items-center justify-center text-sm font-bold shrink-0"
+                    >−</button>
+                    <div className="flex-1 relative h-5 flex items-center">
+                      <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-1.5 rounded-full bg-[var(--border)] pointer-events-none" />
+                      <div
+                        className="absolute left-0 top-1/2 -translate-y-1/2 h-1.5 rounded-full bg-gradient-to-r from-[var(--accent)] to-purple-400 pointer-events-none"
+                        style={{ width: `${((editAge - 18) / 42) * 100}%` }}
+                      />
+                      <input
+                        type="range"
+                        min="18"
+                        max="60"
+                        value={editAge}
+                        onChange={e => { setEditAge(Number(e.target.value)); setSelectedAvatar(null); }}
+                        className="absolute inset-0 z-10 w-full appearance-none cursor-pointer bg-transparent [&::-webkit-slider-runnable-track]:h-1.5 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-transparent [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[var(--accent)] [&::-webkit-slider-thumb]:shadow-[0_0_6px_rgba(99,102,241,0.5)] [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:hover:scale-125 [&::-webkit-slider-thumb]:-mt-[5px]"
+                      />
+                    </div>
+                    <button
+                      onClick={() => setEditAge(a => Math.min(60, a + 1))}
+                      className="w-7 h-7 rounded-full border border-[var(--border)] text-[var(--muted)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-all flex items-center justify-center text-sm font-bold shrink-0"
+                    >+</button>
+                  </div>
+                  <div className="flex justify-between text-[10px] text-[var(--muted)] mt-1 px-10">
+                    <span>18</span><span>30</span><span>45</span><span>60</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Avatar Selection */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-sm font-medium text-[var(--muted)]">{t('agent.avatarStyle')}</label>
+                  <button
+                    className="text-xs text-[var(--accent)] hover:underline flex items-center gap-1"
+                    onClick={() => setAvatarChoices(getAvatarChoices(24, editGender, editAge))}
+                  >🔄 {t('agent.refreshAvatar')}</button>
+                </div>
+                <AvatarGrid
+                  choices={avatarChoices}
+                  selectedId={selectedAvatar?.id}
+                  onSelect={setSelectedAvatar}
+                />
+              </div>
+
+              {/* Signature */}
+              <div>
+                <label className="block text-sm font-medium mb-1.5 text-[var(--muted)]">{t('agent.signatureLabel')}</label>
+                <input
+                  className="input w-full"
+                  value={editSignature}
+                  onChange={e => setEditSignature(e.target.value)}
+                  placeholder={t('agent.signaturePlaceholder')}
+                />
+              </div>
+
+              {/* Save button */}
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={handleSaveProfile}
+                  disabled={profileSaving}
+                  className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--accent)] text-white hover:opacity-90 transition-opacity disabled:opacity-50"
+                >
+                  {profileSaving ? t('agent.saving') : t('agent.saveProfile')}
+                </button>
+                {profileMsg && (
+                  <span className={`text-xs ${profileMsg.type === 'ok' ? 'text-green-400' : 'text-red-400'}`}>
+                    {profileMsg.text}
+                  </span>
+                )}
               </div>
             </div>
           )}
@@ -450,6 +673,86 @@ export default function AgentDetailModal({ agentId, onClose }) {
             </div>
           )}
 
+          {activeTab === 'skills' && (
+            <div className="space-y-4 animate-fade-in">
+              {skillsLoading ? (
+                <div className="text-center py-8 text-[var(--muted)]">
+                  <div className="animate-spin text-2xl mb-2">⏳</div>
+                  <p className="text-xs">{t('common.loading')}</p>
+                </div>
+              ) : agentSkillsData ? (
+                <>
+                  <p className="text-xs text-[var(--muted)]">{t('agent.skillsDescription')}</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    {(agentSkillsData.allSkills || []).map(skill => {
+                      const isEnabled = agentSkillsData.enabledSkills?.includes(skill.id);
+                      const isPinned = agentSkillsData.pinnedSkills?.includes(skill.id);
+                      return (
+                        <div key={skill.id} className={`p-3 rounded-lg border transition-all ${
+                          isEnabled ? 'border-green-500/30 bg-green-900/10' : 'border-[var(--border)] bg-[var(--background)]'
+                        }`}>
+                          <div className="flex items-center justify-between mb-1">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span>{skill.icon}</span>
+                              <span className="text-sm font-medium truncate">{skill.name}</span>
+                              {isPinned && <span className="text-[8px] bg-yellow-900/30 text-yellow-400 px-1 py-0.5 rounded">📌</span>}
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={async () => {
+                                  const action = isPinned ? 'unpin' : 'pin';
+                                  await manageAgentSkill(agent.id, action, skill.id);
+                                  const data = await fetchAgentSkills(agent.id);
+                                  setAgentSkillsData(data);
+                                }}
+                                className={`text-[10px] px-1.5 py-0.5 rounded transition-all ${
+                                  isPinned ? 'text-yellow-400 hover:text-[var(--muted)]' : 'text-[var(--muted)] hover:text-yellow-400'
+                                }`}
+                                title={isPinned ? t('agent.skillUnpin') : t('agent.skillPin')}
+                              >
+                                📌
+                              </button>
+                              <button
+                                onClick={async () => {
+                                  const action = isEnabled ? 'disable' : 'enable';
+                                  await manageAgentSkill(agent.id, action, skill.id);
+                                  const data = await fetchAgentSkills(agent.id);
+                                  setAgentSkillsData(data);
+                                }}
+                                className={`text-[10px] px-2 py-0.5 rounded-full transition-all ${
+                                  isEnabled
+                                    ? 'bg-green-900/30 text-green-400 hover:bg-red-900/30 hover:text-red-400'
+                                    : 'bg-white/10 text-[var(--muted)] hover:bg-green-900/30 hover:text-green-400'
+                                }`}
+                              >
+                                {isEnabled ? t('common.disable') : t('common.enable')}
+                              </button>
+                            </div>
+                          </div>
+                          <p className="text-[10px] text-[var(--muted)] line-clamp-2">{skill.description}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {agentSkillsData.legacySkills?.length > 0 && (
+                    <div>
+                      <h4 className="text-xs font-medium text-[var(--muted)] mb-2">{t('agent.legacySkills')}</h4>
+                      <div className="flex flex-wrap gap-2">
+                        {agentSkillsData.legacySkills.map((s, i) => (
+                          <span key={i} className="text-xs bg-white/5 text-[var(--muted)] px-2 py-1 rounded-lg">{s}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="text-center py-8 text-[var(--muted)]">
+                  <p className="text-xs">{t('agent.skillsLoadError')}</p>
+                </div>
+              )}
+            </div>
+          )}
+
           {activeTab === 'work' && (
             <div className="space-y-3 animate-fade-in">
               {/* Incentives */}
@@ -531,6 +834,28 @@ export default function AgentDetailModal({ agentId, onClose }) {
             </div>
           )}
 
+          {activeTab === 'llmLogs' && (
+            <LLMLogsTab
+              agentId={agentId}
+              logs={llmLogs}
+              loading={llmLogsLoading}
+              onLoad={async () => {
+                setLlmLogsLoading(true);
+                try {
+                  const res = await fetch(`/api/agents/${agentId}/llm-logs?limit=50&offset=0`);
+                  const data = await res.json();
+                  setLlmLogs(data);
+                } catch { setLlmLogs({ logs: [], total: 0 }); }
+                setLlmLogsLoading(false);
+              }}
+              onClear={async () => {
+                await fetch(`/api/agents/${agentId}/llm-logs`, { method: 'DELETE' });
+                setLlmLogs({ logs: [], total: 0 });
+              }}
+              t={t}
+            />
+          )}
+
           {activeTab === 'usage' && (
             <div className="space-y-4 animate-fade-in">
               <div className="grid grid-cols-2 gap-3">
@@ -594,6 +919,97 @@ export default function AgentDetailModal({ agentId, onClose }) {
             onClose={() => setShowSpy(false)}
           />
         )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * LLMLogsTab — 开发模式下查看员工的LLM调用日志（完整输入输出）
+ */
+function LLMLogsTab({ agentId, logs, loading, onLoad, onClear, t }) {
+  useEffect(() => {
+    if (!logs && !loading) onLoad();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="text-center py-8 text-[var(--muted)] animate-fade-in">
+        <div className="animate-spin text-2xl mb-2">⏳</div>
+        <p className="text-xs">{t('common.loading')}</p>
+      </div>
+    );
+  }
+
+  if (!logs || logs.logs.length === 0) {
+    return (
+      <div className="text-center py-8 text-[var(--muted)] animate-fade-in">
+        <div className="text-3xl mb-2">📋</div>
+        <p className="text-sm">{t('agent.llmLogs.empty')}</p>
+        <p className="text-xs mt-1 text-[var(--muted)]">{t('agent.llmLogs.emptyHint')}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3 animate-fade-in">
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-[var(--muted)]">
+          {t('agent.llmLogs.totalCount', { n: logs.total })}
+        </span>
+        <div className="flex gap-2">
+          <button
+            onClick={onLoad}
+            className="text-[10px] px-2 py-1 rounded bg-white/5 text-[var(--muted)] hover:bg-white/10 transition-colors"
+          >
+            🔄 {t('agent.llmLogs.refresh')}
+          </button>
+          <button
+            onClick={() => { if (confirm(t('agent.llmLogs.clearConfirm'))) onClear(); }}
+            className="text-[10px] px-2 py-1 rounded bg-red-900/20 text-red-400 hover:bg-red-900/30 transition-colors"
+          >
+            🗑 {t('agent.llmLogs.clear')}
+          </button>
+        </div>
+      </div>
+
+      <div className="space-y-1.5 max-h-[50vh] overflow-auto">
+        {logs.logs.map((log) => (
+          <button
+            key={log.id}
+            onClick={() => window.open(`/api/agents/${agentId}/llm-logs/view?logId=${encodeURIComponent(log.id)}`, '_blank')}
+            className="w-full text-left p-3 rounded-lg border transition-all border-[var(--border)] bg-[var(--background)] hover:border-[var(--accent)]/30"
+          >
+              <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono text-[var(--accent)]">{log.model}</span>
+                {log.streamed && <span className="text-[8px] bg-cyan-900/30 text-cyan-400 px-1 py-0.5 rounded">STREAM</span>}
+                {log.error && <span className="text-[8px] bg-red-900/30 text-red-400 px-1 py-0.5 rounded">ERROR</span>}
+                {log.isSummary && <span className="text-[8px] bg-purple-900/30 text-purple-400 px-1 py-0.5 rounded">TOOL LOOP</span>}
+                {log.toolCallCount > 0 && <span className="text-[8px] bg-orange-900/30 text-orange-400 px-1 py-0.5 rounded">🔧 {log.toolCallCount} tool{log.toolCallCount > 1 ? 's' : ''}</span>}
+              </div>
+              <span className="text-[10px] text-[var(--muted)]">{log.latency}ms</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-[var(--muted)]">
+                {new Date(log.timestamp).toLocaleString()} · {log.messageCount} msgs
+                {log.usage?.total_tokens ? ` · ${log.usage.total_tokens} tokens` : ''}
+                {log.iterationsUsed > 0 ? ` · ${log.iterationsUsed} iter` : ''}
+              </span>
+              <span className="text-[10px] text-[var(--muted)]">↗</span>
+            </div>
+            {log.toolCallNames?.length > 0 && (
+              <div className="text-[10px] text-orange-400/70 mt-1 truncate">
+                🔧 {log.toolCallNames.join(', ')}
+              </div>
+            )}
+            {log.outputPreview && (
+              <div className="text-[10px] text-[var(--muted)] mt-1 truncate">
+                {log.outputPreview}
+              </div>
+            )}
+          </button>
+        ))}
       </div>
     </div>
   );

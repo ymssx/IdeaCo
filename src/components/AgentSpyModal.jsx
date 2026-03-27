@@ -166,6 +166,10 @@ export default function AgentSpyModal({ agentId, agentName, agentAvatar, onClose
       }
     }
   }
+  // 秘书也是员工，加入映射
+  if (company?.secretary?.id) {
+    agentMap[company.secretary.id] = company.secretary.name;
+  }
 
   // 加载会话列表
   useEffect(() => {

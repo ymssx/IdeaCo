@@ -3,12 +3,11 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useI18n } from '@/lib/i18n';
-import { useStore } from '@/lib/client-store';
 import { parseFileReferences, FileRefList } from './FileReference';
 import { cleanMessageContent } from './GroupChatView';
 import CachedAvatar from './CachedAvatar';
 
-// ============ Markdown 渲染组件 ============
+// ============ Markdown Components ============
 
 export const chatMarkdownComponents = {
   p: ({ children }) => <p className="mb-1 last:mb-0">{children}</p>,
@@ -48,7 +47,7 @@ export const chatMarkdownComponents = {
   td: ({ children }) => <td className="border border-white/20 px-2 py-1">{children}</td>,
 };
 
-// ============ 时间格式化 ============
+// ============ Time Formatting ============
 
 export function formatTime(time, t = (k) => k) {
   if (!time) return '';
@@ -68,15 +67,16 @@ export function formatTime(time, t = (k) => k) {
   return d.toLocaleDateString('zh', { month: 'short', day: 'numeric' });
 }
 
-// ============ 消息气泡组件 ============
+// ============ Message Bubble ============
 
 /**
- * 共享消息气泡组件
- * 支持 Markdown 渲染、文件引用、action 标签
+ * Shared message bubble component.
+ * Supports Markdown rendering and file references.
  */
-export function MessageBubble({ isMe, avatar, name, content, time, action, subject, agentId, onClickAvatar, bossAvatar, onViewDepartment, onViewRequirement }) {
+export function MessageBubble({ isMe, avatar, name, content, time, subject, agentId, onClickAvatar, bossAvatar, channel }) {
   const { t } = useI18n();
   const { cleanContent, fileRefs } = parseFileReferences(content);
+  const isWeixin = isMe && channel === 'weixin';
   return (
     <div className={`flex gap-2 ${isMe ? 'flex-row-reverse' : ''}`}>
       {!isMe ? (
@@ -98,9 +98,12 @@ export function MessageBubble({ isMe, avatar, name, content, time, action, subje
         )
       )}
       <div className={`max-w-[min(70%,560px)] ${isMe ? 'items-end' : 'items-start'}`}>
-        {/* Name + time */}
+        {/* Name + time + channel badge */}
         <div className={`flex items-center gap-2 mb-0.5 ${isMe ? 'flex-row-reverse' : ''}`}>
           <span className="text-[10px] text-[var(--muted)]">{name}</span>
+          {isWeixin && (
+            <span className="text-[10px] text-green-400 bg-green-900/30 px-1.5 py-0.5 rounded">WeChat</span>
+          )}
           {time && (
             <span className="text-[10px] text-[var(--muted)]/60">
               {formatTime(time, t)}
@@ -116,7 +119,9 @@ export function MessageBubble({ isMe, avatar, name, content, time, action, subje
         {/* Bubble */}
         <div className={`rounded-2xl px-3 py-2 text-sm leading-relaxed ${
           isMe
-            ? 'bg-[var(--accent)] text-white rounded-br-sm'
+            ? isWeixin
+              ? 'bg-[#57c457] text-white rounded-br-sm'
+              : 'bg-[var(--accent)] text-white rounded-br-sm'
             : 'bg-[var(--card)] border border-[var(--border)] rounded-bl-sm'
         }`}>
           <div className="break-words chat-markdown">
@@ -126,104 +131,15 @@ export function MessageBubble({ isMe, avatar, name, content, time, action, subje
           </div>
           <FileRefList fileRefs={fileRefs} />
         </div>
-        {/* Action tag */}
-        {action && (
-          <div className="mt-1 text-[10px] text-blue-400 bg-blue-900/10 px-2 py-0.5 rounded inline-block">
-            {action.type === 'task_assigned' && (
-              <>
-                {t('chat.taskAssigned', { dept: action.departmentName })}
-                {action.taskStatus === 'running' && <span className="ml-1 animate-pulse">{t('chat.running')}</span>}
-                {action.taskStatus === 'completed' && (
-                  <>
-                    <span className="ml-1">✅</span>
-                    {action.requirementId && onViewRequirement && (
-                      <button
-                        onClick={() => onViewRequirement(action.requirementId)}
-                        className="ml-2 text-blue-300 hover:text-blue-200 underline transition-colors"
-                      >
-                        {t('chat.viewRequirementBtn')}
-                      </button>
-                    )}
-                    {action.departmentId && onViewDepartment && (
-                      <button
-                        onClick={() => onViewDepartment(action.departmentId)}
-                        className="ml-2 text-blue-300 hover:text-blue-200 underline transition-colors"
-                      >
-                        {t('chat.viewDepartmentBtn')}
-                      </button>
-                    )}
-                  </>
-                )}
-                {action.taskStatus === 'failed' && <span className="ml-1">❌</span>}
-              </>
-            )}
-            {action.type === 'need_new_department' && t('chat.needNewDept')}
-            {action.type === 'create_department' && (
-              <>
-                {t('chat.creatingDept', { dept: action.departmentName })}
-                {action.taskStatus === 'running' && <span className="ml-1 animate-pulse">{t('chat.planningHiring')}</span>}
-                {action.taskStatus === 'completed' && (
-                  <>
-                    <span className="ml-1">✅</span>
-                    {action.departmentId && onViewDepartment && (
-                      <button
-                        onClick={() => onViewDepartment(action.departmentId)}
-                        className="ml-2 text-blue-300 hover:text-blue-200 underline transition-colors"
-                      >
-                        {t('chat.viewDepartmentBtn')}
-                      </button>
-                    )}
-                  </>
-                )}
-                {action.taskStatus === 'failed' && <span className="ml-1">❌</span>}
-              </>
-            )}
-            {action.type === 'department_created' && (
-              <>
-                {t('chat.deptCreated', { dept: action.departmentName })}
-                {action.departmentId && onViewDepartment && (
-                  <button
-                    onClick={() => onViewDepartment(action.departmentId)}
-                    className="ml-2 text-blue-300 hover:text-blue-200 underline transition-colors"
-                  >
-                    {t('chat.viewDepartmentBtn')}
-                  </button>
-                )}
-              </>
-            )}
-            {action.type === 'secretary_task_completed' && action.requirementId && onViewRequirement && (
-              <button
-                onClick={() => onViewRequirement(action.requirementId)}
-                className="text-blue-300 hover:text-blue-200 underline transition-colors"
-              >
-                {t('chat.viewRequirementBtn')}
-              </button>
-            )}
-            {action.type === 'progress_report' && t('chat.progressReport')}
-            {action.type === 'task_completed' && (
-              <>
-                {t('chat.progressReport')}
-                {action.requirementId && onViewRequirement && (
-                  <button
-                    onClick={() => onViewRequirement(action.requirementId)}
-                    className="ml-2 text-blue-300 hover:text-blue-200 underline transition-colors"
-                  >
-                    {t('chat.viewRequirementBtn')}
-                  </button>
-                )}
-              </>
-            )}
-          </div>
-        )}
       </div>
     </div>
   );
 }
 
-// ============ 输入框组件 ============
+// ============ Chat Input ============
 
 /**
- * 共享聊天输入框组件
+ * Shared chat input component.
  */
 export function ChatInput({ value, onChange, onSend, onKeyDown, sending, placeholder, inputRef }) {
   const { t } = useI18n();
@@ -257,89 +173,4 @@ export function ChatInput({ value, onChange, onSend, onKeyDown, sending, placeho
   );
 }
 
-// ============ 任务状态面板 ============
 
-/**
- * 共享任务进度/结果面板
- * 当有 runningTaskId 或 taskResult 时显示
- */
-export function TaskStatusPanel() {
-  const { t } = useI18n();
-  const { runningTaskId, taskResult, clearTaskResult, navigateToDepartment, navigateToRequirement } = useStore();
-
-  if (!runningTaskId && !taskResult) return null;
-
-  return (
-    <div className="border-t border-[var(--border)] bg-gradient-to-r from-blue-950/40 to-indigo-950/40 shrink-0">
-      {runningTaskId && !taskResult && (
-        <div className="px-4 py-3 flex items-center gap-3">
-          <div className="relative w-5 h-5 shrink-0">
-            <div className="absolute inset-0 rounded-full border-2 border-blue-400/30" />
-            <div className="absolute inset-0 rounded-full border-2 border-blue-400 border-t-transparent animate-spin" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-xs font-medium text-blue-300">{t('chat.running')}</div>
-            <div className="text-[10px] text-[var(--muted)] mt-0.5 truncate">{t('chat.taskAssigned', { dept: '...' })}</div>
-          </div>
-          <div className="flex gap-1">
-            <span className="w-1 h-1 rounded-full bg-blue-400 animate-bounce" style={{ animationDelay: '0ms' }} />
-            <span className="w-1 h-1 rounded-full bg-blue-400 animate-bounce" style={{ animationDelay: '150ms' }} />
-            <span className="w-1 h-1 rounded-full bg-blue-400 animate-bounce" style={{ animationDelay: '300ms' }} />
-          </div>
-        </div>
-      )}
-      {taskResult && (
-        <div className="px-4 py-3">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <span className="text-sm">{taskResult.error ? '❌' : '✅'}</span>
-              <span className="text-xs font-medium text-white">{taskResult.error ? t('chat.errorPrefix') : t('chat.progressReport')}</span>
-            </div>
-            <button
-              onClick={clearTaskResult}
-              className="text-[10px] text-[var(--muted)] hover:text-white px-2 py-0.5 rounded hover:bg-white/10 transition-all"
-            >
-              ✕
-            </button>
-          </div>
-          {taskResult.error ? (
-            <div className="text-xs text-red-300 bg-red-900/20 rounded-lg px-3 py-2 border border-red-500/20">
-              {taskResult.error}
-            </div>
-          ) : (
-            <>
-              <div className="text-xs text-[var(--foreground)] bg-white/5 rounded-lg px-3 py-2 border border-white/10 max-h-32 overflow-auto">
-                {typeof taskResult === 'string' ? (
-                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
-                    p: ({ children }) => <p className="mb-1 last:mb-0">{children}</p>,
-                  }}>{taskResult}</ReactMarkdown>
-                ) : (
-                  <pre className="whitespace-pre-wrap text-[10px]">{JSON.stringify(taskResult, null, 2)}</pre>
-                )}
-              </div>
-              {/* Quick navigation buttons */}
-              <div className="flex gap-2 mt-2">
-                {taskResult.departmentId && (
-                  <button
-                    onClick={() => { navigateToDepartment(taskResult.departmentId); clearTaskResult(); }}
-                    className="text-[10px] text-blue-300 hover:text-blue-200 bg-blue-900/30 hover:bg-blue-900/50 px-2.5 py-1 rounded-md border border-blue-500/20 transition-all"
-                  >
-                    {t('chat.viewDepartmentBtn')}
-                  </button>
-                )}
-                {taskResult.requirementId && (
-                  <button
-                    onClick={() => { navigateToRequirement(taskResult.requirementId); clearTaskResult(); }}
-                    className="text-[10px] text-blue-300 hover:text-blue-200 bg-blue-900/30 hover:bg-blue-900/50 px-2.5 py-1 rounded-md border border-blue-500/20 transition-all"
-                  >
-                    {t('chat.viewRequirementBtn')}
-                  </button>
-                )}
-              </div>
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}

@@ -182,38 +182,24 @@ export class Memory {
 
   /**
    * Update the rolling history summary for a group.
-   * Called when AI returns a summary of old messages.
+   * Each new summary REPLACES the previous one entirely (single rolling summary,
+   * not cumulative). The AI is expected to produce a complete, self-contained
+   * summary that incorporates anything important from the prior summary.
    * 
    * @param {string} groupId
-   * @param {string} newSummary - AI-generated summary of old messages
+   * @param {string} newSummary - AI-generated summary that replaces the old one
    */
   updateHistorySummary(groupId, newSummary) {
     if (!newSummary || !newSummary.trim()) return;
 
-    const existing = this.historySummary.get(groupId) || '';
-    let combined;
+    let trimmed = newSummary.trim();
 
-    if (existing) {
-      combined = `${existing}\n---\n${newSummary.trim()}`;
-    } else {
-      combined = newSummary.trim();
+    // Hard-cap to maxSummaryLength
+    if (trimmed.length > this.maxSummaryLength) {
+      trimmed = trimmed.slice(0, this.maxSummaryLength);
     }
 
-    // Truncate if too long — keep the most recent part
-    if (combined.length > this.maxSummaryLength) {
-      // Find a good split point (after a "---" separator)
-      const parts = combined.split('\n---\n');
-      while (parts.join('\n---\n').length > this.maxSummaryLength && parts.length > 1) {
-        parts.shift(); // Drop oldest summary chunk
-      }
-      combined = parts.join('\n---\n');
-      // If still too long, hard truncate
-      if (combined.length > this.maxSummaryLength) {
-        combined = combined.slice(-this.maxSummaryLength);
-      }
-    }
-
-    this.historySummary.set(groupId, combined);
+    this.historySummary.set(groupId, trimmed);
   }
 
   /**
@@ -316,8 +302,23 @@ export class Memory {
   // ======================== Context Builder ========================
 
   /**
+   * Build the conversation history summary string for a group.
+   * This is intended for injection into the USER prompt (not system prompt),
+   * so the AI has prior conversation context.
+   * 
+   * @param {string} groupId - Current group context
+   * @returns {string} Formatted history summary, or empty string if none
+   */
+  buildHistorySummaryContext(groupId) {
+    const summary = this.getHistorySummary(groupId);
+    if (!summary) return '';
+    return `\n\n**📜 Conversation History Summary (from previous messages you already read):**\n${summary}`;
+  }
+
+  /**
    * Build a compact memory context string for inclusion in prompts.
-   * This replaces the old agentMemory approach with structured memory.
+   * Contains long-term and short-term memories only (no history summary —
+   * that is injected separately into the user prompt via buildHistorySummaryContext).
    * 
    * @param {string} groupId - Current group context
    * @returns {string} Formatted memory context for prompt injection
@@ -325,13 +326,7 @@ export class Memory {
   buildMemoryContext(groupId) {
     const parts = [];
 
-    // 1. Rolling history summary
-    const summary = this.getHistorySummary(groupId);
-    if (summary) {
-      parts.push(`**📜 Conversation History Summary:**\n${summary}`);
-    }
-
-    // 2. Long-term memories (sorted by importance, top items)
+    // 1. Long-term memories (sorted by importance, top items)
     const activeLongTerm = this.longTerm
       .sort((a, b) => (b.importance || 5) - (a.importance || 5))
       .slice(0, 15);

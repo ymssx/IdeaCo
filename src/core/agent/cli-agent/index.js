@@ -1,5 +1,6 @@
 import { BaseAgent } from '../base-agent.js';
 import { llmClient } from '../llm-agent/client.js';
+import { ToolLoop } from '../tool-loop.js';
 import { cliBackendRegistry } from './backends/index.js';
 
 /**
@@ -55,7 +56,21 @@ export class CLIAgent extends BaseAgent {
     if (!this.canChat()) {
       throw new Error(`CLIAgent has no fallback LLM provider for chatWithTools`);
     }
-    return await llmClient.chatWithTools(this.fallbackProvider, messages, toolExecutor, options);
+    const loop = new ToolLoop({
+      chatFn: (msgs, chatOpts) => llmClient.chat(this.fallbackProvider, msgs, chatOpts),
+      toolExecutor,
+      maxIterations: options.maxIterations || 15,
+      taskContext: options.taskContext || null,
+      activeTiers: options.activeTiers || null,
+    });
+    return loop.run(messages, {
+      temperature: options.temperature,
+      maxTokens: options.maxTokens,
+      _agentId: options._agentId,
+      _agentName: options._agentName,
+      onToolCall: options.onToolCall || null,
+      onLLMCall: options.onLLMCall || null,
+    });
   }
 
   getDisplayInfo() {

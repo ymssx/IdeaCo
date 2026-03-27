@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from 'fs';
 import { chatStore } from './agent/chat-store.js';
 import { WorkspaceManager } from './workspace.js';
 import { robustJSONParse } from './utils/json-parse.js';
-import { getAppLanguageName } from './utils/app-language.js';
+import { getAppLanguageName, getLanguageNameByCode } from './utils/app-language.js';
 import { buildRhetoricPrompt, getRandomRhetoric } from './organization/workforce/management-rhetoric.js';
 
 /** Group chat prefix for requirement group chats in chatStore */
@@ -271,7 +271,7 @@ export class RequirementManager {
    * @param {object} [adjustmentContext] - If present, this is a workflow adjustment
    * @returns {object} Workflow
    */
-  async planWorkflow(requirement, members, adjustmentContext = null) {
+  async planWorkflow(requirement, members, adjustmentContext = null, { lang } = {}) {
     requirement.status = RequirementStatus.PLANNING;
     if (adjustmentContext) {
       requirement.addGroupMessage(
@@ -382,7 +382,7 @@ Output in JSON format:
     - reviewCriteria MUST be specific and measurable, following this pattern: "Check [specific thing] for [specific quality]. Verify [edge case]. Confirm [acceptance criteria]"
     - MOST tasks do NOT need a reviewer. Only assign reviewers for genuinely complex, high-risk tasks
     - When reviewing, the reviewer should apply the anti-excuse framework: don't accept "it works" without evidence
-12. **Response Language**: All task titles, descriptions, summaries, and review criteria MUST be written in ${getAppLanguageName()}
+12. **Response Language**: All task titles, descriptions, summaries, and review criteria MUST be written in ${lang ? getLanguageNameByCode(lang) : getAppLanguageName()}
 
 ## Anti-Pattern Detection
 You must AVOID these leadership anti-patterns:
@@ -567,7 +567,7 @@ You must AVOID these leadership anti-patterns:
    * Execute workflow by DAG dependency order
    * Supports parallel + dependency serialization
    */
-  async executeWorkflow(requirement, department, performanceSystem) {
+  async executeWorkflow(requirement, department, performanceSystem, { lang } = {}) {
     if (!requirement.workflow?.nodes?.length) {
       // If workflow is empty, auto-create a simple fallback workflow
       console.log('Workflow is empty, auto-creating fallback workflow...');
@@ -896,7 +896,7 @@ currentAction: { key: 'reqDetail.action.typingRound', params: { name: agent.name
                 requirement.addGroupMessage(agent, `🧠 Continuing to think and execute... (round ${iteration})`, 'tool_call');
               }
             },
-          });
+          }, { lang });
 
           // After CLI execution: detect file changes by comparing snapshots
           if (snapshotBefore && wsPath) {
@@ -1021,7 +1021,7 @@ currentAction: { key: 'reqDetail.action.typingRound', params: { name: agent.name
               let reviewRequestMsg = await this._generateDeliveryMessage(agent, node, writtenFilePaths, result, requirement, {
                 scene: 'review_request',
                 targetAgent: reviewer,
-              });
+              }, { lang });
               const reviewRefResult = this._expandAndValidateFileRefs(reviewRequestMsg, requirement, department, agent, writtenFilePaths);
               reviewRequestMsg = reviewRefResult.content;
               requirement.addGroupMessage(
@@ -1137,7 +1137,7 @@ currentAction: { key: 'reqDetail.action.typingRound', params: { name: agent.name
                                 currentAction: { key: 'reqDetail.action.revisingIteration', params: { name: agent.name, iteration } },
                               });
                             },
-                          }
+                          }, { lang }
                         );
                         currentOutput = revisionResult.output || currentOutput;
                       } catch (revisionErr) {
@@ -1226,7 +1226,7 @@ currentAction: { key: 'reqDetail.action.typingRound', params: { name: agent.name
                                   currentAction: { key: 'reqDetail.action.revisingAfterDiscussionIteration', params: { name: agent.name, iteration } },
                                 });
                               },
-                            }
+                            }, { lang }
                           );
                           currentOutput = revisionResult.output || currentOutput;
                         } catch (revisionErr) {
@@ -1316,7 +1316,7 @@ currentAction: { key: 'reqDetail.action.typingRound', params: { name: agent.name
           // LLM is instructed to use [[file:path]] protocol for file references
           let deliveryMsg = await this._generateDeliveryMessage(agent, node, writtenFilePaths, finalResult, requirement, {
             scene: 'completion',
-          });
+          }, { lang });
           // Expand [[file:path]] → [[file:deptId:path|name]] for frontend rendering
           // and validate file references against workspace
           const deliveryResult = this._expandAndValidateFileRefs(deliveryMsg, requirement, department, agent, writtenFilePaths);
@@ -1349,7 +1349,7 @@ currentAction: { key: 'reqDetail.action.typingRound', params: { name: agent.name
                   scene: 'handoff',
                   targetAgent: downAgent,
                   targetTask: downNode.title,
-                });
+                }, { lang });
                 const handoffRefResult = this._expandAndValidateFileRefs(handoffMsg, requirement, department, agent, writtenFilePaths);
                 handoffMsg = handoffRefResult.content;
                 if (handoffRefResult.invalidPaths.length > 0) {
@@ -1796,7 +1796,7 @@ Please provide your review verdict as JSON.`
    * Execute revision: agent revises their work based on review feedback
    * Similar to executeTask but with revision context
    */
-  async _executeRevision(agent, node, previousOutput, reviewFeedback, requirement, callbacks = {}) {
+  async _executeRevision(agent, node, previousOutput, reviewFeedback, requirement, callbacks = {}, { lang } = {}) {
     const round = node.reviewRounds || 1;
     // Pressure escalation messages based on revision round
     const pressureMsg = round <= 1 ? '' :
@@ -1855,7 +1855,7 @@ ${pressureMsg}${staminaInjection}
       requirements: `This is a REVISION for requirement "${requirement.title}". The reviewer was not satisfied — but that does NOT automatically mean your work was wrong. Independently verify EVERY claim before making changes. Only fix what is genuinely broken. Push back on incorrect feedback with evidence.`,
     };
 
-    return await agent.executeTask(revisionTask, callbacks);
+    return await agent.executeTask(revisionTask, callbacks, { lang });
   }
 
   /**
@@ -2066,7 +2066,7 @@ Are you convinced by their argument, or do you insist they need to revise?`
    * @param {object} options - { scene: 'completion'|'review_request'|'handoff', targetAgent?, targetTask? }
    * @returns {string} The LLM-generated message
    */
-  async _generateDeliveryMessage(agent, node, writtenFilePaths, result, requirement, options = {}) {
+  async _generateDeliveryMessage(agent, node, writtenFilePaths, result, requirement, options = {}, { lang } = {}) {
     const { scene = 'completion', targetAgent = null, targetTask = null } = options;
 
     // Build file info context
@@ -2123,7 +2123,7 @@ Rules:
 - Keep it concise (2-5 sentences max + file references). No filler, no self-praise.
 - Do NOT wrap in JSON or markdown code blocks. Just speak naturally.
 - Match the language of the requirement title (if Chinese title, speak Chinese; if English, speak English).
-- You MUST write your message in ${getAppLanguageName()}.
+- You MUST write your message in ${lang ? getLanguageNameByCode(lang) : getAppLanguageName()}.
 - NEVER mention files that are not in your deliverables list above.`;
 
     try {

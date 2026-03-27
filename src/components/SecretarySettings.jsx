@@ -22,6 +22,10 @@ export default function SecretarySettings({ onClose }) {
   const [saved, setSaved] = useState(false);
   const [activeTab, setActiveTab] = useState('profile');
 
+  // LLM Logs tab state
+  const [llmLogs, setLlmLogs] = useState(null);
+  const [llmLogsLoading, setLlmLogsLoading] = useState(false);
+
   const secretary = company?.secretary;
 
   // Initialize data
@@ -121,6 +125,14 @@ export default function SecretarySettings({ onClose }) {
                   : 'text-[var(--muted)] hover:text-white hover:bg-white/5'
               }`}
             >{t('secretarySettings.tabSoul')}</button>
+            <button
+              onClick={() => setActiveTab('llmLogs')}
+              className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-all ${
+                activeTab === 'llmLogs'
+                  ? 'bg-[var(--accent)] text-white shadow-sm'
+                  : 'text-[var(--muted)] hover:text-white hover:bg-white/5'
+              }`}
+            >{t('secretarySettings.tabLLMLogs')}</button>
           </div>
 
           {activeTab === 'profile' && (<>
@@ -274,12 +286,34 @@ export default function SecretarySettings({ onClose }) {
             </div>
           </div>
           </>)}
+
+          {activeTab === 'llmLogs' && secretary.id && (
+            <SecretaryLLMLogs
+              agentId={secretary.id}
+              logs={llmLogs}
+              loading={llmLogsLoading}
+              onLoad={async () => {
+                setLlmLogsLoading(true);
+                try {
+                  const res = await fetch(`/api/agents/${secretary.id}/llm-logs?limit=50&offset=0`);
+                  const data = await res.json();
+                  setLlmLogs(data);
+                } catch { setLlmLogs({ logs: [], total: 0 }); }
+                setLlmLogsLoading(false);
+              }}
+              onClear={async () => {
+                await fetch(`/api/agents/${secretary.id}/llm-logs`, { method: 'DELETE' });
+                setLlmLogs({ logs: [], total: 0 });
+              }}
+              t={t}
+            />
+          )}
         </div>
 
 {/* Footer actions */}
         <div className="pt-4 border-t border-[var(--border)] flex items-center justify-between">
           <div className="text-xs text-[var(--muted)]">
-            {t('secretarySettings.modelInfo', { provider: secretary.provider, info: ''})} {secretary.hrAssistant ? t('secretarySettings.withHR') : ''}
+            {t('secretarySettings.modelInfo', { provider: secretary.provider, info: ''})}
           </div>
           <div className="flex items-center gap-2">
             {saved && <span className="text-xs text-green-400 animate-fade-in">{t('secretarySettings.saved')}</span>}
@@ -289,6 +323,97 @@ export default function SecretarySettings({ onClose }) {
             </button>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * SecretaryLLMLogs — View LLM call logs for the secretary (full input/output)
+ */
+function SecretaryLLMLogs({ agentId, logs, loading, onLoad, onClear, t }) {
+  useEffect(() => {
+    if (!logs && !loading) onLoad();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="text-center py-8 text-[var(--muted)] animate-fade-in">
+        <div className="animate-spin text-2xl mb-2">⏳</div>
+        <p className="text-xs">{t('common.loading')}</p>
+      </div>
+    );
+  }
+
+  if (!logs || logs.logs.length === 0) {
+    return (
+      <div className="text-center py-8 text-[var(--muted)] animate-fade-in">
+        <div className="text-3xl mb-2">📋</div>
+        <p className="text-sm">{t('agent.llmLogs.empty')}</p>
+        <p className="text-xs mt-1 text-[var(--muted)]">{t('agent.llmLogs.emptyHint')}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3 animate-fade-in">
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-[var(--muted)]">
+          {t('agent.llmLogs.totalCount', { n: logs.total })}
+        </span>
+        <div className="flex gap-2">
+          <button
+            onClick={onLoad}
+            className="text-[10px] px-2 py-1 rounded bg-white/5 text-[var(--muted)] hover:bg-white/10 transition-colors"
+          >
+            🔄 {t('agent.llmLogs.refresh')}
+          </button>
+          <button
+            onClick={() => { if (confirm(t('agent.llmLogs.clearConfirm'))) onClear(); }}
+            className="text-[10px] px-2 py-1 rounded bg-red-900/20 text-red-400 hover:bg-red-900/30 transition-colors"
+          >
+            🗑 {t('agent.llmLogs.clear')}
+          </button>
+        </div>
+      </div>
+
+      <div className="space-y-1.5 max-h-[50vh] overflow-auto">
+        {logs.logs.map((log) => (
+          <button
+            key={log.id}
+            onClick={() => window.open(`/api/agents/${agentId}/llm-logs/view?logId=${encodeURIComponent(log.id)}`, '_blank')}
+            className="w-full text-left p-3 rounded-lg border transition-all border-[var(--border)] bg-[var(--background)] hover:border-[var(--accent)]/30"
+          >
+              <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono text-[var(--accent)]">{log.model}</span>
+                {log.streamed && <span className="text-[8px] bg-cyan-900/30 text-cyan-400 px-1 py-0.5 rounded">STREAM</span>}
+                {log.error && <span className="text-[8px] bg-red-900/30 text-red-400 px-1 py-0.5 rounded">ERROR</span>}
+                {log.isSummary && <span className="text-[8px] bg-purple-900/30 text-purple-400 px-1 py-0.5 rounded">TOOL LOOP</span>}
+                {log.toolCallCount > 0 && <span className="text-[8px] bg-orange-900/30 text-orange-400 px-1 py-0.5 rounded">🔧 {log.toolCallCount} tool{log.toolCallCount > 1 ? 's' : ''}</span>}
+              </div>
+              <span className="text-[10px] text-[var(--muted)]">{log.latency}ms</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-[var(--muted)]">
+                {new Date(log.timestamp).toLocaleString()} · {log.messageCount} msgs
+                {log.usage?.total_tokens ? ` · ${log.usage.total_tokens} tokens` : ''}
+                {log.iterationsUsed > 0 ? ` · ${log.iterationsUsed} iter` : ''}
+              </span>
+              <span className="text-[10px] text-[var(--muted)]">↗</span>
+            </div>
+            {log.toolCallNames?.length > 0 && (
+              <div className="text-[10px] text-orange-400/70 mt-1 truncate">
+                🔧 {log.toolCallNames.join(', ')}
+              </div>
+            )}
+            {log.outputPreview && (
+              <div className="text-[10px] text-[var(--muted)] mt-1 truncate">
+                {log.outputPreview}
+              </div>
+            )}
+          </button>
+        ))}
       </div>
     </div>
   );

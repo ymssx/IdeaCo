@@ -270,3 +270,68 @@ export function safeJSONParse(raw, options = {}) {
     return null;
   }
 }
+
+/**
+ * Extract the value of a specific JSON string field from a partial/incomplete JSON string.
+ * Designed for real-time streaming: works incrementally as tokens arrive.
+ *
+ * @param {string} partial - The accumulated (possibly incomplete) JSON string so far
+ * @param {string} [fieldName='content'] - The JSON field name to extract
+ * @returns {string} The extracted value so far (may be incomplete)
+ *
+ * @example
+ *   extractFieldFromPartialJSON('{"content": "hello wor') // => "hello wor"
+ *   extractFieldFromPartialJSON('{"content": "hello world", "action": null}') // => "hello world"
+ */
+export function extractFieldFromPartialJSON(partial, fieldName = 'content') {
+  // Build a regex to match "fieldName" : "
+  const escaped = fieldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const keyPattern = new RegExp(`"${escaped}"\\s*:\\s*"`);
+  const match = keyPattern.exec(partial);
+  if (!match) return '';
+
+  const valueStart = match.index + match[0].length;
+  let result = '';
+  let i = valueStart;
+
+  while (i < partial.length) {
+    const ch = partial[i];
+    if (ch === '\\') {
+      // Escaped character
+      if (i + 1 >= partial.length) break; // Incomplete escape at end
+      const next = partial[i + 1];
+      switch (next) {
+        case '"': result += '"'; break;
+        case '\\': result += '\\'; break;
+        case 'n': result += '\n'; break;
+        case 'r': result += '\r'; break;
+        case 't': result += '\t'; break;
+        case '/': result += '/'; break;
+        case 'b': result += '\b'; break;
+        case 'f': result += '\f'; break;
+        case 'u': {
+          // Unicode escape \uXXXX
+          if (i + 5 < partial.length) {
+            const hex = partial.slice(i + 2, i + 6);
+            const code = parseInt(hex, 16);
+            if (!isNaN(code)) {
+              result += String.fromCharCode(code);
+              i += 6;
+              continue;
+            }
+          }
+          break; // Incomplete unicode escape
+        }
+        default: result += next;
+      }
+      i += 2;
+    } else if (ch === '"') {
+      break; // End of string value
+    } else {
+      result += ch;
+      i++;
+    }
+  }
+
+  return result;
+}

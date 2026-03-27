@@ -2183,8 +2183,13 @@ export default function PixelOffice({ embedded, groupChat, members: filterMember
     });
 
     if (clicked?.id === '__secretary__') {
-      // Open the middle chat panel with secretary
-      setChatOpen(true);
+      // Secretary is an employee — open AgentDetailModal with real ID
+      const secId = company?.secretary?.id;
+      if (secId) {
+        setSelectedAgent(secId);
+      } else {
+        setChatOpen(true);
+      }
       return;
     }
 
@@ -2271,7 +2276,7 @@ export default function PixelOffice({ embedded, groupChat, members: filterMember
       )}
 
       {/* Agent Detail Modal (reuses existing component) */}
-      {selectedAgent && selectedAgent !== '__secretary__' && selectedAgent !== '__boss__' && (
+      {selectedAgent && selectedAgent !== '__boss__' && (
         <AgentDetailModal agentId={selectedAgent} onClose={() => setSelectedAgent(null)} />
       )}
     </div>

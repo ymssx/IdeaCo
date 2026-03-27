@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getCompany } from '@/lib/store';
-import { getApiT, getLanguageFromRequest } from '@/lib/api-i18n';
-import { setAppLanguage } from '@/core/utils/app-language.js';
+import { getApiT } from '@/lib/api-i18n';
 
 /**
  * Requirements Management API
@@ -125,7 +124,6 @@ export async function DELETE(request) {
  */
 export async function POST(request) {
   const t = getApiT(request);
-  setAppLanguage(getLanguageFromRequest(request));
   const company = getCompany();
   if (!company) {
     return NextResponse.json({ error: t('api.noCompany') }, { status: 400 });
@@ -165,13 +163,9 @@ export async function POST(request) {
     company.assignTaskToDepartment(departmentId, taskDescription, taskTitle)
       .catch(e => {
         console.error('Create requirement execution failed:', e.message);
-      })
-      .finally(() => {
-        // Ensure department workspace is restored even if assignTaskToDepartment didn't restore it
-        if (workspaceDir && originalDeptWorkspace) {
-          dept.workspacePath = originalDeptWorkspace;
-        }
       });
+    // Note: workspace restore is handled internally by assignTaskToDepartment
+    // after background execution completes. No need to restore here.
 
     // Brief wait for requirement creation
     await new Promise(resolve => setTimeout(resolve, 500));

@@ -92,13 +92,16 @@ export default function OrgTree({ embedded = false }) {
         <div className="w-px h-6 bg-[var(--border)]" />
 
         {/* Secretary */}
-        <div className="flex flex-col items-center p-3 rounded-xl bg-gradient-to-br from-purple-900/20 to-pink-900/20 border border-purple-500/20 mb-2">
+        <button
+          onClick={() => company.secretary?.id && setSelectedAgent(company.secretary.id)}
+          className="flex flex-col items-center p-3 rounded-xl bg-gradient-to-br from-purple-900/20 to-pink-900/20 border border-purple-500/20 mb-2 transition-all hover:scale-105 hover:border-purple-500/40 cursor-pointer"
+        >
           <CachedAvatar src={company.secretary?.avatar} alt="secretary" className="w-10 h-10 rounded-full bg-[var(--border)] mb-1" />
           <div className="text-sm font-medium">{company.secretary?.name}</div>
           <div className="text-[10px] text-purple-400">
 {company.secretary?.gender === 'female' ? '👩' : '👨'}{company.secretary?.age ? ` ${t('display.ageYears', { n: company.secretary.age })}` : ''} · {t('orgTree.secretary')}
           </div>
-        </div>
+        </button>
         <div className="w-px h-6 bg-[var(--border)]" />
 
         {/* Departments */}

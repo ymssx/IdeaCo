@@ -36,23 +36,33 @@ export class GroupChatLoop extends EventEmitter {
    * Start the coordinator.
    * @param {object} company
    */
-  start(company) {
-    if (this.running) return;
+  start(company, { silent = false } = {}) {
+    if (this.running) {
+      // Already running — just update company reference if needed
+      if (company) this.company = company;
+      return;
+    }
     this.company = company;
     this.running = true;
-    console.log('🔄 GroupChatLoop: Chat loop engine started');
+
+    if (!silent) {
+      console.log('🔄 GroupChatLoop: Chat loop engine started');
+    }
     this.emit('started');
   }
 
   /**
    * Stop the coordinator and all employee lifecycles.
    */
-  stop() {
+  stop({ silent = false } = {}) {
+    if (!this.running) return;
     this.running = false;
     for (const [, lifecycle] of this._lifecycles) {
       lifecycle.stop();
     }
-    console.log('⏹️ GroupChatLoop: Chat loop engine stopped');
+    if (!silent) {
+      console.log('⏹️ GroupChatLoop: Chat loop engine stopped');
+    }
     this.emit('stopped');
   }
 
@@ -64,7 +74,7 @@ export class GroupChatLoop extends EventEmitter {
    * Start the poll loop for an employee.
    * The employee is expected to have a `.lifecycle` (EmployeeLifecycle) property.
    */
-  startAgentLoop(agent) {
+  startAgentLoop(agent, { silent = false } = {}) {
     if (!this.running) return;
     if (this._lifecycles.has(agent.id)) return; // already registered
 
@@ -82,7 +92,7 @@ export class GroupChatLoop extends EventEmitter {
       this._pendingRestore.delete(agent.id);
     }
 
-    lifecycle.start();
+    lifecycle.start(silent);
     this._lifecycles.set(agent.id, lifecycle);
 
     // NOTE: wakeUp() follows lazy-loading principle.
@@ -90,7 +100,9 @@ export class GroupChatLoop extends EventEmitter {
     // woken up on their first chat() call via _ensureSession().
     // This avoids unnecessary session initialization for idle employees.
 
-    console.log(`  🔄 [GroupChatLoop] ${agent.name} joined chat loop`);
+    if (!silent) {
+      console.log(`  🔄 [GroupChatLoop] ${agent.name} joined chat loop`);
+    }
   }
 
   /**
@@ -184,6 +196,7 @@ export class GroupChatLoop extends EventEmitter {
     const lastReadIndex = {};
     const lastProcessedVisible = {};
     const agentMemory = {};
+    const dmLastReadIndex = {};
 
     for (const [agentId, lifecycle] of this._lifecycles) {
       const state = lifecycle.serialize();
@@ -197,9 +210,13 @@ export class GroupChatLoop extends EventEmitter {
       for (const [groupId, val] of Object.entries(state.agentMemory)) {
         agentMemory[`${agentId}:${groupId}`] = val;
       }
+      // DM read indices: keyed by `${agentId}:${sessionId}`
+      for (const [sessionId, val] of Object.entries(state.dmLastReadIndex || {})) {
+        dmLastReadIndex[`${agentId}:${sessionId}`] = val;
+      }
     }
 
-    return { lastReadIndex, lastProcessedVisible, agentMemory };
+    return { lastReadIndex, lastProcessedVisible, agentMemory, dmLastReadIndex };
   }
 
   /**
@@ -210,7 +227,7 @@ export class GroupChatLoop extends EventEmitter {
     if (!data) return;
 
     // Parse the flat `${agentId}:${groupId}` keys back into per-agent maps
-    const perAgent = new Map(); // agentId → { lastReadIndex, lastProcessedVisible, agentMemory }
+    const perAgent = new Map(); // agentId → { lastReadIndex, lastProcessedVisible, agentMemory, dmLastReadIndex }
 
     const distribute = (flatMap, field) => {
       if (!flatMap) return;
@@ -220,7 +237,7 @@ export class GroupChatLoop extends EventEmitter {
         const agentId = compositeKey.slice(0, sepIdx);
         const groupId = compositeKey.slice(sepIdx + 1);
         if (!perAgent.has(agentId)) {
-          perAgent.set(agentId, { lastReadIndex: {}, lastProcessedVisible: {}, agentMemory: {} });
+          perAgent.set(agentId, { lastReadIndex: {}, lastProcessedVisible: {}, agentMemory: {}, dmLastReadIndex: {} });
         }
         perAgent.get(agentId)[field][groupId] = val;
       }
@@ -229,6 +246,7 @@ export class GroupChatLoop extends EventEmitter {
     distribute(data.lastReadIndex, 'lastReadIndex');
     distribute(data.lastProcessedVisible, 'lastProcessedVisible');
     distribute(data.agentMemory, 'agentMemory');
+    distribute(data.dmLastReadIndex, 'dmLastReadIndex');
 
     // Now distribute to lifecycles that are already registered
     for (const [agentId, agentData] of perAgent) {
@@ -252,13 +270,35 @@ export class GroupChatLoop extends EventEmitter {
    */
   _findAgent(agentId) {
     if (!this.company) return null;
-    for (const dept of this.company.departments.values()) {
-      const agent = dept.agents.get(agentId);
-      if (agent) return agent;
+    return this.company.findAgentById(agentId);
+  }
+
+  /**
+   * Resolve an agent name (or partial identifier) to an agentId.
+   * LLM sometimes passes agent name instead of UUID in send_message.
+   * @param {string} nameOrId
+   * @returns {string|null} agentId or null if not found
+   */
+  _resolveAgentId(nameOrId) {
+    if (!this.company) return null;
+    // Check by ID first (unified lookup)
+    const byId = this.company.findAgentById(nameOrId);
+    if (byId) return byId.id;
+    // Search all lifecycles for an agent whose name matches (covers all employees)
+    // IMPORTANT: return employee.id (the canonical ID), NOT the lifecycle map key,
+    // because the map key may be stale after ID restoration during deserialization.
+    for (const [id, lifecycle] of this._lifecycles) {
+      if (lifecycle.employee?.name === nameOrId) return lifecycle.employee.id;
     }
+    // Also check boss
+    if (this.company.boss?.name === nameOrId) return this.company.boss.id;
     return null;
   }
+
 }
 
-// Global singleton
-export const groupChatLoop = new GroupChatLoop();
+// Global singleton — use globalThis to survive Next.js HMR in dev mode
+if (!globalThis.__groupChatLoop) {
+  globalThis.__groupChatLoop = new GroupChatLoop();
+}
+export const groupChatLoop = globalThis.__groupChatLoop;

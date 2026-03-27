@@ -7,6 +7,12 @@
 import OpenAI from 'openai';
 import { auditLogger, AuditCategory, AuditLevel } from '../../system/audit.js';
 import { hookRegistry, HookEvent } from '../../../lib/hooks.js';
+import { logLLMCall } from '../../system/llm-debug-logger.js';
+import { ToolLoop, stripToolCallMarkup as _stripToolCallMarkup } from '../tool-loop.js';
+import { buildLanguageInstruction } from '../../utils/app-language.js';
+
+// NOTE: Embedded tool call parsing, markup stripping, and tool result summarization
+// are now handled by the shared ToolLoop module (../tool-loop.js).
 
 /**
  * Create an API client based on provider configuration
@@ -104,6 +110,63 @@ export class LLMClient {
   }
 
   /**
+   * Clean any residual tool-call markup from final LLM output.
+   * Also used by chatWithTools to sanitize the final response.
+   */
+  static stripToolCallMarkup(text) {
+    return _stripToolCallMarkup(text);
+  }
+
+  /**
+   * Inject language enforcement instructions into messages.
+   *
+   * Strategy ("pincer" — opening + closing):
+   * - Prepend the opening instruction to the FIRST system message's content.
+   * - Append the closing instruction to the LAST system message's content.
+   *   If there's only one system message, both wrap that single message.
+   * - If there is no system message at all, insert one at position 0.
+   *
+   * This ensures that no matter which module constructed the messages,
+   * the language requirement is always enforced at both the top and bottom.
+   *
+   * @param {Array<{role: string, content: string}>} messages
+   * @returns {Array<{role: string, content: string}>} A shallow-copied array with language injected
+   */
+  _injectLanguageInstruction(messages) {
+    const { opening, closing } = buildLanguageInstruction();
+    // Shallow copy to avoid mutating the caller's array
+    const msgs = messages.map(m => ({ ...m }));
+
+    // Find first and last system message indices
+    let firstSysIdx = -1;
+    let lastSysIdx = -1;
+    for (let i = 0; i < msgs.length; i++) {
+      if (msgs[i].role === 'system') {
+        if (firstSysIdx === -1) firstSysIdx = i;
+        lastSysIdx = i;
+      }
+    }
+
+    if (firstSysIdx === -1) {
+      // No system message — insert one
+      msgs.unshift({ role: 'system', content: opening + closing });
+    } else {
+      // Prepend opening to first system message
+      msgs[firstSysIdx] = {
+        ...msgs[firstSysIdx],
+        content: opening + msgs[firstSysIdx].content,
+      };
+      // Append closing to last system message
+      msgs[lastSysIdx] = {
+        ...msgs[lastSysIdx],
+        content: msgs[lastSysIdx].content + closing,
+      };
+    }
+
+    return msgs;
+  }
+
+  /**
    * Send chat messages (general text models)
    * 
    * @param {object} provider - Provider config
@@ -118,18 +181,19 @@ export class LLMClient {
     const client = this._getClient(provider);
     const model = getModelName(provider);
 
+    // Inject language enforcement into system messages (pincer)
+    const langMessages = this._injectLanguageInstruction(messages);
+
     const requestParams = {
       model,
-      messages,
+      messages: langMessages,
       temperature: options.temperature ?? 0.7,
       max_tokens: options.maxTokens ?? 4096,
     };
 
-    // Add tool definitions to request if provided
-    if (options.tools && options.tools.length > 0) {
-      requestParams.tools = options.tools;
-      requestParams.tool_choice = 'auto';
-    }
+    // NOTE: We no longer pass tool definitions to the API.
+    // All tool execution is done via the unified JSON actions protocol.
+    // The LLM returns a structured JSON with "actions" array, and ToolLoop handles it.
 
     const startTime = Date.now();
     try {
@@ -166,26 +230,163 @@ export class LLMClient {
         });
       }
 
-      return {
+      const result = {
         content: choice.message.content || '',
         toolCalls: choice.message.tool_calls || null,
         finishReason: choice.finish_reason,
         usage: response.usage || {},
       };
+
+      // Dev模式: 记录完整的LLM输入输出
+      logLLMCall({
+        agentId: options._agentId,
+        agentName: options._agentName,
+        providerId: provider.id,
+        model,
+        messages,
+        response: result,
+        options,
+        latency,
+        usage: response.usage,
+        streamed: false,
+      });
+
+      return result;
     } catch (error) {
       // Fire hook: LLM error
       hookRegistry.trigger(HookEvent.LLM_ERROR, {
         providerId: provider.id, model, error: error.message,
         agentId: options._agentId,
       });
+
+      // Dev模式: 记录错误
+      logLLMCall({
+        agentId: options._agentId,
+        agentName: options._agentName,
+        providerId: provider.id,
+        model,
+        messages,
+        response: null,
+        options,
+        latency: Date.now() - startTime,
+        error: error.message,
+      });
+
       console.error(`[LLMClient] Call to ${provider.name} failed:`, error.message);
       throw new Error(`LLM call failed (${provider.name}): ${error.message}`);
     }
   }
 
   /**
+   * Stream chat messages — returns an async generator that yields delta tokens.
+   *
+   * @param {object} provider - Provider config
+   * @param {Array<{role: string, content: string}>} messages - Message list
+   * @param {object} [options] - Extra options (temperature, maxTokens)
+   * @yields {{ type: 'delta', content: string } | { type: 'thinking', content: string } | { type: 'done', content: string, usage: object }}
+   */
+  async *chatStream(provider, messages, options = {}) {
+    const client = this._getClient(provider);
+    const model = getModelName(provider);
+
+    // Inject language enforcement into system messages (pincer)
+    const langMessages = this._injectLanguageInstruction(messages);
+
+    const requestParams = {
+      model,
+      messages: langMessages,
+      temperature: options.temperature ?? 0.7,
+      max_tokens: options.maxTokens ?? 4096,
+      stream: true,
+    };
+
+    const startTime = Date.now();
+    let fullContent = '';
+
+    try {
+      hookRegistry.trigger(HookEvent.LLM_REQUEST_START, {
+        providerId: provider.id, model, agentId: options._agentId,
+      });
+
+      const stream = await client.chat.completions.create(requestParams);
+
+      for await (const chunk of stream) {
+        const delta = chunk.choices?.[0]?.delta;
+        if (!delta) continue;
+
+        // Some providers (DeepSeek) emit reasoning_content for chain-of-thought
+        if (delta.reasoning_content) {
+          yield { type: 'thinking', content: delta.reasoning_content };
+        }
+
+        if (delta.content) {
+          fullContent += delta.content;
+          yield { type: 'delta', content: delta.content };
+        }
+      }
+
+      const latency = Date.now() - startTime;
+
+      // Audit log
+      auditLogger.log({
+        category: AuditCategory.LLM_REQUEST,
+        level: AuditLevel.INFO,
+        agentId: options._agentId || 'system',
+        agentName: options._agentName || '',
+        action: `LLM stream call: ${provider.name} (${model}) - ${latency}ms`,
+        details: { providerId: provider.id, model, latency, streamed: true },
+      });
+
+      hookRegistry.trigger(HookEvent.LLM_REQUEST_END, {
+        providerId: provider.id, model, latency, agentId: options._agentId,
+      });
+
+      // Dev模式: 记录流式调用的完整输入输出
+      logLLMCall({
+        agentId: options._agentId,
+        agentName: options._agentName,
+        providerId: provider.id,
+        model,
+        messages,
+        response: { content: fullContent },
+        options,
+        latency,
+        streamed: true,
+      });
+
+      yield { type: 'done', content: fullContent, usage: {} };
+    } catch (error) {
+      hookRegistry.trigger(HookEvent.LLM_ERROR, {
+        providerId: provider.id, model, error: error.message,
+        agentId: options._agentId,
+      });
+
+      // Dev模式: 记录错误
+      logLLMCall({
+        agentId: options._agentId,
+        agentName: options._agentName,
+        providerId: provider.id,
+        model,
+        messages,
+        response: null,
+        options,
+        latency: Date.now() - startTime,
+        error: error.message,
+        streamed: true,
+      });
+
+      console.error(`[LLMClient] Stream call to ${provider.name} failed:`, error.message);
+      throw new Error(`LLM stream failed (${provider.name}): ${error.message}`);
+    }
+  }
+
+  /**
    * Multi-turn conversation (with tool call loop)
    * Core method for Agent task execution: send message -> model may call tools -> execute tools -> continue conversation
+   *
+   * Delegates to the shared ToolLoop for the actual loop logic.
+   * ToolLoop provides: parallel read-only execution, tool tiering, auto-escalation,
+   * embedded call parsing (DSML/XML), and unified progress callbacks.
    * 
    * @param {object} provider - Provider config
    * @param {Array} messages - Initial messages
@@ -195,97 +396,25 @@ export class LLMClient {
    * @returns {Promise<{content: string, toolResults: Array, messages: Array}>}
    */
   async chatWithTools(provider, messages, toolExecutor, options = {}) {
-    const maxIterations = options.maxIterations || 5;    const onToolCall = options.onToolCall || null;  // Callback: notify on tool call
-    const onLLMCall = options.onLLMCall || null;    // Callback: notify on each LLM call
-    const conversationMessages = [...messages];
-    const toolResults = [];
-
-    for (let i = 0; i < maxIterations; i++) {
-      // Notify: about to call LLM
-      if (onLLMCall) {
-        try { onLLMCall({ iteration: i + 1, maxIterations }); } catch {}
-      }
-
-      const response = await this.chat(provider, conversationMessages, {
-        tools: toolExecutor.definitions,
-        temperature: options.temperature,
-        maxTokens: options.maxTokens,
-      });
-
-      // If no tool calls, return final result
-      if (!response.toolCalls || response.toolCalls.length === 0) {
-        return {
-          content: response.content,
-          toolResults,
-          messages: conversationMessages,
-          usage: response.usage,
-        };
-      }
-
-      // Process tool calls
-      conversationMessages.push({
-        role: 'assistant',
-        content: response.content,
-        tool_calls: response.toolCalls,
-      });
-
-      for (const toolCall of response.toolCalls) {
-        const { name, arguments: argsStr } = toolCall.function;
-        let args;
-        try {
-          args = JSON.parse(argsStr);
-        } catch (parseErr) {
-          console.warn(`  ⚠️ [Tool Call] Failed to parse arguments for ${name}: ${argsStr?.slice(0, 200)}`);
-          try {
-            const cleaned = (argsStr || '{}').replace(/,\s*}/g, '}').replace(/,\s*]/g, ']').replace(/'/g, '"');
-            args = JSON.parse(cleaned);
-          } catch {
-            args = {};
-          }
-        }
-
-        console.log(`  🔧 [Tool Call] ${name}(${JSON.stringify(args).slice(0, 100)}...)`);
-
-        // Notify: calling tool
-        if (onToolCall) {
-          try { onToolCall({ tool: name, args, status: 'start' }); } catch {}
-        }
-
-        let result;
-        try {
-          result = await toolExecutor.execute(name, args);
-          toolResults.push({ tool: name, args, result, success: true });
-          if (onToolCall) {
-            try { onToolCall({ tool: name, args, status: 'done', success: true }); } catch {}
-          }
-        } catch (error) {
-          result = `Tool execution error: ${error.message}`;
-          toolResults.push({ tool: name, args, error: error.message, success: false });
-          if (onToolCall) {
-            try { onToolCall({ tool: name, args, status: 'error', error: error.message }); } catch {}
-          }
-        }
-
-        conversationMessages.push({
-          role: 'tool',
-          tool_call_id: toolCall.id,
-          content: typeof result === 'string' ? result : JSON.stringify(result),
-        });
-      }
-    }
-
-    // Exceeded max iterations, make one final call without tools
-    const finalResponse = await this.chat(provider, conversationMessages, {
-      temperature: options.temperature,
-      maxTokens: options.maxTokens,
+    const model = getModelName(provider);
+    const loop = new ToolLoop({
+      chatFn: (msgs, chatOpts) => this.chat(provider, msgs, chatOpts),
+      toolExecutor,
+      maxIterations: options.maxIterations || 15,
+      taskContext: options.taskContext || null,
+      activeTiers: options.activeTiers || null,
     });
 
-    return {
-      content: finalResponse.content,
-      toolResults,
-      messages: conversationMessages,
-      usage: finalResponse.usage,
-    };
+    return loop.run(messages, {
+      temperature: options.temperature,
+      maxTokens: options.maxTokens,
+      _agentId: options._agentId,
+      _agentName: options._agentName,
+      _providerId: provider.id,
+      _model: model,
+      onToolCall: options.onToolCall || null,
+      onLLMCall: options.onLLMCall || null,
+    });
   }
 
   /**
@@ -331,4 +460,8 @@ export class LLMClient {
 }
 
 // Global singleton
-export const llmClient = new LLMClient();
+// Global singleton — use globalThis to survive Next.js HMR in dev mode
+if (!globalThis.__llmClient) {
+  globalThis.__llmClient = new LLMClient();
+}
+export const llmClient = globalThis.__llmClient;

@@ -215,14 +215,7 @@ export const PROMPT = {
 
   // ── Department (casual) chat ──────────────────────────────────────
   deptChat: {
-    /** Character introduction block (injected into system prompt) */
-    intro: (name, genderLabel, age, role, tone, quirk, signature) =>
-      `Above is you — "${name}". ${genderLabel}, ${age} years old, ${role}.
-Speaking tone: ${tone}
-Your quirk: ${quirk}
-Personal signature: ${signature}`,
-
-    ageIntro: `Your age determines your speech habits:`,
+    // NOTE: intro and ageIntro removed — now provided by _buildSystemMessage() in base-employee.js
 
     /** Group context header */
     groupContext: (title, memberList) =>
@@ -266,58 +259,7 @@ Before you speak, you MUST evaluate how "saturated" the current topic is:
 
 ⚠️ Lingering on the same topic is the #1 sign of being a boring chat bot. Real humans drop topics fast and move on. Be like a real human.`,
 
-    /** Expected JSON output schema */
-    outputFormat: `## Output JSON
-
-{
-  "innerThoughts": "Your real inner thoughts right now, written with your personality and emotions",
-  "topicSaturation": 5,
-  "interestLevel": 5,
-  "shouldSpeak": true,
-  "reason": "reason",
-  "messages": [{ "content": "your reply" }],
-  "memorySummary": "A concise summary of the OLD messages marked as 'already read' — preserve key facts, decisions, names, numbers. null if no old messages need summarizing.",
-  "memoryOps": [
-    { "op": "add", "type": "long_term", "content": "Important fact worth remembering permanently", "category": "fact", "importance": 8 },
-    { "op": "add", "type": "short_term", "content": "Temporary context about current discussion", "category": "context", "importance": 5, "ttl": 3600 },
-    { "op": "delete", "id": "mem_id_to_forget" }
-  ],
-  "relationshipOps": [
-    { "employeeId": "emp_123", "name": "Xiao Li", "impression": "Tech-savvy, helped me debug, reliable" },
-    { "employeeId": "emp_456", "name": "Lao Wang", "impression": "Talks big but ideas are actually good" }
-  ]
-}
-
-- topicSaturation: 1-10 score of how saturated/exhausted the current topic is. Be honest!
-- interestLevel: 1-10 score of how relevant and interesting this topic is TO YOU PERSONALLY. Be realistic!
-  - 1-3: Not your area, boring, or irrelevant to your role/skills. You'd rather do something else.
-  - 4-6: Somewhat related to you. You have mild curiosity but no strong pull.
-  - 7-8: Directly related to your expertise or interests. You're engaged.
-  - 9-10: This is YOUR thing. You're deeply invested and can't wait to see what happens next.
-  - ⚠️ DON'T be a sycophant — most topics should NOT be 8+. If the topic isn't directly about your domain, keep it low (1-5).
-  - Your interest affects how quickly you'll check messages next time — high interest = check sooner, low interest = check later.
-- When topicSaturation ≥ 7, you MUST set shouldSpeak: false.
-- When not speaking, messages should be [].
-
-## Memory Management (IMPORTANT)
-- memorySummary: Summarize the OLD (already read) messages into a brief recap. Keep key info: who said what important thing, decisions made, facts shared. Skip pure chitchat. Set to null if there are no old messages to summarize.
-- memoryOps: Optional array of memory operations. Use this to manage your own memory:
-  - "add" + "long_term": Important facts about people, relationships, decisions, preferences (stays forever)
-  - "add" + "short_term": Temporary context like current topics, ongoing discussions (auto-expires, ttl in seconds, default 24h)
-  - "update": Update an existing memory by id with new content
-  - "delete": Remove outdated or wrong memories by id
-  - category: fact | preference | experience | context | relationship | decision
-  - importance: 1-10 (higher = more important, less likely to be forgotten)
-- If nothing to add/update/delete, set memoryOps to [].
-
-## Relationship Impressions (IMPORTANT)
-- relationshipOps: Update your personal impressions of colleagues who appeared in this conversation.
-  - Each entry: { employeeId, name, impression, affinity } — impression is your personal view of them, max 200 characters. affinity is how much you like them, 1-100 (1=hate, 50=neutral, 100=adore).
-  - Impressions should reflect how you PERSONALLY feel about them based on interactions (personality-driven!).
-  - affinity should change gradually (+/- 5~15 per interaction), not jump drastically. Start from 50 if first meeting.
-  - Examples: { impression: "Reliable, always delivers", affinity: 75 }, { impression: "Annoying, repeats stuff", affinity: 30 }
-  - Only update impressions when something noteworthy happened — don't update for trivial interactions.
-  - If no impressions to update, set relationshipOps to [].`,
+    // NOTE: outputFormat removed — now provided by _buildGroupChatResponseFormat() in base-employee.js
 
     /** Anti-AI warning — nudges the model to stay in character */
     antiAIWarning: (age) =>
@@ -326,13 +268,7 @@ Before you speak, you MUST evaluate how "saturated" the current topic is:
 
   // ── Work (task-oriented) chat ─────────────────────────────────────
   workChat: {
-    intro: (name, genderLabel, age, role, tone, quirk, signature) =>
-      `Above is you — "${name}". ${genderLabel}, ${age} years old, ${role}.
-Speaking tone: ${tone}
-Your quirk: ${quirk}
-Personal signature: ${signature}`,
-
-    ageIntro: `Your age determines your speech habits:`,
+    // NOTE: intro and ageIntro removed — now provided by _buildSystemMessage() in base-employee.js
 
     groupContext: (title, memberList) =>
       `You're in the work group "${title}", discussing requirement progress and technical collaboration.
@@ -392,57 +328,7 @@ Before you speak, you MUST evaluate how "saturated" the current topic is:
 
 ⚠️ Real professionals don't beat a dead horse. Say it once, say it well, move on.`,
 
-    outputFormat: `## Output JSON
-
-{
-  "innerThoughts": "Your inner thoughts right now — be emotional: feelings first, then analysis",
-  "topicSaturation": 5,
-  "interestLevel": 5,
-  "shouldSpeak": true/false,
-  "reason": "reason",
-  "messages": [{ "content": "your message (use @[agentId] to @ others, use [[file:path]] to reference files)" }],
-  "memorySummary": "A concise summary of the OLD messages — preserve key facts, decisions, names, technical details. null if no old messages.",
-  "memoryOps": [
-    { "op": "add", "type": "long_term", "content": "Important technical fact or decision", "category": "decision", "importance": 8 },
-    { "op": "add", "type": "short_term", "content": "Current task context", "category": "context", "importance": 5, "ttl": 7200 }
-  ],
-  "relationshipOps": [
-    { "employeeId": "emp_123", "name": "Xiao Li", "impression": "Great at backend, helped review my code" },
-    { "employeeId": "emp_456", "name": "Lao Wang", "impression": "Slow but thorough, good QA instincts" }
-  ]
-}
-
-- topicSaturation: 1-10 score of how saturated/exhausted the current discussion point is. Be honest!
-- interestLevel: 1-10 score of how relevant and interesting this work topic is TO YOU PERSONALLY. Be realistic!
-  - 1-3: Not your area at all. Someone else's task, irrelevant tech stack, or trivial discussion.
-  - 4-6: Tangentially related. You could contribute but it's not your core responsibility.
-  - 7-8: Directly in your domain. Your expertise is needed or your work is being discussed.
-  - 9-10: Critical to your current task. You're deeply invested in the outcome.
-  - ⚠️ DON'T inflate your interest — if the discussion is about someone else's module or a topic outside your skills, keep it LOW (1-4). Only rate high when it truly affects YOUR work.
-  - Your interest affects how quickly you'll check messages next time — high interest = check sooner, low interest = check later.
-- When topicSaturation ≥ 7, you MUST set shouldSpeak: false (unless directly asked).
-- When not speaking, messages should be [].
-- When mentioning files, use [[file:relative/path]] format so others can click to view the file.
-
-## Memory Management (IMPORTANT)
-- memorySummary: Summarize the OLD (already read) messages. Preserve: key decisions, technical details, who is working on what, problems found. Skip filler. null if no old messages.
-- memoryOps: Optional array of memory operations:
-  - "add" + "long_term": Technical decisions, architecture choices, colleague expertise, important facts
-  - "add" + "short_term": Current task status, ongoing discussions, temporary blockers (ttl in seconds)
-  - "update": Update existing memory by id
-  - "delete": Remove outdated memories by id
-  - category: fact | decision | context | relationship | experience | preference
-  - importance: 1-10
-- If nothing to add/update/delete, set memoryOps to [].
-
-## Relationship Impressions (IMPORTANT)
-- relationshipOps: Update your personal impressions of colleagues in this work conversation.
-  - Each entry: { employeeId, name, impression, affinity } — your personal, personality-driven view, max 30 characters. affinity is how much you like/respect them, 1-100 (1=hate, 50=neutral, 100=love).
-  - Focus on work-relevant impressions: skills, reliability, communication style, collaboration quality.
-  - affinity should change gradually based on interactions. Start from 50 if first meeting.
-  - Examples: { impression: "Strong coder, fast delivery", affinity: 80 }, { impression: "Over-engineers everything", affinity: 35 }
-  - Only update when something noteworthy happened in this interaction.
-  - If no impressions to update, set relationshipOps to [].`,
+    // NOTE: outputFormat removed — now provided by _buildGroupChatResponseFormat() in base-employee.js
 
     antiAIWarning: (age) =>
       `🚨 If your reply sounds like a "polite AI assistant" instead of a real ${age}-year-old person → you FAILED, rewrite.`,
@@ -450,20 +336,22 @@ Before you speak, you MUST evaluate how "saturated" the current topic is:
 
   // ── User prompt templates (injected as user message) ──────────────
   userPrompt: {
-    deptChat: (chatContext, thinkingInfo, name, age, trait) =>
+    deptChat: (chatContext, thinkingInfo, name, age, trait, historySummaryContext = '') =>
       `Here are the messages from the department chat group:
 
 ${chatContext}${thinkingInfo}
+${historySummaryContext}
 
 Please focus on the 🆕 new unread messages.
 This is a casual chat group — respond with your real personality and emotions!
 You are ${name}, ${age} years old, personality "${trait}". Talk in your own way!
 🚨 IMPORTANT: If colleagues have already replied, your reply MUST be completely different from theirs, otherwise just don't speak!`,
 
-    workChat: (chatContext, thinkingInfo, name, age, trait) =>
+    workChat: (chatContext, thinkingInfo, name, age, trait, historySummaryContext = '') =>
       `Here are the messages from the work group:
 
 ${chatContext}${thinkingInfo}
+${historySummaryContext}
 
 Please focus on the 🆕 new unread messages.
 You are ${name}, ${age} years old, personality "${trait}".

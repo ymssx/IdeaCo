@@ -27,13 +27,15 @@ export const MessageType = {
  * Message Structure
  */
 export class Message {
-  constructor({ from, to, content, type = MessageType.TASK, metadata = {} }) {
+  constructor({ from, to, content, type = MessageType.TASK, metadata = {}, channel = 'dm', needsReply = false }) {
     this.id = uuidv4();
     this.from = from;         // Sender Agent ID
     this.to = to;             // Receiver Agent ID (null = broadcast)
     this.content = content;   // Message content
     this.type = type;         // Message type
     this.metadata = metadata; // Extra data (e.g. task info, file paths, etc.)
+    this.channel = channel;   // 'dm' | 'group'
+    this.needsReply = needsReply; // Whether sender requires a reply
     this.timestamp = new Date();
     this.status = 'sent';     // sent | delivered | read | replied
   }
@@ -46,6 +48,8 @@ export class Message {
       content: this.content,
       type: this.type,
       metadata: this.metadata,
+      channel: this.channel,
+      needsReply: this.needsReply,
       timestamp: this.timestamp,
       status: this.status,
     };

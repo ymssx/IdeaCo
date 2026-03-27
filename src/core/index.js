@@ -5,7 +5,7 @@
 
 export { Company } from './organization/company.js';
 export { createAgent, deserializeAgent, BaseAgent, LLMAgent, CLIAgent } from './agent/index.js';
-export { Employee, createEmployee, deserializeEmployee, Secretary, HRAssistant } from './employee/index.js';
+export { Employee, GeneralEmployee, Leader, createEmployee, deserializeEmployee, Secretary } from './employee/index.js';
 export { Department } from './organization/department.js';
 export { HRSystem, JobTemplates } from './organization/workforce/hr.js';
 export { ProviderRegistry, ModelProviders, JobCategory, JobCategoryLabel } from './organization/workforce/providers.js';
@@ -26,13 +26,20 @@ export { CronScheduler, cronScheduler, JobStatus, parseCronExpression } from './
 export { HookRegistry, hookRegistry, HookEvent, HookEventType, createHookEvent } from '../lib/hooks.js';
 export { SessionManager, sessionManager, SessionState, SendPolicy, buildSessionKey } from './agent/session.js';
 export { ConfigValidator, configValidator, ConfigType, enterpriseConfigSchema } from '../lib/config-validator.js';
-export { SkillRegistry, skillRegistry, SkillDefinition, SkillCategory, SkillState } from './employee/skills.js';
+export { SkillRegistry, skillRegistry, SkillDefinition, SkillCategory, SkillState, SkillSource, parseSkillMarkdown } from './employee/skill/index.js';
+export { EmployeeSkillSet } from './employee/skill/index.js';
+export { CustomSkillManager, customSkillManager } from './employee/skill/index.js';
+export { SkillMarketplace, skillMarketplace } from './employee/skill/index.js';
 export { KnowledgeManager, knowledgeManager, KnowledgeType, EntryType } from './employee/knowledge.js';
 export { ChatStore, chatStore } from './agent/chat-store.js';
 export { CLIBackendRegistry, cliBackendRegistry, CLIBackendState } from './agent/cli-agent/backends/index.js';
 export { GroupChatLoop, groupChatLoop } from './organization/group-chat-loop.js';
 export { TeamManager, Team, Sprint, SprintStatus } from './organization/team.js';
-// Prompt locale is now English-only (see core/prompts.js).
-// Kept as no-op stubs for API backward compatibility.
-export function setPromptLocale(_locale) { /* no-op: English only */ }
-export function getPromptLocaleCode() { return 'en'; }
+// Channel system (extensible multi-channel messaging)
+export { BaseChannel, ChannelState, ChannelRegistry, channelRegistry, InboundMessage, OutboundMessage } from './channel/index.js';
+export { WeixinChannel } from './channel/index.js';
+// Language management — delegates to Company.language via app-language module.
+// setPromptLocale / getPromptLocaleCode kept for backward compatibility with API routes.
+import { setAppLanguage, getAppLanguage } from './utils/app-language.js';
+export function setPromptLocale(locale) { setAppLanguage(locale); }
+export function getPromptLocaleCode() { return getAppLanguage(); }

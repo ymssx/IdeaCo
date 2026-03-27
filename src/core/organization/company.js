@@ -3,7 +3,7 @@ import path from 'path';
 import { ProviderRegistry, ModelProviders, JobCategory, JobCategoryLabel } from './workforce/providers.js';
 import { HRSystem, JobTemplates } from './workforce/hr.js';
 import { Department } from './department.js';
-import { Employee, createEmployee, deserializeEmployee, Secretary } from '../employee/index.js';
+import { Employee, GeneralEmployee, Leader, createEmployee, deserializeEmployee, Secretary } from '../employee/index.js';
 import { LLMAgent, CLIAgent, WebAgent } from '../agent/index.js';
 import { PerformanceSystem } from '../employee/performance.js';
 import { TalentMarket } from './workforce/talent-market.js';
@@ -27,8 +27,9 @@ import { auditLogger, AuditCategory, AuditLevel } from '../system/audit.js';
 import { chatStore } from '../agent/chat-store.js';
 import { cliBackendRegistry } from '../agent/cli-agent/backends/index.js';
 import { groupChatLoop } from './group-chat-loop.js';
+import { channelRegistry } from '../channel/index.js';
 import { buildRhetoricPrompt } from './workforce/management-rhetoric.js';
-import { getAppLanguageName } from '../utils/app-language.js';
+import { getAppLanguageName, getLanguageNameByCode, bindCompanyLanguageSource, isSupportedLanguage, getSupportedLanguages } from '../utils/app-language.js';
 
 // Expand short-form file references: [[file:path]] → [[file:deptId:path|name]]
 // Also fix incomplete references: [[file:deptId:path]] → [[file:deptId:path|name]]
@@ -79,7 +80,9 @@ export class Company {
     this.name = companyName;
     this.bossName = bossName;
     this.bossAvatar = null; // Boss avatar URL
-    this.language = 'en'; // Current UI language (synced from frontend on each API call)
+    this.language = 'en'; // Canonical language setting — all prompts read from this
+    // Bind this company as the language source for the app-language module
+    bindCompanyLanguageSource(this);
     this.departments = new Map();
     this.providerRegistry = new ProviderRegistry();
     // Sync CLI backends into provider registry so they appear in Brain Providers
@@ -166,7 +169,7 @@ export class Company {
 
     // Initialize secretary's toolKit so she can use tools (shell, file ops, etc.)
     const secretaryWorkspace = this.workspaceManager.createDepartmentWorkspace('secretary', 'secretary');
-    this.secretary.initToolKit(secretaryWorkspace, this.messageBus);
+    this.secretary.initToolKit(secretaryWorkspace, this.messageBus, { company: this });
 
     this._log('Company founded', `"${this.name}" founded by ${this.bossName}`);
     this._log('Secretary ready', `Secretary ${this.secretary.name} using model ${secretaryProviderConfig.name}`);
@@ -175,112 +178,63 @@ export class Company {
     this._initSubsystems();
   }
 
+  // ======================== Language ========================
+
+  /**
+   * Set the company-wide UI / prompt language.
+   * All prompts and agent responses will use this language.
+   *
+   * @param {string} lang - Language code (e.g. 'en', 'zh', 'ja')
+   * @returns {{ language: string, languageName: string }}
+   */
+  setLanguage(lang) {
+    if (!lang || typeof lang !== 'string') {
+      throw new Error('Invalid language code');
+    }
+    const code = lang.toLowerCase().split('-')[0];
+    if (!isSupportedLanguage(code)) {
+      throw new Error(`Unsupported language: ${lang}. Supported: ${getSupportedLanguages().map(l => l.code).join(', ')}`);
+    }
+    this.language = code;
+    this.save();
+    this._log('Language changed', `Company language set to ${getLanguageNameByCode(code)} (${code})`);
+    return { language: code, languageName: getLanguageNameByCode(code) };
+  }
+
+  /**
+   * Get the current company language code.
+   * @returns {string}
+   */
+  getLanguage() {
+    return this.language || 'en';
+  }
+
   /**
    * Chat with secretary (task assignment or casual conversation)
    * @param {string} message - Boss's message
    * @returns {Promise<object>} Secretary's reply
    */
-  async chatWithSecretary(message) {
+  async chatWithSecretary(message, options = {}) {
     const bossMsg = {
       role: 'boss',
       content: message,
       time: new Date(),
+      ...(options.channel ? { channel: options.channel } : {}),
+      ...(options.platformUser ? { platformUser: options.platformUser } : {}),
     };
     this.chatHistory.push(bossMsg);
-    // Persist to file storage
     chatStore.appendMessage(this.chatSessionId, bossMsg);
 
-    const sec = this.secretary;
-    let reply;
-
-    // If secretary has CLI backend configured, chat also goes through CLI
-    if (sec.cliBackend) {
-      try {
-        const recentMessages = chatStore.getRecentMessages(this.chatSessionId, 10);
-        const chatContext = recentMessages.slice(-6).map(m =>
-          `${m.role === 'boss' ? 'Boss' : sec.name}: ${m.content}`
-        ).join('\n');
-
-        const departments = [...this.departments.values()].map(d => ({
-          name: d.name, id: d.id, mission: d.mission, status: d.status,
-          memberCount: d.agents.size,
-          leader: d.getLeader()?.name || 'Unassigned',
-        }));
-        const deptContext = departments.length > 0
-          ? departments.map(d => `  🏢 ${d.name} [id:${d.id}] - Mission: ${d.mission} | ${d.memberCount} people | Leader: ${d.leader}`).join('\n')
-          : 'No departments yet.';
-
-        const cliPrompt = `You are "${sec.name}", the personal secretary of "${this.bossName}".
-${sec.prompt ? `Your persona: ${sec.prompt}\n` : ''}
-Current company "${this.name}" status:
-- Departments: ${this.departments.size}
-${deptContext}
-
-Recent conversation:
-${chatContext}
-
-Boss's latest message: ${message}
-
-You MUST reply with a JSON object (return JSON only, no other text):
-{
-  "content": "Your natural language reply to the boss (warm, personal, with emoji)",
-  "action": null or one of:
-    - { "type": "secretary_handle", "taskDescription": "detailed task for yourself to execute" } — for simple tasks you can handle alone
-    - { "type": "task_assigned", "departmentId": "real dept id from above", "departmentName": "dept name", "taskTitle": "short title", "taskDescription": "detailed description" } — assign to existing department
-    - { "type": "create_department", "departmentName": "name", "mission": "mission", "members": [{ "templateId": "id", "name": "nickname", "isLeader": true/false, "reportsTo": null or 0 }] } — boss wants to create a new department (design team directly)
-    - { "type": "need_new_department", "suggestedMission": "task description" } — no existing dept can handle this
-    - { "type": "progress_report" } — boss wants progress
-    - null — casual chat, no action needed
-}
-
-Available job templates for team design (create_department): ${JSON.stringify(Object.values(JobTemplates).map(t => ({ id: t.id, title: t.title, category: t.category })))}
-Enabled provider categories: ${[...new Set(this.providerRegistry.listEnabled().map(p => p.category))].join(', ')}
-ONLY use templates whose category has an enabled provider above.
-
-Rules:
-- If boss wants to create a department → create_department (MUST include members array with 2-6 people, first must be project-leader with isLeader=true)
-- If boss gives a task and an existing department matches → task_assigned (use the real departmentId!)
-- If boss gives a simple task you can handle alone → secretary_handle
-- If boss gives a task but no department matches → need_new_department
-- Casual chat → null
-- You MUST write ALL your "content" text in ${getAppLanguageName()}
-- ALWAYS return valid JSON only, no markdown fences`;
-
-        const cliResult = await cliBackendRegistry.executeTask(
-          sec.cliBackend, sec,
-          { title: `Secretary chat reply`, description: cliPrompt },
-          sec.toolKit?.workspaceDir || process.cwd(), {}, { timeout: 60000 }
-        );
-        const rawOutput = cliResult.output || cliResult.errorOutput || '...';
-
-        reply = this._parseSecretaryJSON(rawOutput, message);
-      } catch (cliErr) {
-        const hasLLM = sec.agent.provider && sec.agent.provider.enabled && sec.agent.provider.apiKey && !sec.agent.provider.apiKey.startsWith('cli');
-        if (hasLLM) {
-          console.warn(`  ⚠️ [Secretary] CLI chat failed, falling back to LLM: ${cliErr.message || cliErr.error}`);
-          reply = await this.secretary.handleBossMessage(message, this);
-        } else {
-          // No available LLM provider, return CLI error message
-          console.error(`  ❌ [Secretary] CLI chat failed, no LLM fallback available: ${cliErr.message || cliErr.error}`);
-          reply = {
-            content: `⚠️ CLI execution error: ${cliErr.message || 'Unknown error'}. Please check if CodeBuddy CLI is running properly.`,
-            action: null,
-          };
-        }
-      }
-    } else {
-      // Let secretary analyze whether it's task assignment or casual conversation
-      reply = await this.secretary.handleBossMessage(message, this);
-    }
+    // Secretary is just an employee — delegate entirely to its handleBossMessage.
+    // CLI vs LLM routing, prompt building, tool calls are all handled inside the agent layer.
+    const reply = await this.secretary.handleBossMessage(message, this, { lang: options.lang });
 
     const secretaryMsg = {
       role: 'secretary',
       content: reply.content,
-      action: reply.action || null,
       time: new Date(),
     };
     this.chatHistory.push(secretaryMsg);
-    // Persist to file storage
     chatStore.appendMessage(this.chatSessionId, secretaryMsg);
 
     // Keep only the latest 50 messages in memory (for frontend cache)
@@ -292,99 +246,137 @@ Rules:
     return reply;
   }
 
+  // ======================== Recruitment ========================
+
   /**
-   * Parse secretary's returned JSON (shared by CLI and LLM)
-   * Extracts { content, action } structure from raw text
+   * Execute recruitment based on a team plan.
+   * Searches the talent market for suitable candidates, evaluates
+   * skill match and performance, and decides whether to recall
+   * a former employee or hire a new one.
+   *
+   * @param {object} plan - Team plan with members array
+   * @returns {Array<Employee|null>} Array of recruited employees
    */
-  _parseSecretaryJSON(rawOutput, originalMessage) {
-    try {
-      const parsed = robustJSONParse(rawOutput);
-      const result = {
-        content: parsed.content || rawOutput,
-        action: parsed.action || null,
-      };
+  executeRecruitment(plan) {
+    console.log(`\n\uD83D\uDD14 [HR] Starting recruitment...`);
 
-      // Validate task_assigned departmentId
-      if (result.action?.type === 'task_assigned' && result.action.departmentId) {
-        const deptById = this.departments.get(result.action.departmentId);
-        if (!deptById) {
-          // departmentId invalid, try matching by name
-          const deptIdValue = result.action.departmentId;
-          const deptNameValue = result.action.departmentName || deptIdValue;
-          let foundDept = null;
-          for (const dept of this.departments.values()) {
-            if (dept.name === deptIdValue || dept.name === deptNameValue ||
-                dept.name.includes(deptIdValue) || deptIdValue.includes(dept.name)) {
-              foundDept = dept;
-              break;
-            }
-          }
-          if (foundDept) {
-            console.log(`🔧 [CLI] Fixed departmentId: "${deptIdValue}" → "${foundDept.id}" (${foundDept.name})`);
-            result.action.departmentId = foundDept.id;
-            result.action.departmentName = foundDept.name;
-          } else {
-            console.warn(`⚠️ [CLI] departmentId "${deptIdValue}" doesn't match any department, clearing action`);
-            result.action = null;
-          }
+    const employees = [];
+    const skipped = [];
+
+    for (const memberPlan of plan.members) {
+      console.log(`\n  \uD83D\uDCCC Position: ${memberPlan.templateTitle} (${memberPlan.name})`);
+
+      try {
+        const recruitConfig = this._smartRecruit(
+          { templateId: memberPlan.templateId, name: memberPlan.name, preferRecall: true },
+        );
+        // Mark leader employees so createEmployee picks the Leader class
+        if (memberPlan.isLeader) {
+          recruitConfig.employeeClass = 'leader';
+        }
+        const employee = createEmployee(recruitConfig);
+
+        if (recruitConfig.cliBackend) {
+          console.log(`  \uD83D\uDDA5\uFE0F [${employee.name}] assigned CLI backend: ${recruitConfig.cliBackend}`);
+        }
+
+        if (recruitConfig.isRecalled) {
+          console.log(`  \uD83D\uDD04 [${employee.name}] is a former employee recalled from talent market, carrying original memories`);
+        }
+
+        employees.push(employee);
+      } catch (e) {
+        if (e.message.startsWith('PROVIDER_DISABLED:')) {
+          const parts = e.message.split(':');
+          const category = parts[1];
+          const reason = parts[2];
+          console.log(`  \u26A0\uFE0F [HR] Cannot hire "${memberPlan.templateTitle}": ${reason}`);
+          console.log(`     Hint: Please configure API Key for ${category} type providers first`);
+          skipped.push({ ...memberPlan, reason });
+          employees.push(null);
+        } else {
+          throw e;
         }
       }
-
-      console.log(`🤖 [Secretary-CLI] action type: ${result.action?.type || 'null'}`);
-      return result;
-    } catch (parseError) {
-      console.warn('⚠️ [Secretary-CLI] JSON parse failed, using raw output:', parseError.message);
-      // JSON parse failed, try to extract content field
-      let displayContent = rawOutput;
-      const contentFieldMatch = rawOutput.match(/"content"\s*:\s*"((?:[^"\\]|\\.)*)"/);
-      if (contentFieldMatch) {
-        try {
-          displayContent = JSON.parse('"' + contentFieldMatch[1] + '"');
-        } catch {
-          displayContent = contentFieldMatch[1].replace(/\\n/g, '\n').replace(/\\"/g, '"');
-        }
-      }
-
-      // Try to extract action from raw output
-      let action = null;
-      const actionTypeMatch = rawOutput.match(/"type"\s*:\s*"(task_assigned|need_new_department|create_department|progress_report|secretary_handle)"/);
-      if (actionTypeMatch) {
-        const actionType = actionTypeMatch[1];
-        if (actionType === 'task_assigned') {
-          const deptNameMatch = rawOutput.match(/"departmentName"\s*:\s*"([^"]+)"/);
-          if (deptNameMatch) {
-            for (const dept of this.departments.values()) {
-              if (dept.name === deptNameMatch[1] || dept.name.includes(deptNameMatch[1]) || deptNameMatch[1].includes(dept.name)) {
-                const titleMatch = rawOutput.match(/"taskTitle"\s*:\s*"([^"]+)"/);
-                const descMatch = rawOutput.match(/"taskDescription"\s*:\s*"((?:[^"\\]|\\.)*)"/);
-                action = {
-                  type: 'task_assigned',
-                  departmentId: dept.id,
-                  departmentName: dept.name,
-                  taskTitle: titleMatch ? titleMatch[1] : originalMessage.slice(0, 50),
-                  taskDescription: descMatch ? descMatch[1].replace(/\\n/g, '\n') : originalMessage,
-                };
-                break;
-              }
-            }
-          }
-        } else if (actionType === 'create_department') {
-          const deptNameMatch = rawOutput.match(/"departmentName"\s*:\s*"([^"]+)"/);
-          const missionMatch = rawOutput.match(/"mission"\s*:\s*"((?:[^"\\]|\\.)*)"/);
-          action = { type: 'create_department', departmentName: deptNameMatch?.[1] || '', mission: missionMatch?.[1]?.replace(/\\n/g, '\n') || originalMessage };
-        } else if (actionType === 'need_new_department') {
-          const missionMatch = rawOutput.match(/"suggestedMission"\s*:\s*"((?:[^"\\]|\\.)*)"/);
-          action = { type: 'need_new_department', suggestedMission: missionMatch?.[1]?.replace(/\\n/g, '\n') || originalMessage };
-        } else if (actionType === 'secretary_handle') {
-          const descMatch = rawOutput.match(/"taskDescription"\s*:\s*"((?:[^"\\]|\\.)*)"/);
-          action = { type: 'secretary_handle', taskDescription: descMatch?.[1]?.replace(/\\n/g, '\n') || originalMessage };
-        } else if (actionType === 'progress_report') {
-          action = { type: 'progress_report' };
-        }
-      }
-
-      return { content: displayContent, action };
     }
+
+    const validEmployees = employees.filter(Boolean);
+
+    for (let i = 0; i < plan.members.length; i++) {
+      if (!employees[i]) continue;
+      const memberPlan = plan.members[i];
+      if (memberPlan.reportsTo !== null && employees[memberPlan.reportsTo]) {
+        employees[i].setManager(employees[memberPlan.reportsTo]);
+      }
+    }
+
+    if (skipped.length > 0) {
+      console.log(`\n\u26A0\uFE0F [HR] ${skipped.length} positions skipped due to unconfigured providers:`);
+      skipped.forEach(s => console.log(`   - ${s.templateTitle}: ${s.reason}`));
+    }
+
+    console.log(`\n\u2705 [HR] Recruitment complete! Successfully hired ${validEmployees.length}, skipped ${skipped.length}`);
+    return validEmployees;
+  }
+
+  /**
+   * Smart recruit: decide whether to recall a former employee from the talent
+   * market or hire a new one. Pure logic — no LLM calls.
+   * @private
+   */
+  _smartRecruit({ templateId, name, preferRecall = true }) {
+    if (preferRecall && this.hr.talentMarket) {
+      const template = this.hr.getTemplate(templateId);
+      if (template) {
+        const candidates = this.hr.searchTalentMarket({
+          role: template.title, skills: template.skills,
+        });
+
+        if (candidates.length > 0) {
+          const best = this._pickBestCandidate(candidates, template);
+          if (best) {
+            console.log(`  \uD83D\uDD0D [HR] Found matching candidate in talent market: ${best.name} (${best.role})`);
+            const decision = this._decideRecallOrNew(best, template);
+            if (decision === 'recall') {
+              console.log(`  \u2705 [HR] Decided to recall former employee: ${best.name}`);
+              return this.hr.recallFromMarket(best.id);
+            } else {
+              console.log(`  \uD83C\uDD95 [HR] Decided to hire new (former employee not a good match)`);
+            }
+          }
+        } else {
+          console.log(`  \uD83D\uDD0D [HR] No matching candidates in talent market, will hire new`);
+        }
+      }
+    }
+
+    return this.hr.recruit(templateId, name);
+  }
+
+  /** @private */
+  _pickBestCandidate(candidates, template) {
+    const scored = candidates.map(c => {
+      const allSkills = [...c.skills, ...c.acquiredSkills];
+      const matchCount = template.skills.filter(s =>
+        allSkills.some(cs => cs.includes(s) || s.includes(cs))
+      ).length;
+      const skillScore = matchCount / template.skills.length;
+      const perfScore = c.performanceData?.averageScore ? c.performanceData.averageScore / 100 : 0.5;
+      return { ...c, totalScore: skillScore * 0.6 + perfScore * 0.4 };
+    });
+    scored.sort((a, b) => b.totalScore - a.totalScore);
+    return scored[0] || null;
+  }
+
+  /** @private */
+  _decideRecallOrNew(candidate, template) {
+    if (candidate.performanceData?.averageScore < 50) return 'new';
+    const allSkills = [...candidate.skills, ...candidate.acquiredSkills];
+    const matchCount = template.skills.filter(s =>
+      allSkills.some(cs => cs.includes(s) || s.includes(cs))
+    ).length;
+    if (matchCount >= template.skills.length * 0.5) return 'recall';
+    return 'new';
   }
 
   /**
@@ -436,6 +428,7 @@ Rules:
     // Build memory context from the new Memory system
     const bossChatGroupId = `boss-chat-${agentId}`;
     const memoryContext = targetAgent.memory.buildMemoryContext(bossChatGroupId);
+    const historySummaryContext = targetAgent.memory.buildHistorySummaryContext(bossChatGroupId);
 
     // Build messages for LLM — now with structured memory + JSON output
     const systemMessage = targetAgent._buildSystemMessage()
@@ -443,7 +436,7 @@ Rules:
       + ` You work in the "${targetDept.name}" department.`
       + ` Respond naturally based on your personality and role. Be helpful but stay in character.`
       + memoryContext
-      + `\n\n## Output Format\nYou MUST return a JSON object (JSON only, nothing else):\n{\n  "content": "Your natural language reply",\n  "memorySummary": "A concise summary of older messages in this conversation — key facts, decisions, topics discussed. null if conversation just started.",\n  "memoryOps": [\n    { "op": "add", "type": "long_term", "content": "Important fact about the boss or decision made", "category": "fact", "importance": 8 },\n    { "op": "add", "type": "short_term", "content": "Current topic context", "category": "context", "importance": 5, "ttl": 3600 },\n    { "op": "delete", "id": "mem_id_to_forget" }\n  ],\n  "relationshipOps": [\n    { "employeeId": "boss", "name": "Boss", "impression": "Demanding but fair, values results", "affinity": 65 }\n  ]\n}\n\n## Memory Management\n- memorySummary: Summarize older conversation messages to compress context. Keep key info, skip chitchat. null if no old messages.\n- memoryOps: Manage your memory — add important facts/preferences about the boss as long_term, add current topic as short_term. [] if nothing to remember.\n- category: preference | fact | instruction | task | context | relationship | experience\n- importance: 1-10 (higher = more important)\n\n## Relationship Impressions\n- relationshipOps: Update your impression of the boss based on this conversation. Max 30 chars per impression, affinity 1-100 (50=neutral).\n- affinity should change gradually (+/- 5~15 per interaction). Start from 50 if first meeting.\n- Only update when something noteworthy happened. [] if nothing to update.`;
+      + targetAgent._buildBossChatResponseFormat();
 
     const messages = [
       { role: 'system', content: systemMessage },
@@ -457,8 +450,11 @@ Rules:
       });
     }
 
-    // Add current message
-    messages.push({ role: 'user', content: message });
+    // Add current message (with history summary context prepended)
+    const userMessage = historySummaryContext
+      ? `${historySummaryContext}\n\n${message}`
+      : message;
+    messages.push({ role: 'user', content: userMessage });
 
     // If this is a CLI agent, execute chat via CLI backend
     let replyContent;
@@ -514,6 +510,7 @@ Rules:
     }
 
     // Process structured memory from AI response (new Memory system)
+    let resolvedTasksWithOnResolve = [];
     try {
       const { robustJSONParse } = await import('../utils/json-parse.js');
       const parsed = robustJSONParse(replyContent);
@@ -542,6 +539,21 @@ Rules:
             console.log(`  👥 [${targetAgent.name}] Boss-chat relationship updates: ${relResult.updated}`);
           }
         }
+
+        // Process task operations
+        if (parsed.taskOps && Array.isArray(parsed.taskOps) && parsed.taskOps.length > 0) {
+          const taskResult = targetAgent.taskManager.processOps(parsed.taskOps);
+          if (taskResult.created.length > 0) {
+            console.log(`  📋 [${targetAgent.name}] Boss-chat tasks created: ${taskResult.created.map(t => t.id).join(', ')}`);
+          }
+          if (taskResult.resolved.length > 0) {
+            console.log(`  ✅ [${targetAgent.name}] Boss-chat tasks resolved: ${taskResult.resolved.map(r => r.task.id).join(', ')}`);
+            resolvedTasksWithOnResolve = taskResult.resolved.filter(r => r.onResolveTarget);
+          }
+          if (taskResult.failed.length > 0) {
+            console.log(`  ❌ [${targetAgent.name}] Boss-chat tasks failed: ${taskResult.failed.map(t => t.id).join(', ')}`);
+          }
+        }
       }
     } catch (e) {
       // JSON parse failed — replyContent is plain text, that's fine
@@ -551,7 +563,14 @@ Rules:
     const agentMsg = { role: 'agent', content: replyContent, time: new Date() };
     chatStore.appendMessage(sessionId, agentMsg);
 
-
+    // Handle onResolve for any resolved tasks (async, non-blocking)
+    if (resolvedTasksWithOnResolve.length > 0 && targetAgent.lifecycle) {
+      for (const resolved of resolvedTasksWithOnResolve) {
+        targetAgent.lifecycle._handleTaskOnResolve(resolved).catch(err => {
+          console.error(`  ❌ [${targetAgent.name}] onResolve error:`, err.message);
+        });
+      }
+    }
 
     this.save();
 
@@ -562,6 +581,15 @@ Rules:
       time: new Date(),
       chatEngine,
     };
+  }
+
+  /**
+   * Paginated secretary chat history from file-based chat store.
+   * @param {{ before?: string, limit?: number }} opts
+   * @returns {{ messages: Array, hasMore: boolean, total: number }}
+   */
+  getSecretaryChatPage({ before = null, limit = 30 } = {}) {
+    return chatStore.getMessagesPage(this.chatSessionId, { before, limit });
   }
 
   /**
@@ -647,7 +675,11 @@ Rules:
     // Find all agent-agent sessions that include this agent
     const agentSessions = sessions.filter(s => {
       if (s.type !== 'agent-agent') return false;
-      // sessionId format: agent-agent-{id1}-{id2}
+      // Use participants array for reliable matching (sessionId.includes can be unreliable with UUIDs)
+      if (s.participants && Array.isArray(s.participants)) {
+        return s.participants.includes(agentId);
+      }
+      // Fallback: sessionId format: agent-agent-{id1}-{id2}
       return s.sessionId.includes(agentId);
     });
 
@@ -664,15 +696,16 @@ Rules:
       const peerId = participants.find(p => p !== agentId) || null;
       if (!peerId) continue;
 
-      // Find the other agent info
-      let peerAgent = null;
+      // Find the other agent info (unified lookup — no role-specific logic)
+      const peerAgent = this.findAgentById(peerId);
       let peerDeptName = null;
-      for (const dept of this.departments.values()) {
-        const a = dept.agents.get(peerId);
-        if (a) {
-          peerAgent = a;
-          peerDeptName = dept.name;
-          break;
+      if (peerAgent?.department) {
+        // Find department name from the agent's department reference
+        for (const dept of this.departments.values()) {
+          if (dept.agents.has(peerId)) {
+            peerDeptName = dept.name;
+            break;
+          }
         }
       }
 
@@ -782,8 +815,6 @@ Rules:
       } else {
         sec.switchProvider(newProvider);
       }
-      // Sync HR assistant's provider
-      sec.hrAssistant.employee.switchProvider(newProvider);
       this._log('Secretary settings', `Secretary provider switched to: ${newProvider.name}`);
     }
     this._log('Secretary settings', `Updated secretary settings: ${Object.keys(settings).join(', ')}`);
@@ -865,13 +896,36 @@ Rules:
         groupChatLoop.startAgentLoop(agent);
       }
     }
+    // Register secretary into chat loop as a regular employee
+    if (this.secretary) {
+      groupChatLoop.startAgentLoop(this.secretary);
+    }
 
     // 7. Fire system startup hook
     hookRegistry.trigger(HookEvent.SYSTEM_STARTUP, {
       companyName: this.name, bossName: this.bossName,
     });
 
-    console.log('⚡ Distilled subsystems initialized (hooks, cron, plugins, sessions)');
+    // 8. Initialize channel registry - wire up message handler
+    //    Route inbound channel messages through Secretary and return replies
+    channelRegistry.setMessageHandler(async (inbound) => {
+      try {
+        const reply = await this.chatWithSecretary(
+          inbound.content,
+          {
+            channel: inbound.channelId,
+            platformUser: inbound.platformUserName,
+          }
+        );
+        return reply.content || 'Sorry, I am unable to process your message at this time.';
+      } catch (err) {
+        console.error(`[Channel] Failed to process message:`, err.message);
+        return 'The system is busy, please try again later.';
+      }
+    });
+    this.channelRegistry = channelRegistry;
+
+    console.log('⚡ Distilled subsystems initialized (hooks, cron, plugins, sessions, channels)');
   }
 
   _log(action, detail) {
@@ -947,8 +1001,8 @@ Rules:
 
     const { teamPlan, name, mission } = plan;
 
-    // Recruit via HR assistant
-    const agents = this.secretary.hrAssistant.executeRecruitment(teamPlan, this.hr);
+    // Recruit via company HR
+    const agents = this.executeRecruitment(teamPlan);
 
     // Create department
     const dept = new Department({ name, mission, company: this.id });
@@ -1044,8 +1098,8 @@ Rules:
       console.log(`   ${prefix} ${m.name} - ${m.templateTitle}`);
     });
 
-    // Recruit via HR assistant
-    const agents = this.secretary.hrAssistant.executeRecruitment(teamPlan, this.hr);
+    // Recruit via company HR
+    const agents = this.executeRecruitment(teamPlan);
 
     // Create department
     const dept = new Department({ name, mission, company: this.id });
@@ -1130,6 +1184,33 @@ Rules:
    * @param {string} idOrName - Department ID or name
    * @returns {Department|null}
    */
+  /**
+   * Find any employee by ID — searches all registered lifecycles uniformly.
+   * Every employee in the chat loop (including secretary) is treated equally.
+   * @param {string} agentId
+   * @returns {Employee|null}
+   */
+  findAgentById(agentId) {
+    if (!agentId) return null;
+    // Primary: check lifecycles by key (all active employees, including secretary)
+    const lifecycle = this.groupChatLoop?._lifecycles?.get(agentId);
+    if (lifecycle?.employee) return lifecycle.employee;
+    // Secondary: scan all lifecycles by employee.id (handles stale keys after ID restoration)
+    if (this.groupChatLoop?._lifecycles) {
+      for (const [, lc] of this.groupChatLoop._lifecycles) {
+        if (lc.employee?.id === agentId) return lc.employee;
+      }
+    }
+    // Check secretary directly (secretary is a standalone employee, not in any department)
+    if (this.secretary?.id === agentId) return this.secretary;
+    // Fallback: scan departments (covers agents not yet in chat loop)
+    for (const dept of this.departments.values()) {
+      const agent = dept.agents.get(agentId);
+      if (agent) return agent;
+    }
+    return null;
+  }
+
   findDepartment(idOrName) {
     if (!idOrName) return null;
     // Prioritize exact ID match
@@ -1341,7 +1422,7 @@ const dept = this.findDepartment(departmentId);
         })),
       };
 
-      const agents = this.secretary.hrAssistant.executeRecruitment(hirePlan, this.hr);
+      const agents = this.executeRecruitment(hirePlan);
       for (const agent of agents) {
         if (!agent) continue;
         dept.addAgent(agent);
@@ -1506,10 +1587,9 @@ const dept = this.findDepartment(departmentId);
    * @param {string} [taskTitle] - Task title
    * @returns {Promise<object>} Execution result
    */
-  async assignTaskToDepartment(departmentId, taskDescription, taskTitle = null) {
+  async assignTaskToDepartment(departmentId, taskDescription, taskTitle = null, { lang } = {}) {
     const dept = this.findDepartment(departmentId);
     if (!dept) throw new Error(`Department not found: ${departmentId}`);
-
     const members = dept.getMembers();
     if (members.length === 0) throw new Error(`Department "${dept.name}" has no employees`);
 
@@ -1551,7 +1631,10 @@ const dept = this.findDepartment(departmentId);
       console.log(`📁 Requirement workspace: ${reqWorkspacePath}`);
     }
 
-    // 2. Leader decomposes workflow
+    // 2. Kick off planning + execution asynchronously (non-blocking)
+    // This prevents the caller (e.g. secretary's tool loop) from hanging
+    // while the entire workflow runs. The requirement status can be tracked
+    // via the requirement detail page in real-time.
     const leader = dept.getLeader() || members[0];
 
     // Update liveStatus: record leader info during planning phase
@@ -1563,114 +1646,105 @@ const dept = this.findDepartment(departmentId);
     });
     this.save();
 
-    try {
-      await this.requirementManager.planWorkflow(
-        requirement, members
-      );
-    } catch (e) {
-      console.error('Workflow decomposition failed:', e.message);
-      // Save current state even if decomposition fails (fallback workflow is set inside planWorkflow)
-    }
+    // Fire-and-forget: plan + execute in background
+    (async () => {
+      try {
+        await this.requirementManager.planWorkflow(
+          requirement, members, null, { lang }
+        );
+      } catch (e) {
+        console.error('Workflow decomposition failed:', e.message);
+        // Save current state even if decomposition fails (fallback workflow is set inside planWorkflow)
+      }
 
-    // Save again after workflow decomposition
-    this.save();
+      // Save again after workflow decomposition
+      this.save();
 
-    // 3. Execute by workflow DAG
-    let summary;
-    try {
-      summary = await this.requirementManager.executeWorkflow(
-        requirement, dept, this.performanceSystem
-      );
-    } catch (e) {
-      console.error('Workflow execution failed:', e.message);
-      // Update requirement status to failed
-      requirement.status = 'failed';
-      requirement.completedAt = new Date();
-      requirement.summary = { totalTasks: 0, successTasks: 0, failedTasks: 0, totalDuration: 0, outputs: [], error: e.message };
-      requirement.addGroupMessage(
-        { name: 'System', role: 'system' },
-        `❌ Requirement execution failed: ${e.message}`,
-        'system', null, { auto: true }
-      );
-      // Restore original workspace path on failure
+      // 3. Execute by workflow DAG
+      let summary;
+      try {
+        summary = await this.requirementManager.executeWorkflow(
+          requirement, dept, this.performanceSystem, { lang }
+        );
+      } catch (e) {
+        console.error('Workflow execution failed:', e.message);
+        // Update requirement status to failed
+        requirement.status = 'failed';
+        requirement.completedAt = new Date();
+        requirement.summary = { totalTasks: 0, successTasks: 0, failedTasks: 0, totalDuration: 0, outputs: [], error: e.message };
+        requirement.addGroupMessage(
+          { name: 'System', role: 'system' },
+          `❌ Requirement execution failed: ${e.message}`,
+          'system', null, { auto: true }
+        );
+        // Restore original workspace path on failure
+        if (originalWorkspacePath && dept.workspacePath !== originalWorkspacePath) {
+          dept.workspacePath = originalWorkspacePath;
+          for (const agent of members) {
+            agent.initToolKit(originalWorkspacePath, this.messageBus);
+          }
+        }
+        this.save();
+        return; // Background task ends here on failure
+      }
+
+      // 4. Let leader send report email
+      if (leader) {
+        let reportContent = `Requirement "${title}" completed!\n\n`;
+        reportContent += `📊 Execution Summary:\n`;
+        reportContent += `- Tasks completed: ${summary.successTasks}/${summary.totalTasks}\n`;
+        reportContent += `- Total duration: ${Math.round(summary.totalDuration / 1000)}s\n\n`;
+        reportContent += `📝 Member outputs:\n`;
+        for (const o of (summary.outputs || [])) {
+          reportContent += `\n[${o.agentName} (${o.role})]\n`;
+          reportContent += (o.content || '').slice(0, 300);
+          if ((o.content || '').length > 300) reportContent += '...';
+          reportContent += '\n';
+        }
+        leader.sendMailToBoss(`📋 Requirement Report: ${title}`, reportContent, this);
+      }
+
+      // 5. Record to progress reports
+      this.progressReports.push({
+        time: new Date(),
+        type: 'task_completed',
+        reports: [{
+          department: dept.name,
+          task: title,
+          requirementId: requirement.id,
+          success: summary.successTasks === summary.totalTasks,
+          detail: `${summary.successTasks}/${summary.totalTasks} subtasks completed, took ${Math.round(summary.totalDuration / 1000)}s`,
+        }],
+      });
+
+      // Fire hook: task completed
+      hookRegistry.trigger(HookEvent.TASK_COMPLETED, {
+        departmentId: dept.id, departmentName: dept.name, taskTitle: title,
+        totalTasks: summary.totalTasks, successTasks: summary.successTasks,
+      });
+
+      this._log('Task completed', `"${dept.name}" completed task: "${title}", ${summary.successTasks}/${summary.totalTasks} succeeded`);
+
+      // Restore original department workspace path so next requirement gets its own subdirectory
       if (originalWorkspacePath && dept.workspacePath !== originalWorkspacePath) {
         dept.workspacePath = originalWorkspacePath;
         for (const agent of members) {
           agent.initToolKit(originalWorkspacePath, this.messageBus);
         }
       }
+
       this.save();
-      summary = requirement.summary;
-    }
-
-    // 4. Let leader send report email
-    if (leader) {
-      let reportContent = `Requirement "${title}" completed!\n\n`;
-      reportContent += `📊 Execution Summary:\n`;
-      reportContent += `- Tasks completed: ${summary.successTasks}/${summary.totalTasks}\n`;
-      reportContent += `- Total duration: ${Math.round(summary.totalDuration / 1000)}s\n\n`;
-      reportContent += `📝 Member outputs:\n`;
-      for (const o of (summary.outputs || [])) {
-        reportContent += `\n[${o.agentName} (${o.role})]\n`;
-        reportContent += (o.content || '').slice(0, 300);
-        if ((o.content || '').length > 300) reportContent += '...';
-        reportContent += '\n';
-      }
-      leader.sendMailToBoss(`📋 Requirement Report: ${title}`, reportContent, this);
-    }
-
-    // 5. Record to progress reports
-    this.progressReports.push({
-      time: new Date(),
-      type: 'task_completed',
-      reports: [{
-        department: dept.name,
-        task: title,
-        requirementId: requirement.id,
-        success: summary.successTasks === summary.totalTasks,
-        detail: `${summary.successTasks}/${summary.totalTasks} subtasks completed, took ${Math.round(summary.totalDuration / 1000)}s`,
-      }],
+    })().catch(e => {
+      console.error(`Background workflow execution failed for requirement ${requirement.id}:`, e.message);
     });
 
-    // Fire hook: task completed
-    hookRegistry.trigger(HookEvent.TASK_COMPLETED, {
-      departmentId: dept.id, departmentName: dept.name, taskTitle: title,
-      totalTasks: summary.totalTasks, successTasks: summary.successTasks,
-    });
-
-    this._log('Task completed', `"${dept.name}" completed task: "${title}", ${summary.successTasks}/${summary.totalTasks} succeeded`);
-
-    // Restore original department workspace path so next requirement gets its own subdirectory
-    if (originalWorkspacePath && dept.workspacePath !== originalWorkspacePath) {
-      dept.workspacePath = originalWorkspacePath;
-      for (const agent of members) {
-        agent.initToolKit(originalWorkspacePath, this.messageBus);
-      }
-    }
-
-    this.save();
-
-    // Return summary with requirement ID
+    // Return immediately with the requirement ID so the caller is not blocked
     return {
       requirementId: requirement.id,
       projectId: requirement.id,
       title,
       department: dept.name,
       departmentId: dept.id,
-      totalTasks: summary.totalTasks,
-      successTasks: summary.successTasks,
-      failedTasks: summary.failedTasks,
-      totalDuration: summary.totalDuration,
-      outputs: (summary.outputs || []).map(o => ({
-        agentName: o.agentName,
-        role: o.role,
-        output: o.content,
-        outputType: o.outputType,
-        toolResults: o.metadata?.toolResults || [],
-        success: true,
-        duration: o.metadata?.duration || 0,
-      })),
-      completedAt: new Date(),
     };
   }
 
@@ -2178,18 +2252,19 @@ Reply in the same language the Boss used. Be concise but warm.`
       });
     });
 
-    // Add secretary and HR consumption
+    // Add secretary consumption
     const secUsage = this.secretary.tokenUsage || { totalTokens: 0, totalCost: 0 };
-    const hrUsage = this.secretary.hrAssistant.employee.tokenUsage || { totalTokens: 0, totalCost: 0 };
-    companyTotalTokens += secUsage.totalTokens + hrUsage.totalTokens;
-    companyTotalCost += secUsage.totalCost + hrUsage.totalCost;
+    companyTotalTokens += secUsage.totalTokens;
+    companyTotalCost += secUsage.totalCost;
 
     return {
       id: this.id,
       name: this.name,
       boss: this.bossName,
       bossAvatar: this.bossAvatar,
+      language: this.language || 'en',
       secretary: {
+        id: this.secretary.id,
         name: this.secretary.name,
         avatar: this.secretary.avatar,
         gender: this.secretary.gender,
@@ -2216,18 +2291,12 @@ Reply in the same language the Boss used. Be concise but warm.`
             isWeb: true,
           })),
         ],
-        hrAssistant: {
-          name: this.secretary.hrAssistant.employee.name,
-          avatar: this.secretary.hrAssistant.employee.avatar,
-          signature: this.secretary.hrAssistant.employee.signature,
-        },
       },
       departments,
       budget: {
         totalTokens: companyTotalTokens,
         totalCost: Math.round(companyTotalCost * 10000) / 10000,
         secretaryUsage: { ...secUsage },
-        hrUsage: { ...hrUsage },
       },
       mailbox: this.mailbox.slice(-50).map(m => ({
         ...m,
@@ -2396,6 +2465,7 @@ const dept = this.findDepartment(departmentId);
       name: this.name,
       bossName: this.bossName,
       bossAvatar: this.bossAvatar,
+      language: this.language || 'en',
       departments,
       providerConfigs,
       talentPool,
@@ -2405,6 +2475,7 @@ const dept = this.findDepartment(departmentId);
       progressReports: this.progressReports.slice(-30),
       logs: this.logs.slice(-100),
       secretary: {
+        id: this.secretary.id,
         name: this.secretary.name,
         avatar: this.secretary.avatar,
         signature: this.secretary.signature,
@@ -2412,13 +2483,13 @@ const dept = this.findDepartment(departmentId);
         providerId: this.secretary.getProviderDisplayInfo().id,
         cliBackend: this.secretary.cliBackend || null,
         tokenUsage: { ...this.secretary.tokenUsage },
-        hrTokenUsage: { ...this.secretary.hrAssistant.employee.tokenUsage },
       },
       messageBusMessages: this.messageBus.messages.slice(-500).map(m => m.toJSON()),
       requirements: this.requirementManager.serialize(),
       teams: this.teamManager.serialize(),
       cronJobs: cronScheduler.serialize(),
       cliBackends: cliBackendRegistry.serialize(),
+      channels: channelRegistry.serialize(),
       savedAt: new Date(),
     };
   }
@@ -2448,6 +2519,11 @@ const dept = this.findDepartment(departmentId);
       company.bossAvatar = data.bossAvatar;
     }
 
+    // Restore language
+    if (data.language && isSupportedLanguage(data.language)) {
+      company.language = data.language;
+    }
+
     // Restore provider configs
     if (data.providerConfigs) {
       for (const [pid, cfg] of Object.entries(data.providerConfigs)) {
@@ -2469,12 +2545,24 @@ const dept = this.findDepartment(departmentId);
       }
     }
 
+    // Restore secretary ID so LLM logs directory stays consistent across restarts
+    if (data.secretary?.id) {
+      const tempSecretaryId = company.secretary.id;
+      company.secretary.id = data.secretary.id;
+      // Clean up the lifecycle entry registered under the temporary UUID during constructor.
+      // The constructor's _initSubsystems() registered the secretary with a fresh UUID,
+      // but we've now restored the real persisted ID. Remove the stale entry so
+      // _lifecycles doesn't contain a ghost entry with the wrong key.
+      if (tempSecretaryId !== data.secretary.id) {
+        groupChatLoop.stopAgentLoop(tempSecretaryId);
+      }
+    }
     // Restore secretary token usage
     if (data.secretary?.tokenUsage) {
       Object.assign(company.secretary.tokenUsage, data.secretary.tokenUsage);
     }
     if (data.secretary?.hrTokenUsage) {
-      Object.assign(company.secretary.hrAssistant.employee.tokenUsage, data.secretary.hrTokenUsage);
+      // Legacy: hrTokenUsage is no longer tracked separately, ignore
     }
     // Restore secretary custom prompt
     if (data.secretary?.prompt) {
@@ -2547,7 +2635,7 @@ const dept = this.findDepartment(departmentId);
           }
         }
         const agent = deserializeEmployee(agentData, company.providerRegistry);
-        dept.addAgent(agent);
+        dept.addAgent(agent, { silent: true });
         // Restore toolkit
         if (dept.workspacePath) {
           agent.initToolKit(dept.workspacePath, company.messageBus);
@@ -2629,17 +2717,37 @@ const dept = this.findDepartment(departmentId);
       reapplyCLIConfigs();
     }).catch(() => {});
 
-    // Re-start group chat loop for all restored agents
-    // (_initSubsystems ran during constructor when departments were still empty,
-    //  so we need to register all agents that were restored afterwards)
-    groupChatLoop.start(company);
-    for (const dept of company.departments.values()) {
-      for (const agent of dept.getMembers()) {
-        groupChatLoop.startAgentLoop(agent);
-      }
+    // Restore channel installations
+    if (data.channels) {
+      channelRegistry.restore(data.channels).then(() => {
+        console.log(`📡 [Deserialize] Channel restoration completed (${Object.keys(data.channels).length} channel(s))`);
+      }).catch(err => {
+        console.warn('[Deserialize] Channel restoration failed:', err.message);
+      });
     }
 
-    console.log(`✅ Company "${company.name}" state restored: ${company.departments.size} departments`);
+    // Re-start group chat loop for all restored agents.
+    // The constructor's _initSubsystems() already called start(), but with an empty
+    // company. We need to stop and restart so the DM listener uses the fully-restored
+    // company state (correct secretary ID, all departments, etc.).
+    groupChatLoop.stop({ silent: true });
+    // Clear all lifecycle entries registered during constructor (they used temporary IDs)
+    groupChatLoop._lifecycles.clear();
+    groupChatLoop.start(company, { silent: true });
+    let restoredAgentCount = 0;
+    for (const dept of company.departments.values()) {
+      for (const agent of dept.getMembers()) {
+        groupChatLoop.startAgentLoop(agent, { silent: true });
+        restoredAgentCount++;
+      }
+    }
+    // Register secretary into chat loop (same as _initSubsystems does for fresh companies)
+    if (company.secretary) {
+      groupChatLoop.startAgentLoop(company.secretary, { silent: true });
+      restoredAgentCount++;
+    }
+
+    console.log(`✅ Company "${company.name}" state restored: ${company.departments.size} departments, ${restoredAgentCount} agents in chat loop`);
     return company;
   }
 }

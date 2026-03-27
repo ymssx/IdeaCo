@@ -226,12 +226,6 @@ export class SecurityGuard {
     this.audit = auditLogger;
     this.blockDangerous = options.blockDangerous ?? true;
     this.scanSecrets = options.scanSecrets ?? true;
-    this.allowedCommands = options.allowedCommands || [
-      'ls', 'cat', 'head', 'tail', 'grep', 'find', 'wc',
-      'node', 'npm', 'npx', 'echo', 'mkdir', 'cp', 'mv',
-      'tree', 'pwd', 'which', 'git',
-      'curl', 'wget', 'date', 'python', 'python3', 'env', 'sort', 'uniq', 'awk', 'sed', 'jq',
-    ];
 
     // Per-agent permission policies
     // { agentId: { canExecShell, canWriteFiles, canAccessNetwork, ... } }
@@ -295,20 +289,8 @@ export class SecurityGuard {
       return { allowed: false, reason: 'Agent does not have shell execution permission' };
     }
 
-    // Check command whitelist
-    const cmdName = command.trim().split(/\s+/)[0];
-    if (!this.allowedCommands.includes(cmdName)) {
-      this.audit.log({
-        category: AuditCategory.SHELL_EXEC,
-        level: AuditLevel.WARN,
-        agentId,
-        agentName,
-        action: `Command not in whitelist: ${cmdName}`,
-        details: { command, cmdName },
-        blocked: true,
-      });
-      return { allowed: false, reason: `Command "${cmdName}" is not in the allowed list` };
-    }
+    // No command whitelist — all commands are allowed.
+    // Only dangerous-pattern blocking remains active below.
 
     // Check dangerous patterns
     if (this.blockDangerous) {
@@ -479,5 +461,10 @@ export class SecurityGuard {
 }
 
 // Global singletons
-export const auditLogger = new AuditLogger();
-export const securityGuard = new SecurityGuard(auditLogger);
+// Global singletons — use globalThis to survive Next.js HMR in dev mode
+if (!globalThis.__auditLogger) {
+  globalThis.__auditLogger = new AuditLogger();
+  globalThis.__securityGuard = new SecurityGuard(globalThis.__auditLogger);
+}
+export const auditLogger = globalThis.__auditLogger;
+export const securityGuard = globalThis.__securityGuard;

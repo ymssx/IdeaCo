@@ -6,16 +6,125 @@ import { useI18n } from '@/lib/i18n';
 import ProviderGrid from './ProviderGrid';
 
 /**
+ * QRLoginModal - WeChat QR code login modal with auto-polling
+ */
+function QRLoginModal({ channelId, qrCodeUrl, loginState: initialLoginState, error: initialError, manageChannel, onClose, t }) {
+  const [loginState, setLoginState] = useState(initialLoginState || 'qr_pending');
+  const [error, setError] = useState(initialError);
+  const [currentQrUrl, setCurrentQrUrl] = useState(qrCodeUrl);
+  const [windowOpened, setWindowOpened] = useState(false);
+
+  // Auto-open QR page in new browser window on mount or when URL changes
+  useEffect(() => {
+    if (currentQrUrl && !windowOpened) {
+      window.open(currentQrUrl, 'wechat_qr_login', 'width=500,height=600,scrollbars=yes');
+      setWindowOpened(true);
+    }
+  }, [currentQrUrl, windowOpened]);
+
+  useEffect(() => {
+    if (loginState === 'logged_in' || error) return;
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const status = await manageChannel(channelId, 'login-status');
+        if (status) {
+          if (status.loginState) setLoginState(status.loginState);
+          if (status.qrCodeUrl && status.qrCodeUrl !== currentQrUrl) {
+            setCurrentQrUrl(status.qrCodeUrl);
+            setWindowOpened(false); // Allow re-opening for refreshed QR
+          }
+          if (status.error) {
+            setError(status.error);
+            clearInterval(pollInterval);
+          }
+          if (status.loginState === 'logged_in' || status.channelState === 'connected') {
+            setLoginState('logged_in');
+            clearInterval(pollInterval);
+          }
+        }
+      } catch {
+        // Polling error - ignore and retry
+      }
+    }, 2000);
+
+    return () => clearInterval(pollInterval);
+  }, [channelId, loginState, error, manageChannel, currentQrUrl]);
+
+  const handleOpenQrPage = () => {
+    if (currentQrUrl) {
+      window.open(currentQrUrl, 'wechat_qr_login', 'width=500,height=600,scrollbars=yes');
+      setWindowOpened(true);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 !m-0" onClick={onClose}>
+      <div className="card max-w-sm w-full mx-4 space-y-4 text-center" onClick={e => e.stopPropagation()}>
+        <h3 className="text-lg font-semibold">💬 {t('systemSettings.qrLogin.title')}</h3>
+
+        {loginState === 'logged_in' ? (
+          <div className="py-6 space-y-3">
+            <div className="text-4xl">✅</div>
+            <p className="text-sm text-green-400">{t('systemSettings.qrLogin.success')}</p>
+            <button onClick={onClose} className="btn-primary text-sm">{t('common.close')}</button>
+          </div>
+        ) : error ? (
+          <div className="py-6 space-y-3">
+            <div className="text-4xl">❌</div>
+            <p className="text-sm text-red-400">{error}</p>
+            <button onClick={onClose} className="btn-secondary text-sm">{t('common.close')}</button>
+          </div>
+        ) : (
+          <>
+            {currentQrUrl ? (
+              <div className="flex flex-col items-center gap-4 py-4">
+                <div className="text-4xl">🌐</div>
+                <p className="text-sm text-[var(--muted)]">{t('systemSettings.qrLogin.openedInBrowser')}</p>
+                {loginState === 'scanned' ? (
+                  <div className="flex items-center gap-2 text-yellow-400 text-sm">
+                    <span className="animate-pulse">📱</span>
+                    <span>{t('systemSettings.qrLogin.scanned')}</span>
+                  </div>
+                ) : (
+                  <p className="text-xs text-[var(--muted)] animate-pulse">{t('systemSettings.qrLogin.waiting')}</p>
+                )}
+                <button onClick={handleOpenQrPage} className="btn-secondary text-xs">
+                  {t('systemSettings.qrLogin.openQrPage')}
+                </button>
+              </div>
+            ) : (
+              <div className="py-8">
+                <div className="animate-spin text-2xl mb-2">⏳</div>
+                <p className="text-xs text-[var(--muted)]">{t('systemSettings.qrLogin.generating')}</p>
+              </div>
+            )}
+            <button onClick={onClose} className="btn-secondary text-xs">{t('common.cancel')}</button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
  * SystemMonitor - Operational dashboard for enterprise subsystems
  * User-facing: manage cron jobs, toggle plugins, view system health
  */
 export default function SystemMonitor({ embedded = false }) {
   const { t } = useI18n();
-  const { company, fetchCronJobs, createCronJob, manageCronJob, fetchPlugins, managePlugin, fetchSkills, manageSkill, fetchKnowledge, searchKnowledge, manageKnowledge, fetchSystemStatus, factoryReset } = useStore();
+  const { company, fetchCronJobs, createCronJob, manageCronJob, fetchPlugins, managePlugin, fetchSkills, manageSkill, createCustomSkill, updateCustomSkill, deleteCustomSkill, getCustomSkillRaw, searchMarketplace, installMarketplaceSkill, uninstallMarketplaceSkill, fetchKnowledge, searchKnowledge, manageKnowledge, fetchSystemStatus, factoryReset, fetchChannels, installChannel, manageChannel, uninstallChannel } = useStore();
   const [activeSection, setActiveSection] = useState('providers');
   const [cronData, setCronData] = useState({ summary: {}, jobs: [] });
   const [plugins, setPlugins] = useState([]);
   const [skills, setSkills] = useState([]);
+  const [skillSubTab, setSkillSubTab] = useState('all'); // 'all' | 'custom' | 'marketplace'
+  const [showCreateSkill, setShowCreateSkill] = useState(false);
+  const [editingSkill, setEditingSkill] = useState(null); // skill id or null
+  const [skillMarkdown, setSkillMarkdown] = useState('');
+  const [marketplaceQuery, setMarketplaceQuery] = useState('');
+  const [marketplaceResults, setMarketplaceResults] = useState([]);
+  const [marketplaceLoading, setMarketplaceLoading] = useState(false);
   const [knowledge, setKnowledge] = useState({ bases: [], stats: {} });
   const [systemStatus, setSystemStatus] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -29,6 +138,12 @@ export default function SystemMonitor({ embedded = false }) {
   const [kbSearchResults, setKbSearchResults] = useState(null);
 
   // Danger zone state
+  // Channel state
+  const [channelData, setChannelData] = useState({ adapters: [], channels: [], stats: {} });
+  const [channelConfigTarget, setChannelConfigTarget] = useState(null);
+  const [channelConfig, setChannelConfig] = useState({});
+  const [qrLoginModal, setQrLoginModal] = useState(null); // { channelId, qrCodeUrl, loginState, error }
+
   const [showFactoryReset, setShowFactoryReset] = useState(false);
   const [factoryResetInput, setFactoryResetInput] = useState('');
   const [factoryResetting, setFactoryResetting] = useState(false);
@@ -39,16 +154,17 @@ export default function SystemMonitor({ embedded = false }) {
 
   const refresh = useCallback(async () => {
     setLoading(true);
-    const [cron, plug, sk, kb, status] = await Promise.all([
-      fetchCronJobs(), fetchPlugins(), fetchSkills(), fetchKnowledge(), fetchSystemStatus(),
+    const [cron, plug, sk, kb, status, ch] = await Promise.all([
+      fetchCronJobs(), fetchPlugins(), fetchSkills(), fetchKnowledge(), fetchSystemStatus(), fetchChannels(),
     ]);
     setCronData(cron || { summary: {}, jobs: [] });
     setPlugins(plug || []);
     setSkills(sk || []);
     setKnowledge(kb || { bases: [], stats: {} });
     setSystemStatus(status);
+    setChannelData(ch || { adapters: [], channels: [], stats: {} });
     setLoading(false);
-  }, [fetchCronJobs, fetchPlugins, fetchSkills, fetchKnowledge, fetchSystemStatus]);
+  }, [fetchCronJobs, fetchPlugins, fetchSkills, fetchKnowledge, fetchSystemStatus, fetchChannels]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -93,6 +209,68 @@ export default function SystemMonitor({ embedded = false }) {
     const action = currentState === 'enabled' ? 'disable' : 'enable';
     try {
       await manageSkill(action, skillId);
+      await refresh();
+    } catch {}
+  };
+
+  const handleCreateCustomSkill = async () => {
+    if (!skillMarkdown.trim()) return;
+    try {
+      await createCustomSkill(skillMarkdown);
+      setShowCreateSkill(false);
+      setSkillMarkdown('');
+      await refresh();
+    } catch {}
+  };
+
+  const handleUpdateCustomSkill = async () => {
+    if (!editingSkill || !skillMarkdown.trim()) return;
+    try {
+      await updateCustomSkill(editingSkill, skillMarkdown);
+      setEditingSkill(null);
+      setSkillMarkdown('');
+      await refresh();
+    } catch {}
+  };
+
+  const handleDeleteCustomSkill = async (skillId) => {
+    try {
+      await deleteCustomSkill(skillId);
+      await refresh();
+    } catch {}
+  };
+
+  const handleEditCustomSkill = async (skillId) => {
+    try {
+      const data = await getCustomSkillRaw(skillId);
+      if (data?.markdown) {
+        setSkillMarkdown(data.markdown);
+        setEditingSkill(skillId);
+        setShowCreateSkill(true);
+      }
+    } catch {}
+  };
+
+  const handleMarketplaceSearch = async () => {
+    setMarketplaceLoading(true);
+    try {
+      const result = await searchMarketplace(marketplaceQuery);
+      setMarketplaceResults(result?.skills || result || []);
+    } catch {}
+    setMarketplaceLoading(false);
+  };
+
+  const handleInstallMarketplaceSkill = async (slug) => {
+    try {
+      await installMarketplaceSkill(slug);
+      await refresh();
+      if (marketplaceQuery) await handleMarketplaceSearch();
+    } catch {}
+  };
+
+  const handleUninstallSkill = async (skillId) => {
+    try {
+      await uninstallMarketplaceSkill(skillId);
       await refresh();
     } catch {}
   };
@@ -181,6 +359,7 @@ export default function SystemMonitor({ embedded = false }) {
     { id: 'plugins', icon: '🧩', label: t('systemSettings.cards.plugins') },
     { id: 'skills', icon: '📚', label: t('systemSettings.cards.skills') },
     { id: 'knowledge', icon: '🧠', label: t('systemSettings.cards.knowledge') },
+    { id: 'channels', icon: '📡', label: t('systemSettings.cards.channels') },
     { id: 'health', icon: '💓', label: t('systemSettings.health.title') },
     { id: 'danger', icon: '⚠️', label: t('systemSettings.dangerZone.title') },
   ];
@@ -403,68 +582,205 @@ export default function SystemMonitor({ embedded = false }) {
       {/* === SKILLS SECTION === */}
       {activeSection === 'skills' && (
         <div className="space-y-4">
+          {/* Stats */}
           <div className="grid grid-cols-4 gap-4">
             <StatCard label={t('systemSettings.skillStats.total')} value={skills.length} />
             <StatCard label={t('systemSettings.skillStats.enabled')} value={skills.filter(s => s.state === 'enabled').length} color="text-green-400" />
             <StatCard label={t('systemSettings.skillStats.categories')} value={[...new Set(skills.map(s => s.category))].length} />
-            <StatCard label={t('systemSettings.skillStats.installed')} value={skills.filter(s => s.state !== 'available').length} />
+            <StatCard label={t('systemSettings.skillStats.custom')} value={skills.filter(s => s.source === 'custom').length} color="text-purple-400" />
           </div>
 
-          {/* Skills grouped by category */}
-          {Object.entries(
-            skills.reduce((acc, s) => {
-              (acc[s.category] = acc[s.category] || []).push(s);
-              return acc;
-            }, {})
-          ).map(([category, catSkills]) => (
-            <div key={category} className="card">
-              <div className="flex items-center gap-2 mb-3">
-                <span className="text-lg">{SKILL_CATEGORY_ICONS[category] || '⚡'}</span>
-                <h3 className="text-sm font-semibold capitalize">{category}</h3>
-                <span className="text-[10px] text-[var(--muted)]">{t('providers.skillsCount', { n: catSkills.length })}</span>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
-                {catSkills.map(skill => (
-                  <div key={skill.id} className={`p-3 rounded-lg border transition-all ${
-                    skill.state === 'enabled'
-                      ? 'border-green-500/30 bg-green-900/10'
-                      : 'border-[var(--border)] bg-[var(--background)]'
-                  }`}>
-                    <div className="flex items-center justify-between mb-1">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span>{skill.icon}</span>
-                        <span className="text-sm font-medium truncate">{skill.name}</span>
-                      </div>
-                      <button
-                        onClick={() => handleSkillToggle(skill.id, skill.state)}
-                        className={`text-[10px] px-2 py-0.5 rounded-full transition-all ${
-                          skill.state === 'enabled'
-                            ? 'bg-green-900/30 text-green-400 hover:bg-red-900/30 hover:text-red-400'
-                            : 'bg-white/10 text-[var(--muted)] hover:bg-green-900/30 hover:text-green-400'
-                        }`}
-                      >
-                        {skill.state === 'enabled' ? t('common.disable') : t('common.enable')}
-                      </button>
-                    </div>
-                    <p className="text-[10px] text-[var(--muted)] line-clamp-2">{skill.description}</p>
-                    {skill.tags?.length > 0 && (
-                      <div className="flex gap-1 flex-wrap mt-1.5">
-                        {skill.tags.slice(0, 4).map((tag, i) => (
-                          <span key={i} className="text-[9px] bg-white/5 text-[var(--muted)] px-1.5 py-0.5 rounded">{tag}</span>
-                        ))}
-                      </div>
-                    )}
+          {/* Sub-tabs: All / Custom / Marketplace */}
+          <div className="flex items-center gap-2 border-b border-[var(--border)] pb-2">
+            {[{id:'all', label: t('systemSettings.skillTabs.all'), icon: '📚'}, {id:'custom', label: t('systemSettings.skillTabs.custom'), icon: '✨'}, {id:'marketplace', label: t('systemSettings.skillTabs.marketplace'), icon: '🏪'}].map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setSkillSubTab(tab.id)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-all ${
+                  skillSubTab === tab.id
+                    ? 'bg-[var(--accent)]/20 text-[var(--accent)]'
+                    : 'text-[var(--muted)] hover:bg-white/5'
+                }`}
+              >
+                <span>{tab.icon}</span>
+                <span>{tab.label}</span>
+              </button>
+            ))}
+            {skillSubTab === 'custom' && (
+              <button
+                onClick={() => { setShowCreateSkill(true); setEditingSkill(null); setSkillMarkdown(SKILL_TEMPLATE); }}
+                className="ml-auto text-[10px] px-3 py-1 rounded-lg bg-[var(--accent)]/20 text-[var(--accent)] hover:bg-[var(--accent)]/30 transition-all"
+              >
+                + {t('systemSettings.skillActions.create')}
+              </button>
+            )}
+          </div>
+
+          {/* ALL SKILLS sub-tab */}
+          {skillSubTab === 'all' && (
+            <>
+              {Object.entries(
+                skills.reduce((acc, s) => {
+                  (acc[s.category] = acc[s.category] || []).push(s);
+                  return acc;
+                }, {})
+              ).map(([category, catSkills]) => (
+                <div key={category} className="card">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-lg">{SKILL_CATEGORY_ICONS[category] || '⚡'}</span>
+                    <h3 className="text-sm font-semibold capitalize">{category}</h3>
+                    <span className="text-[10px] text-[var(--muted)]">{t('providers.skillsCount', { n: catSkills.length })}</span>
                   </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+                    {catSkills.map(skill => (
+                      <SkillCard key={skill.id} skill={skill} t={t} onToggle={handleSkillToggle}
+                        onEdit={skill.source === 'custom' ? () => handleEditCustomSkill(skill.id) : null}
+                        onDelete={skill.source === 'custom' ? () => handleDeleteCustomSkill(skill.id) : skill.source === 'marketplace' ? () => handleUninstallSkill(skill.id) : null}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ))}
+              {skills.length === 0 && (
+                <div className="text-center py-12 text-[var(--muted)]">
+                  <div className="text-4xl mb-3">📚</div>
+                  <p className="text-sm">{t('systemSettings.skillDetail.noSkills')}</p>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* CUSTOM SKILLS sub-tab */}
+          {skillSubTab === 'custom' && (
+            <>
+              {/* Create/Edit modal */}
+              {showCreateSkill && (
+                <div className="card border-[var(--accent)]/30">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold">
+                      {editingSkill ? t('systemSettings.skillActions.edit') : t('systemSettings.skillActions.create')}
+                    </h3>
+                    <button onClick={() => { setShowCreateSkill(false); setEditingSkill(null); setSkillMarkdown(''); }}
+                      className="text-[var(--muted)] hover:text-[var(--foreground)] text-xs">✕</button>
+                  </div>
+                  <p className="text-[10px] text-[var(--muted)] mb-2">{t('systemSettings.skillActions.markdownHint')}</p>
+                  <textarea
+                    value={skillMarkdown}
+                    onChange={e => setSkillMarkdown(e.target.value)}
+                    placeholder={SKILL_TEMPLATE}
+                    className="w-full h-64 bg-[var(--background)] border border-[var(--border)] rounded-lg p-3 text-xs font-mono resize-y focus:border-[var(--accent)] focus:outline-none"
+                  />
+                  <div className="flex justify-end gap-2 mt-2">
+                    <button onClick={() => { setShowCreateSkill(false); setEditingSkill(null); setSkillMarkdown(''); }}
+                      className="text-xs px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10">{t('common.cancel')}</button>
+                    <button onClick={editingSkill ? handleUpdateCustomSkill : handleCreateCustomSkill}
+                      className="text-xs px-3 py-1.5 rounded-lg bg-[var(--accent)]/20 text-[var(--accent)] hover:bg-[var(--accent)]/30">
+                      {editingSkill ? t('common.save') : t('systemSettings.skillActions.create')}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Custom skills list */}
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+                {skills.filter(s => s.source === 'custom').map(skill => (
+                  <SkillCard key={skill.id} skill={skill} t={t} onToggle={handleSkillToggle}
+                    onEdit={() => handleEditCustomSkill(skill.id)}
+                    onDelete={() => handleDeleteCustomSkill(skill.id)}
+                  />
                 ))}
               </div>
-            </div>
-          ))}
+              {skills.filter(s => s.source === 'custom').length === 0 && !showCreateSkill && (
+                <div className="text-center py-12 text-[var(--muted)]">
+                  <div className="text-4xl mb-3">✨</div>
+                  <p className="text-sm">{t('systemSettings.skillDetail.noCustom')}</p>
+                  <p className="text-[10px] mt-1">{t('systemSettings.skillDetail.noCustomHint')}</p>
+                </div>
+              )}
+            </>
+          )}
 
-          {skills.length === 0 && (
-            <div className="text-center py-12 text-[var(--muted)]">
-              <div className="text-4xl mb-3">📚</div>
-              <p className="text-sm">{t('systemSettings.skillDetail.noSkills')}</p>
-            </div>
+          {/* MARKETPLACE sub-tab */}
+          {skillSubTab === 'marketplace' && (
+            <>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={marketplaceQuery}
+                  onChange={e => setMarketplaceQuery(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleMarketplaceSearch()}
+                  placeholder={t('systemSettings.skillMarketplace.searchPlaceholder')}
+                  className="flex-1 bg-[var(--background)] border border-[var(--border)] rounded-lg px-3 py-1.5 text-xs focus:border-[var(--accent)] focus:outline-none"
+                />
+                <button onClick={handleMarketplaceSearch}
+                  className="text-xs px-4 py-1.5 rounded-lg bg-[var(--accent)]/20 text-[var(--accent)] hover:bg-[var(--accent)]/30">
+                  {t('common.search')}
+                </button>
+              </div>
+
+              {marketplaceLoading && (
+                <div className="text-center py-8 text-[var(--muted)]">
+                  <div className="animate-spin text-2xl mb-2">⏳</div>
+                  <p className="text-xs">{t('common.loading')}</p>
+                </div>
+              )}
+
+              {!marketplaceLoading && marketplaceResults.length > 0 && (
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+                  {marketplaceResults.map(skill => (
+                    <div key={skill.slug} className={`p-3 rounded-lg border transition-all ${
+                      skill.installed ? 'border-green-500/30 bg-green-900/10' : 'border-[var(--border)] bg-[var(--background)]'
+                    }`}>
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span>{skill.icon || '📦'}</span>
+                          <span className="text-sm font-medium truncate">{skill.name}</span>
+                        </div>
+                        <button
+                          onClick={() => handleInstallMarketplaceSkill(skill.slug)}
+                          disabled={skill.installed}
+                          className={`text-[10px] px-2 py-0.5 rounded-full transition-all ${
+                            skill.installed
+                              ? 'bg-green-900/30 text-green-400 cursor-default'
+                              : 'bg-[var(--accent)]/20 text-[var(--accent)] hover:bg-[var(--accent)]/30'
+                          }`}
+                        >
+                          {skill.installed ? t('systemSettings.skillMarketplace.installed') : t('systemSettings.skillMarketplace.install')}
+                        </button>
+                      </div>
+                      <p className="text-[10px] text-[var(--muted)] line-clamp-2">{skill.description}</p>
+                      <div className="flex items-center gap-2 mt-1.5 text-[9px] text-[var(--muted)]">
+                        <span>by {skill.author}</span>
+                        {skill.downloads > 0 && <span>⬇ {skill.downloads}</span>}
+                        {skill.stars > 0 && <span>⭐ {skill.stars}</span>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Installed marketplace skills */}
+              {skills.filter(s => s.source === 'marketplace').length > 0 && (
+                <div className="card">
+                  <h3 className="text-sm font-semibold mb-3">{t('systemSettings.skillMarketplace.installedTitle')}</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+                    {skills.filter(s => s.source === 'marketplace').map(skill => (
+                      <SkillCard key={skill.id} skill={skill} t={t} onToggle={handleSkillToggle}
+                        onDelete={() => handleUninstallSkill(skill.id)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {!marketplaceLoading && marketplaceResults.length === 0 && skills.filter(s => s.source === 'marketplace').length === 0 && (
+                <div className="text-center py-12 text-[var(--muted)]">
+                  <div className="text-4xl mb-3">🏪</div>
+                  <p className="text-sm">{t('systemSettings.skillMarketplace.empty')}</p>
+                  <p className="text-[10px] mt-1">{t('systemSettings.skillMarketplace.emptyHint')}</p>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
@@ -631,6 +947,173 @@ export default function SystemMonitor({ embedded = false }) {
               <p className="text-xs mt-1">{t('systemSettings.kbDetail.noKBHint')}</p>
             </div>
           )}
+        </div>
+      )}
+
+      {/* === CHANNELS SECTION === */}
+      {activeSection === 'channels' && (
+        <div className="space-y-4">
+          {/* Stats */}
+          <div className="grid grid-cols-4 gap-4">
+            <StatCard icon="📡" label={t('systemSettings.channelStats.available')} value={channelData.adapters?.length || 0} />
+            <StatCard icon="🔌" label={t('systemSettings.channelStats.installed')} value={channelData.channels?.length || 0} />
+            <StatCard icon="✅" label={t('systemSettings.channelStats.connected')} value={channelData.stats?.connectedChannels || 0} color="text-green-400" />
+            <StatCard icon="💬" label={t('systemSettings.channelStats.messages')} value={(channelData.stats?.totalMessagesIn || 0) + (channelData.stats?.totalMessagesOut || 0)} />
+          </div>
+
+          {/* Available Adapters */}
+          <div className="card">
+            <h3 className="text-sm font-semibold mb-3">{t('systemSettings.channelSection.availableTitle')}</h3>
+            <div className="space-y-2">
+              {(channelData.adapters || []).map(adapter => {
+                const installed = channelData.channels?.find(ch => ch.id === adapter.id);
+                return (
+                  <div key={adapter.id} className="flex items-center gap-3 p-3 rounded-lg bg-white/5 hover:bg-white/10 transition-all">
+                    <span className="text-2xl">{adapter.icon}</span>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-sm">{adapter.name}</span>
+                        <span className="text-[10px] text-[var(--muted)] px-1.5 py-0.5 rounded bg-white/5">{adapter.transport}</span>
+                      </div>
+                      <p className="text-xs text-[var(--muted)] mt-0.5">{adapter.description}</p>
+                    </div>
+                    {installed ? (
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs px-2 py-1 rounded ${
+                          installed.state === 'connected' ? 'bg-green-900/30 text-green-400' :
+                          installed.state === 'error' ? 'bg-red-900/30 text-red-400' :
+                          installed.state === 'connecting' ? 'bg-yellow-900/30 text-yellow-400' :
+                          'bg-white/10 text-[var(--muted)]'
+                        }`}>
+                          {installed.state === 'connected' ? '🟢 ' : installed.state === 'error' ? '🔴 ' : installed.state === 'connecting' ? '🟡 ' : '⚪ '}
+                          {t(`systemSettings.channelState.${installed.state}`) || installed.state}
+                        </span>
+                        {installed.state === 'connected' ? (
+                          <button
+                            onClick={async () => { try { await manageChannel(adapter.id, 'disable'); await refresh(); } catch {} }}
+                            className="text-xs px-2.5 py-1 rounded bg-red-900/20 text-red-400 hover:bg-red-900/40 transition-all"
+                          >{t('systemSettings.channelActions.disconnect')}</button>
+                        ) : installed.state === 'connecting' ? (
+                          <button
+                            onClick={async () => {
+                              try {
+                                const statusResult = await manageChannel(adapter.id, 'login-status');
+                                if (statusResult?.qrCodeUrl) {
+                                  setQrLoginModal({ channelId: adapter.id, qrCodeUrl: statusResult.qrCodeUrl, loginState: statusResult.loginState || 'qr_pending', error: null });
+                                }
+                              } catch {}
+                            }}
+                            className="text-xs px-2.5 py-1 rounded bg-yellow-900/20 text-yellow-400 hover:bg-yellow-900/40 transition-all animate-pulse"
+                          >{t('systemSettings.qrLogin.title')}</button>
+                        ) : installed.state === 'error' || installed.state === 'disconnected' || installed.state === 'configured' || installed.state === 'installed' ? (
+                          <div className="flex gap-1">
+                            <button
+                              onClick={() => { setChannelConfigTarget(installed); setChannelConfig(installed.config || {}); }}
+                              className="text-xs px-2.5 py-1 rounded bg-white/10 text-[var(--muted)] hover:bg-white/20 transition-all"
+                            >{t('common.configure')}</button>
+                            <button
+                              onClick={async () => {
+                                try {
+                                  const result = await manageChannel(adapter.id, 'enable');
+                                  // If channel needs QR login (WeChat), open QR modal
+                                  if (result?.loginStatus?.loginState === 'qr_pending' && result?.loginStatus?.qrCodeUrl) {
+                                    setQrLoginModal({ channelId: adapter.id, qrCodeUrl: result.loginStatus.qrCodeUrl, loginState: 'qr_pending', error: null });
+                                  } else {
+                                    await refresh();
+                                  }
+                                } catch (err) {
+                                  // If already connecting (QR pending), try to get QR status
+                                  try {
+                                    const statusResult = await manageChannel(adapter.id, 'login-status');
+                                    if (statusResult?.qrCodeUrl) {
+                                      setQrLoginModal({ channelId: adapter.id, qrCodeUrl: statusResult.qrCodeUrl, loginState: statusResult.loginState || 'qr_pending', error: null });
+                                    }
+                                  } catch {}
+                                }
+                              }}
+                              className="text-xs px-2.5 py-1 rounded bg-[var(--accent)]/20 text-[var(--accent)] hover:bg-[var(--accent)]/30 transition-all"
+                            >{t('systemSettings.channelActions.connect')}</button>
+                          </div>
+                        ) : null}
+                        <button
+                          onClick={async () => { if (confirm(t('systemSettings.channelActions.confirmUninstall'))) { try { await uninstallChannel(adapter.id); await refresh(); } catch {} } }}
+                          className="text-xs px-2 py-1 rounded text-red-400/60 hover:text-red-400 hover:bg-red-900/20 transition-all"
+                        >🗑️</button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={async () => { try { await installChannel(adapter.id); await refresh(); } catch {} }}
+                        className="text-xs px-3 py-1.5 rounded bg-[var(--accent)]/10 text-[var(--accent)] hover:bg-[var(--accent)]/20 transition-all"
+                      >{t('systemSettings.channelActions.install')}</button>
+                    )}
+                  </div>
+                );
+              })}
+              {(!channelData.adapters || channelData.adapters.length === 0) && (
+                <p className="text-sm text-[var(--muted)] text-center py-4">{t('systemSettings.channelSection.noAdapters')}</p>
+              )}
+            </div>
+          </div>
+
+          {/* Installed channels detail - error info */}
+          {channelData.channels?.filter(ch => ch.error).map(ch => (
+            <div key={ch.id} className="card border-red-500/20">
+              <div className="flex items-center gap-2 text-red-400 text-sm">
+                <span>❌</span>
+                <span className="font-medium">{ch.name}</span>
+                <span className="text-xs text-red-400/70">— {ch.error}</span>
+              </div>
+            </div>
+          ))}
+
+          {/* Channel config modal */}
+          {channelConfigTarget && (
+            <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 !m-0" onClick={() => setChannelConfigTarget(null)}>
+              <div className="card max-w-md w-full mx-4 space-y-4" onClick={e => e.stopPropagation()}>
+                <h3 className="text-lg font-semibold">{t('systemSettings.channelConfig.title', { name: channelConfigTarget.name })}</h3>
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <input type="checkbox" id="ch-auto-reply" checked={channelConfig.autoReply !== false} onChange={e => setChannelConfig({ ...channelConfig, autoReply: e.target.checked })} />
+                    <label htmlFor="ch-auto-reply" className="text-sm text-[var(--muted)]">{t('systemSettings.channelConfig.autoReply')}</label>
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2 pt-2">
+                  <button className="btn-secondary text-sm" onClick={() => setChannelConfigTarget(null)}>{t('common.cancel')}</button>
+                  <button className="btn-primary text-sm" onClick={async () => {
+                    try {
+                      await manageChannel(channelConfigTarget.id, 'configure', channelConfig);
+                      setChannelConfigTarget(null);
+                      await refresh();
+                    } catch {}
+                  }}>{t('common.save')}</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* QR code login modal */}
+          {qrLoginModal && (
+            <QRLoginModal
+              channelId={qrLoginModal.channelId}
+              qrCodeUrl={qrLoginModal.qrCodeUrl}
+              loginState={qrLoginModal.loginState}
+              error={qrLoginModal.error}
+              manageChannel={manageChannel}
+              onClose={() => { setQrLoginModal(null); refresh(); }}
+              t={t}
+            />
+          )}
+
+          {/* Setup guide */}
+          <div className="card bg-gradient-to-r from-blue-900/10 to-purple-900/10 border-blue-500/20">
+            <h4 className="text-sm font-semibold mb-2">📖 {t('systemSettings.channelSection.guideTitle')}</h4>
+            <div className="text-xs text-[var(--muted)] space-y-1.5">
+              <p>1. {t('systemSettings.channelSection.guideStep1')}</p>
+              <p>2. {t('systemSettings.channelSection.guideStep2')}</p>
+              <p>3. {t('systemSettings.channelSection.guideStep3')}</p>
+              <p>4. {t('systemSettings.channelSection.guideStep4')}</p>
+            </div>
+          </div>
         </div>
       )}
 
@@ -806,3 +1289,74 @@ function StatCard({ icon, label, value, sub, color = '' }) {
     </div>
   );
 }
+
+const SOURCE_BADGES = {
+  builtin: { label: 'Built-in', color: 'bg-blue-900/30 text-blue-400' },
+  custom: { label: 'Custom', color: 'bg-purple-900/30 text-purple-400' },
+  marketplace: { label: 'Market', color: 'bg-orange-900/30 text-orange-400' },
+};
+
+function SkillCard({ skill, t, onToggle, onEdit, onDelete }) {
+  const badge = SOURCE_BADGES[skill.source] || SOURCE_BADGES.builtin;
+  return (
+    <div className={`p-3 rounded-lg border transition-all ${
+      skill.state === 'enabled'
+        ? 'border-green-500/30 bg-green-900/10'
+        : 'border-[var(--border)] bg-[var(--background)]'
+    }`}>
+      <div className="flex items-center justify-between mb-1">
+        <div className="flex items-center gap-2 min-w-0">
+          <span>{skill.icon}</span>
+          <span className="text-sm font-medium truncate">{skill.name}</span>
+          <span className={`text-[8px] px-1.5 py-0.5 rounded-full ${badge.color}`}>{badge.label}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          {onEdit && (
+            <button onClick={onEdit} className="text-[10px] px-1.5 py-0.5 rounded text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-white/10">✏️</button>
+          )}
+          {onDelete && (
+            <button onClick={onDelete} className="text-[10px] px-1.5 py-0.5 rounded text-[var(--muted)] hover:text-red-400 hover:bg-red-900/20">🗑</button>
+          )}
+          <button
+            onClick={() => onToggle(skill.id, skill.state)}
+            className={`text-[10px] px-2 py-0.5 rounded-full transition-all ${
+              skill.state === 'enabled'
+                ? 'bg-green-900/30 text-green-400 hover:bg-red-900/30 hover:text-red-400'
+                : 'bg-white/10 text-[var(--muted)] hover:bg-green-900/30 hover:text-green-400'
+            }`}
+          >
+            {skill.state === 'enabled' ? t('common.disable') : t('common.enable')}
+          </button>
+        </div>
+      </div>
+      <p className="text-[10px] text-[var(--muted)] line-clamp-2">{skill.description}</p>
+      {skill.tags?.length > 0 && (
+        <div className="flex gap-1 flex-wrap mt-1.5">
+          {skill.tags.slice(0, 4).map((tag, i) => (
+            <span key={i} className="text-[9px] bg-white/5 text-[var(--muted)] px-1.5 py-0.5 rounded">{tag}</span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const SKILL_TEMPLATE = `---
+name: My Custom Skill
+description: Short description of what this skill does
+category: coding
+icon: 🔥
+tags: tag1, tag2, tag3
+---
+
+# My Custom Skill
+
+## Workflow
+1. Step one
+2. Step two
+3. Step three
+
+## Best Practices
+- Best practice one
+- Best practice two
+`;

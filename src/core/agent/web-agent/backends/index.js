@@ -83,7 +83,11 @@ class WebBackendRegistry {
 }
 
 // 创建全局注册表单例并注册内置后端
-export const webBackendRegistry = new WebBackendRegistry();
+// Global singleton — use globalThis to survive Next.js HMR in dev mode
+if (!globalThis.__webBackendRegistry) {
+  globalThis.__webBackendRegistry = new WebBackendRegistry();
+}
+export const webBackendRegistry = globalThis.__webBackendRegistry;
 webBackendRegistry.register(chatgptBackend);
 
 // 导出

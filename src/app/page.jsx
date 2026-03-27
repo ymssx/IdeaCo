@@ -21,12 +21,19 @@ const ONBOARDING_KEY = 'ideaco-onboarding-done';
 
 export default function Home() {
   const { company, initialized, activeTab, fetchCompany, error, clearError } = useStore();
-  const { t } = useI18n();
+  const { t, initLangFromCompany } = useI18n();
   const [showOnboarding, setShowOnboarding] = useState(false);
 
   useEffect(() => {
     fetchCompany();
   }, [fetchCompany]);
+
+  // Sync i18n language from Company state (backend is the single source of truth)
+  useEffect(() => {
+    if (company?.language) {
+      initLangFromCompany(company.language);
+    }
+  }, [company?.language, initLangFromCompany]);
 
   // Show onboarding when company is loaded and hasn't completed it yet
   useEffect(() => {
