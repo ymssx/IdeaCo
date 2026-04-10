@@ -973,8 +973,17 @@ ${scenePrompt}`;
 
     systemContent += this._buildSkillDefine();
 
-    // Inject pending tasks (only when tasks exist)
+    // Inject pending tasks with high-priority framing (only when tasks exist)
     if (this.taskManager.hasPending()) {
+      const pendingCount = this.taskManager.getPending().length;
+      const hasCritical = this.taskManager.getPending().some(t => t.urgency === 'critical' || t.urgency === 'overdue');
+      systemContent += `\n## ⚡ PRIMARY DIRECTIVE — YOU HAVE ${pendingCount} PENDING TASK(S)\n`;
+      systemContent += `Your #1 priority right now is to make progress on your pending tasks.\n`;
+      systemContent += `Every response you give should either advance a task, resolve a task, or explain why you're blocked.\n`;
+      if (hasCritical) {
+        systemContent += `🚨 **URGENT**: You have overdue/critical tasks! These MUST be addressed immediately.\n`;
+      }
+      systemContent += `Do NOT ignore your tasks. Do NOT just chat casually when tasks are waiting.\n\n`;
       systemContent += this.taskManager.buildPendingTasksPrompt();
     }
 
@@ -1020,25 +1029,42 @@ ${scenePrompt}`;
 
   /**
    * Build taskOps instructions for the structured response format.
-   * Only provides meaningful guidance when the employee has pending tasks.
+   * When pending tasks exist, this becomes a HIGH-PRIORITY directive that
+   * drives the agent to actively work on and complete tasks.
    * @returns {string}
    */
   _buildTaskOpsInstructions() {
     if (!this.taskManager.hasPending()) {
       return `## Task Operations
-- taskOps: Manage your personal task list. Use sparingly — only when you have a concrete task to track (e.g. boss asked you to get info from someone).
+- taskOps: Manage your personal task list. When the boss or a colleague assigns you work, create a task to track it.
 - Create: { "op": "create", "description": "...", "type": "oneshot|long-running|conditional", "condition": "completion condition", "onResolveTarget": "chatGroupId to notify", "onResolveHint": "what to report" }
 - Resolve: { "op": "resolve", "taskId": "id", "result": "resolution details" }
 - Fail: { "op": "fail", "taskId": "id", "reason": "why it failed" }
-- [] if no task operations needed (most of the time).`;
+- [] if no task operations needed.`;
     }
 
-    // When tasks exist, the detailed instructions are already in buildPendingTasksPrompt()
-    return `## Task Operations
-- taskOps: Manage your pending tasks (see "📋 Your Pending Tasks" section above).
-- Resolve tasks when their conditions are met. Fail tasks that are no longer achievable.
-- Pay attention to task urgency — overdue tasks need immediate action.
-- [] if no task operations needed this turn.`;
+    // When tasks exist, elevate task completion to a primary directive
+    const pendingCount = this.taskManager.getPending().length;
+    const hasCritical = this.taskManager.getPending().some(t => t.urgency === 'critical' || t.urgency === 'overdue');
+
+    let instructions = `## ⚡ Task Operations — YOUR PRIMARY OBJECTIVE
+${hasCritical ? '🚨 **YOU HAVE URGENT TASKS THAT NEED IMMEDIATE ACTION!**\n' : ''}**You have ${pendingCount} pending task(s).** Completing tasks is your TOP PRIORITY — above casual conversation, above everything else.
+
+### Task Completion Rules (MANDATORY)
+1. **Every response must advance your tasks.** Before replying, ask yourself: "Does this response move a task closer to completion?" If not, reconsider.
+2. **Use tools proactively.** If a task requires information, use file_read/grep_search/send_message NOW — don't just talk about it.
+3. **Resolve immediately when conditions are met.** Don't wait for the "perfect moment" — if a task's completion condition is satisfied, resolve it THIS turn.
+4. **Report back on resolve.** When resolving a task with an onResolveTarget, the system will notify that conversation automatically.
+5. **Fail fast.** If a task is blocked or impossible, fail it with a clear reason instead of letting it linger.
+
+### Task Operations Format
+- Resolve: { "op": "resolve", "taskId": "task-id", "result": "what was accomplished" }
+- Fail: { "op": "fail", "taskId": "task-id", "reason": "why it cannot be completed" }
+- Create: { "op": "create", "description": "...", "type": "oneshot|long-running|conditional", "condition": "...", "onResolveTarget": "chatGroupId", "onResolveHint": "what to report" }
+
+Refer to the "📋 Your Pending Tasks" section above for task details and urgency levels.`;
+
+    return instructions;
   }
 
   // ======================== Tool & Skill Define ========================
@@ -1378,7 +1404,9 @@ ${this._buildTaskOpsInstructions()}
 2. Keep replies concise, don't be verbose.
 3. You MUST always return valid JSON. Do NOT wrap it in markdown code fences. Do NOT add any text outside the JSON object. The response must start with { and end with }.
 4. When actions are needed, ALWAYS put them in the "actions" array — never just describe them in text.
-5. After tool results arrive, review them carefully and continue your workflow. Do NOT repeat actions that already succeeded.`;
+5. After tool results arrive, review them carefully and continue your workflow. Do NOT repeat actions that already succeeded.
+6. **TASK PRIORITY**: If you have pending tasks (see "📋 Your Pending Tasks" section), completing them is your PRIMARY objective. Every response should make progress toward task completion. Do NOT ignore pending tasks to chat casually.
+7. When a task's completion condition is met, you MUST resolve it immediately via taskOps. Do not delay.`;
   }
 
   /**
@@ -1455,7 +1483,9 @@ ${this._buildTaskOpsInstructions()}
 2. Keep replies concise — 1-2 sentences for casual chat, short and direct for work.
 3. You MUST always return valid JSON. Do NOT wrap it in markdown code fences. Do NOT add any text outside the JSON object.
 4. When actions are needed, ALWAYS put them in the "actions" array — never just describe them in text.
-5. After tool results arrive, review them carefully and continue your workflow.`;
+5. After tool results arrive, review them carefully and continue your workflow.
+6. **TASK PRIORITY**: If you have pending tasks (see "📋 Your Pending Tasks" section), completing them takes precedence over casual conversation. Actively work toward resolving your tasks — use tools, ask colleagues, or take action.
+7. When a task's completion condition is met, you MUST resolve it immediately via taskOps. Do not delay.`;
   }
 
   // ======================== Boss 1-on-1 Chat ========================

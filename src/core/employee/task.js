@@ -212,17 +212,33 @@ export class TaskManager {
     const pending = this.getPending();
     if (pending.length === 0) return '';
 
-    let prompt = '\n## 📋 Your Pending Tasks\n';
-    prompt += 'You have active tasks that need attention. Track their progress and resolve them when conditions are met.\n\n';
+    // Count urgency levels for the summary
+    const urgencyCounts = { normal: 0, aging: 0, overdue: 0, critical: 0 };
+    for (const t of pending) urgencyCounts[t.urgency]++;
+    const hasCritical = urgencyCounts.critical > 0;
+    const hasOverdue = urgencyCounts.overdue > 0;
+
+    let prompt = '\n## 🚨 YOUR PENDING TASKS — ACTION REQUIRED\n';
+    prompt += `**You have ${pending.length} active task(s) that MUST be completed.** `;
+    prompt += `Completing tasks is your PRIMARY responsibility — do not ignore them.\n`;
+
+    if (hasCritical) {
+      prompt += `\n⛔ **ALERT: ${urgencyCounts.critical} task(s) are CRITICAL — take immediate action NOW!**\n`;
+    } else if (hasOverdue) {
+      prompt += `\n⚠️ **WARNING: ${urgencyCounts.overdue} task(s) are OVERDUE — prioritize them immediately!**\n`;
+    }
+
+    prompt += '\n';
 
     for (const task of pending) {
       const urgency = task.urgency;
       const urgencyLabel = formatUrgency(urgency, task.ageMs);
+      const urgencyIcon = urgency === 'critical' ? '🔴' : urgency === 'overdue' ? '🟠' : urgency === 'aging' ? '🟡' : '🔵';
 
-      prompt += `### Task: ${task.id}\n`;
+      prompt += `### ${urgencyIcon} Task: ${task.id}\n`;
       prompt += `- **Description**: ${task.description}\n`;
       prompt += `- **Type**: ${task.type}\n`;
-      prompt += `- **Age**: ${urgencyLabel}\n`;
+      prompt += `- **Urgency**: ${urgencyLabel}\n`;
       if (task.condition) {
         prompt += `- **Completion condition**: ${task.condition}\n`;
       }
@@ -236,17 +252,18 @@ export class TaskManager {
       if (urgency === 'aging') {
         prompt += `- ⏳ **This task has been pending for a while. Actively follow up or ask for updates.**\n`;
       } else if (urgency === 'overdue') {
-        prompt += `- ⚠️ **This task is overdue! Prioritize resolving it. Ask directly if blocked.**\n`;
+        prompt += `- ⚠️ **OVERDUE! Prioritize resolving it. Ask directly if blocked.**\n`;
       } else if (urgency === 'critical') {
-        prompt += `- 🚨 **CRITICAL: This task has been unresolved for too long! Take immediate action — escalate, ask again, or resolve/fail it now.**\n`;
+        prompt += `- 🚨 **CRITICAL: Unresolved for too long! Take immediate action — escalate, ask again, or resolve/fail it NOW.**\n`;
       }
       prompt += '\n';
     }
 
-    prompt += `To manage tasks, use the "taskOps" field in your response:\n`;
-    prompt += `- Create: { "op": "create", "description": "...", "type": "oneshot|long-running|conditional", "condition": "...", "onResolveTarget": "chatGroupId", "onResolveHint": "what to tell them" }\n`;
-    prompt += `- Resolve: { "op": "resolve", "taskId": "task-id", "result": "resolution details" }\n`;
-    prompt += `- Fail: { "op": "fail", "taskId": "task-id", "reason": "why it failed" }\n`;
+    prompt += `### How to manage tasks (via "taskOps" in your response)\n`;
+    prompt += `- **Resolve** (task done): { "op": "resolve", "taskId": "task-id", "result": "what you accomplished" }\n`;
+    prompt += `- **Fail** (cannot complete): { "op": "fail", "taskId": "task-id", "reason": "why it failed" }\n`;
+    prompt += `- **Create** (new sub-task): { "op": "create", "description": "...", "type": "oneshot|long-running|conditional", "condition": "...", "onResolveTarget": "chatGroupId", "onResolveHint": "what to tell them" }\n`;
+    prompt += `\n⚡ **Remember: Every response you give should actively advance your pending tasks. Do not just chat — WORK on your tasks.**\n`;
 
     return prompt;
   }
